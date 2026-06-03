@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { redirect } from 'next/navigation'
+import DashboardTabs from './DashboardTabs'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -10,9 +11,10 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', fontFamily: 'sans-serif' }}>
-      <h1>Welcome to PACT</h1>
-      <p>Logged in as <strong>{user.email}</strong></p>
+    <main style={{ maxWidth: '700px', margin: '60px auto', fontFamily: 'sans-serif', padding: '0 24px' }}>
+      <h1 style={{ fontWeight: 'bold', marginBottom: '8px' }}>PACT Research Service</h1>
+      <p style={{ color: '#666', marginBottom: '32px' }}>Welcome, {user.email}</p>
+      <DashboardTabs />
     </main>
   )
 }
