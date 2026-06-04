@@ -30,19 +30,32 @@ export default function RequestPage() {
       return
     }
 
-    const { error } = await supabase.from('requests').insert({
+    const { data: requestData, error } = await supabase.from('requests').insert({
       user_id: user.id,
       research_question: form.research_question,
       context: form.context,
       model_tier: form.model_tier,
       delivery_email: form.delivery_email || user.email,
-    })
+    }).select('id').single()
 
-    if (error) {
+    if (error || !requestData) {
       console.error(error)
       setLoading(false)
       return
     }
+
+    // Send confirmation emails
+    await fetch('/api/email/send-confirmation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId: requestData.id,
+        researchQuestion: form.research_question,
+        context: form.context,
+        modelTier: form.model_tier,
+        deliveryEmail: form.delivery_email || user.email,
+      }),
+    })
 
     router.push('/dashboard?submitted=true')
   }
@@ -57,7 +70,7 @@ export default function RequestPage() {
       </p>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '32px' }}>
-        
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <label htmlFor="research_question"><strong>Research question</strong></label>
           <textarea
