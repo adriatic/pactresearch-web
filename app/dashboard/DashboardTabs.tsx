@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import CardSetup from './CardSetup'
 
 const tabStyle = (active: boolean): React.CSSProperties => ({
   padding: '10px 24px',
@@ -12,9 +13,8 @@ const tabStyle = (active: boolean): React.CSSProperties => ({
   cursor: 'pointer',
   color: active ? '#000' : '#666',
 })
-
-export default function DashboardTabs({ isBeta }: { isBeta: boolean }) {
-  const [tab, setTab] = useState<'how' | 'request'>('how')
+export default function DashboardTabs({ isBeta, cardAlreadySaved }: { isBeta: boolean, cardAlreadySaved: boolean }) {
+const [tab, setTab] = useState<'how' | 'request'>('how')
   const [cardSaved, setCardSaved] = useState(false)
 
   return (
@@ -50,7 +50,7 @@ export default function DashboardTabs({ isBeta }: { isBeta: boolean }) {
       {tab === 'request' && (
         <div>
           <h2 style={{ fontWeight: 'bold', marginBottom: '16px' }}>Make a request</h2>
-          {isBeta || cardSaved ? (
+          {isBeta || cardSaved || cardAlreadySaved? (
             <div>
               {isBeta && (
                 <p style={{ color: '#666', marginBottom: '24px', fontStyle: 'italic' }}>
@@ -67,7 +67,7 @@ export default function DashboardTabs({ isBeta }: { isBeta: boolean }) {
                 Before submitting a research request, please save a payment method.
                 Your card will not be charged until your research is successfully delivered.
               </p>
-              <p>Card setup temporarily disabled</p>
+              <CardSetup onSuccess={() => setCardSaved(true)} />
             </div>
           )}
         </div>
