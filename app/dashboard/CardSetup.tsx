@@ -19,22 +19,35 @@ function CardForm({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true)
     setError(null)
 
-    const { error } = await stripe.confirmSetup({
+    const { error, setupIntent } = await stripe.confirmSetup({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/dashboard?card=saved`,
       },
+      redirect: 'if_required',
     })
 
     if (error) {
       setError(error.message ?? 'Something went wrong')
       setLoading(false)
+      return
     }
+
+    if (setupIntent && setupIntent.status === 'succeeded') {
+      await fetch('/api/stripe/save-customer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ setupIntentId: setupIntent.id }),
+      })
+      onSuccess()
+    }
+
+    setLoading(false)
   }
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <PaymentElement />
+      <PaymentElement options={{ wallets: { link: 'never' } }} />
       {error && <p style={{ color: 'red', fontSize: '14px' }}>{error}</p>}
       <button
         type="submit"
