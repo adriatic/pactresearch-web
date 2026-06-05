@@ -36,7 +36,8 @@ ${tierInstruction} Organize findings clearly with headings, use evidence-based s
     ? `${req.researchQuestion}\n\nAdditional context: ${req.context}`
     : req.researchQuestion
 
-  const payload = {
+  // Generate plain unsigned export — no signature wrapper needed for inbound requests
+  const pactExport = {
     version: 1,
     exportedAt: now,
     notebook: {
@@ -65,13 +66,5 @@ ${tierInstruction} Organize findings clearly with headings, use evidence-based s
     ],
   }
 
-  const pactFile = {
-    version: 1,
-    signedAt: now,
-    signer: 'pactresearch.net',
-    signature: `request-${req.requestId}`,
-    payload: payload,
-  }
-
-  return JSON.stringify(pactFile, null, 2)
+  return JSON.stringify(pactExport, null, 2)
 }
