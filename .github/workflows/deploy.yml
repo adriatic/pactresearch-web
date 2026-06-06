@@ -1,0 +1,23 @@
+name: Deploy to Vultr
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 45.77.191.105
+          username: root
+          key: ${{ secrets.VULTR_SSH_KEY }}
+          script: |
+            cd /var/www/pactresearch-next
+            git pull origin main
+            npm ci
+            npm run build
+            pm2 restart pactresearch-next || pm2 start npm --name pactresearch-next -- start
