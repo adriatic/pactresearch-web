@@ -28,8 +28,10 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   return (
     <main style={{ maxWidth: '700px', margin: '60px auto', fontFamily: 'sans-serif', padding: '0 24px' }}>
       <h1 style={{ fontWeight: 'bold', marginBottom: '8px' }}>PACT Research Service</h1>
-      <p style={{ color: '#666', marginBottom: '32px' }}>Welcome, {user!.email}</p>
-      <DashboardTabs isBeta={isBeta} cardAlreadySaved={cardJustSaved || hasStripeCustomer} />
+
+      <p style={{ color: '#666', marginBottom: '32px' }}>
+        Welcome, {user!.email} — <a href="/logout" style={{ color: '#999', fontSize: '14px' }}>Sign out</a>
+      </p>      <DashboardTabs isBeta={isBeta} cardAlreadySaved={cardJustSaved || hasStripeCustomer} />
     </main>
   )
 }
