@@ -47,9 +47,9 @@ export default function IPRChat() {
   const [editedQuestion, setEditedQuestion] = useState('')
   const [editedContext, setEditedContext] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
@@ -87,9 +87,10 @@ export default function IPRChat() {
         setEditedContext(parsed.context)
       }
 
-      const displayContent = parsed
-        ? cleanContent(assistantContent) || 'Here is your refined research request. Please review and edit if needed, then submit.'
-        : assistantContent
+      let displayContent = cleanContent(assistantContent)
+      if (!displayContent) {
+        displayContent = 'Here is your refined research request. Please review and edit if needed, then submit when ready.'
+      }
 
       setMessages(prev => [...prev, { role: 'assistant', content: displayContent }])
     } catch (err) {
@@ -144,10 +145,14 @@ export default function IPRChat() {
 
     if (!emailRes.ok) {
       console.error('Email send failed')
-      // Don't block the user — request is saved, email is best-effort
     }
 
-    router.push('/dashboard?submitted=true')
+    setSubmitting(false)
+    setSubmitted(true)
+
+    setTimeout(() => {
+      router.push('/dashboard?submitted=true')
+    }, 1500)
   }
 
   return (
@@ -181,7 +186,6 @@ export default function IPRChat() {
           />
         ))}
 
-        {/* Loading indicator */}
         {loading && (
           <div
             style={{
@@ -251,7 +255,7 @@ export default function IPRChat() {
         </div>
       )}
 
-      {/* IPR Result — editable summary */}
+      {/* IPR Result */}
       {iprResult && (
         <div
           style={{
@@ -274,8 +278,16 @@ export default function IPRChat() {
             <textarea
               value={editedQuestion}
               onChange={e => setEditedQuestion(e.target.value)}
+              disabled={submitted}
               rows={3}
-              style={{ padding: '10px', fontSize: '15px', borderRadius: '6px', border: '1px solid #ccc', resize: 'vertical' }}
+              style={{
+                padding: '10px',
+                fontSize: '15px',
+                borderRadius: '6px',
+                border: '1px solid #ccc',
+                resize: 'vertical',
+                opacity: submitted ? 0.6 : 1,
+              }}
             />
           </div>
 
@@ -284,8 +296,16 @@ export default function IPRChat() {
             <textarea
               value={editedContext}
               onChange={e => setEditedContext(e.target.value)}
+              disabled={submitted}
               rows={3}
-              style={{ padding: '10px', fontSize: '15px', borderRadius: '6px', border: '1px solid #ccc', resize: 'vertical' }}
+              style={{
+                padding: '10px',
+                fontSize: '15px',
+                borderRadius: '6px',
+                border: '1px solid #ccc',
+                resize: 'vertical',
+                opacity: submitted ? 0.6 : 1,
+              }}
             />
           </div>
 
@@ -296,40 +316,44 @@ export default function IPRChat() {
           <div style={{ display: 'flex', gap: '10px' }}>
             <button
               onClick={handleSubmit}
-              disabled={submitting || !editedQuestion.trim()}
+              disabled={submitting || submitted || !editedQuestion.trim()}
               style={{
                 padding: '12px 24px',
-                background: submitting || !editedQuestion.trim() ? '#ccc' : '#000',
+                background: submitted ? '#4a4a4a' : submitting || !editedQuestion.trim() ? '#ccc' : '#000',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '6px',
-                cursor: submitting || !editedQuestion.trim() ? 'not-allowed' : 'pointer',
+                cursor: submitting || submitted || !editedQuestion.trim() ? 'not-allowed' : 'pointer',
                 fontSize: '16px',
                 fontWeight: '500',
+                transition: 'background 0.2s ease',
               }}
             >
-              {submitting ? 'Submitting...' : 'Submit request'}
+              {submitted ? 'Submitted ✓' : submitting ? 'Submitting...' : 'Submit request'}
             </button>
-            <button
-              onClick={() => {
-                setIprResult(null)
-                setMessages(prev => [...prev, {
-                  role: 'assistant',
-                  content: 'What would you like to change or explore further?'
-                }])
-              }}
-              style={{
-                padding: '12px 24px',
-                background: 'none',
-                color: '#666',
-                border: '1px solid #ccc',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '16px',
-              }}
-            >
-              Refine further
-            </button>
+
+            {!submitted && (
+              <button
+                onClick={() => {
+                  setIprResult(null)
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: 'What would you like to change or explore further?'
+                  }])
+                }}
+                style={{
+                  padding: '12px 24px',
+                  background: 'none',
+                  color: '#666',
+                  border: '1px solid #ccc',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                }}
+              >
+                Refine further
+              </button>
+            )}
           </div>
         </div>
       )}
