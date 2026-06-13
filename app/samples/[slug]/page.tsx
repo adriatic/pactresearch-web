@@ -237,20 +237,20 @@ export default function SampleDetailPage() {
           After the conversation, the question and context are refined and submitted for research.
         </p>
 
-        <div style={{ border: '1px solid #e5e5e5', borderRadius: '10px', padding: '20px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div style={{ border: '1px solid #e5e5e5', borderRadius: '10px', padding: '20px', background: '#fafafa', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '14px' }}>
           <div>
-            <p style={{ fontSize: '12px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
+            <p style={{ fontSize: '11px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
               Research question
             </p>
-            <p style={{ fontSize: '15px', color: '#0a0a0a', lineHeight: '1.6', margin: 0 }}>
+            <p style={{ fontSize: '14px', color: '#0a0a0a', lineHeight: '1.6', margin: 0 }}>
               {sample.refined_question}
             </p>
           </div>
           <div>
-            <p style={{ fontSize: '12px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
+            <p style={{ fontSize: '11px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px' }}>
               Context
             </p>
-            <p style={{ fontSize: '15px', color: '#0a0a0a', lineHeight: '1.6', margin: 0 }}>
+            <p style={{ fontSize: '14px', color: '#0a0a0a', lineHeight: '1.6', margin: 0 }}>
               {sample.refined_context}
             </p>
           </div>
