@@ -39,29 +39,6 @@ export default function SampleCard({ sample }: { sample: Sample }) {
           (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
         }}
       >
-        {/* PDF thumbnail */}
-        <div
-          style={{
-            width: '100%',
-            aspectRatio: '4/3',
-            overflow: 'hidden',
-            background: '#f5f5f5',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          {sample.ipr_screenshot_url ? (
-            <img
-              src={sample.ipr_screenshot_url}
-              alt={sample.title}
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
-          ) : (
-            <div style={{ color: '#ccc', fontSize: '13px' }}>No preview</div>
-          )}
-        </div>
-
         {/* Card body */}
         <div style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
 
