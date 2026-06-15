@@ -10,6 +10,12 @@ interface ConversationTurn {
   content: string
 }
 
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+}
+
 function generateSampleSQL(params: {
   requestId: string
   researchQuestion: string
@@ -20,7 +26,6 @@ function generateSampleSQL(params: {
 }): string {
   const { requestId, researchQuestion, context, messages } = params
 
-  // Generate slug from research question
   const slug = researchQuestion
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
@@ -28,10 +33,8 @@ function generateSampleSQL(params: {
     .replace(/\s+/g, '-')
     .substring(0, 60)
 
-  // Escape single quotes for SQL
   const escape = (s: string) => s.replace(/'/g, "''")
 
-  // Build ipr_conversation JSON
   const conversationJSON = JSON.stringify(
     messages.map(m => ({ role: m.role, content: m.content })),
     null,
@@ -86,6 +89,10 @@ export async function POST(request: Request) {
     const tierLabel = modelTier === 'economy' ? 'Economy ($15)' : 'Standard ($30)'
     const toEmail = deliveryEmail || user.email!
 
+    // Strip markdown for display in emails
+    const cleanQuestion = stripMarkdown(researchQuestion)
+    const cleanContext = context ? stripMarkdown(context) : ''
+
     // Generate .pact file
     const pactContent = generatePactFile({
       requestId,
@@ -127,12 +134,12 @@ export async function POST(request: Request) {
             </tr>
             <tr style="background: #f9f9f9;">
               <td style="padding: 8px; font-weight: bold;">Research question</td>
-              <td style="padding: 8px;">${researchQuestion}</td>
+              <td style="padding: 8px;">${cleanQuestion}</td>
             </tr>
-            ${context ? `
+            ${cleanContext ? `
             <tr>
               <td style="padding: 8px; font-weight: bold;">Context</td>
-              <td style="padding: 8px;">${context}</td>
+              <td style="padding: 8px;">${cleanContext}</td>
             </tr>` : ''}
             <tr style="background: #f9f9f9;">
               <td style="padding: 8px; font-weight: bold;">Research depth</td>
@@ -177,12 +184,12 @@ export async function POST(request: Request) {
             </tr>
             <tr>
               <td style="padding: 8px; font-weight: bold;">Research question</td>
-              <td style="padding: 8px;">${researchQuestion}</td>
+              <td style="padding: 8px;">${cleanQuestion}</td>
             </tr>
-            ${context ? `
+            ${cleanContext ? `
             <tr style="background: #f9f9f9;">
               <td style="padding: 8px; font-weight: bold;">Context</td>
-              <td style="padding: 8px;">${context}</td>
+              <td style="padding: 8px;">${cleanContext}</td>
             </tr>` : ''}
           </table>
           <p style="margin-top: 24px;">Two files are attached:</p>
