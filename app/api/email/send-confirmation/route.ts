@@ -5,6 +5,73 @@ import { generatePactFile } from '@/utils/generatePactFile'
 
 const resend = new Resend(process.env.RESEND_API_KEY!)
 
+interface ConversationTurn {
+  role: 'assistant' | 'user'
+  content: string
+}
+
+function generateSampleSQL(params: {
+  requestId: string
+  researchQuestion: string
+  context: string
+  modelTier: string
+  messages: ConversationTurn[]
+  userEmail: string
+}): string {
+  const { requestId, researchQuestion, context, messages } = params
+
+  // Generate slug from research question
+  const slug = researchQuestion
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .substring(0, 60)
+
+  // Escape single quotes for SQL
+  const escape = (s: string) => s.replace(/'/g, "''")
+
+  // Build ipr_conversation JSON
+  const conversationJSON = JSON.stringify(
+    messages.map(m => ({ role: m.role, content: m.content })),
+    null,
+    2
+  ).replace(/'/g, "''")
+
+  return `-- Sample Insert — generated from request ${requestId.substring(0, 8)}
+-- Run in Supabase SQL editor after delivering the PDF
+
+insert into samples (
+  slug,
+  domain,
+  title,
+  summary,
+  refined_question,
+  refined_context,
+  pdf_url,
+  pdf_thumbnail_url,
+  ipr_conversation,
+  sort_order,
+  published
+) values (
+  '${escape(slug)}',
+  'REPLACE_WITH_DOMAIN',
+  '${escape(researchQuestion)}',
+  'REPLACE_WITH_ONE_SENTENCE_SUMMARY',
+  '${escape(researchQuestion)}',
+  '${escape(context)}',
+  'REPLACE_WITH_PDF_URL',
+  '',
+  '${conversationJSON}'::jsonb,
+  0,
+  false
+);
+
+-- After verifying the sample page, publish with:
+-- update samples set published = true where slug = '${escape(slug)}';
+`
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -14,7 +81,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { requestId, researchQuestion, context, modelTier, deliveryEmail } = await request.json()
+    const { requestId, researchQuestion, context, modelTier, deliveryEmail, messages } = await request.json()
 
     const tierLabel = modelTier === 'economy' ? 'Economy ($15)' : 'Standard ($30)'
     const toEmail = deliveryEmail || user.email!
@@ -30,6 +97,19 @@ export async function POST(request: Request) {
 
     const pactFilename = `pact-request-${requestId.substring(0, 8)}.pact`
     const pactBase64 = Buffer.from(pactContent).toString('base64')
+
+    // Generate SQL file
+    const sqlContent = generateSampleSQL({
+      requestId,
+      researchQuestion,
+      context: context || '',
+      modelTier,
+      messages: messages || [],
+      userEmail: user.email!,
+    })
+
+    const sqlFilename = `sample-insert-${requestId.substring(0, 8)}.sql`
+    const sqlBase64 = Buffer.from(sqlContent).toString('base64')
 
     // Email to user
     await resend.emails.send({
@@ -70,7 +150,7 @@ export async function POST(request: Request) {
       `,
     })
 
-    // Email to Nik with .pact file attached
+    // Email to Nik with .pact file and SQL insert attached
     await resend.emails.send({
       from: 'PACT Research Service <research@pactresearch.net>',
       to: 'nik@congral.us',
@@ -105,7 +185,11 @@ export async function POST(request: Request) {
               <td style="padding: 8px;">${context}</td>
             </tr>` : ''}
           </table>
-          <p style="margin-top: 24px;">The PACT notebook file is attached. Import it into PACT, run the session, verify, then trigger payment.</p>
+          <p style="margin-top: 24px;">Two files are attached:</p>
+          <ul>
+            <li><strong>${pactFilename}</strong> — import into PACT, run the session, verify, then trigger payment</li>
+            <li><strong>${sqlFilename}</strong> — SQL insert for the samples collection; fill in DOMAIN, SUMMARY, and PDF_URL after delivery</li>
+          </ul>
           <p style="color: #999; font-size: 12px; margin-top: 32px;">PACT Research Service — pactresearch.net</p>
         </div>
       `,
@@ -113,6 +197,10 @@ export async function POST(request: Request) {
         {
           filename: pactFilename,
           content: pactBase64,
+        },
+        {
+          filename: sqlFilename,
+          content: sqlBase64,
         },
       ],
     })

@@ -140,6 +140,7 @@ export default function IPRChat() {
         context: editedContext,
         modelTier: 'standard',
         deliveryEmail: user.email,
+        messages: messages,
       }),
     })
 
