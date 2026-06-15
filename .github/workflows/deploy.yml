@@ -1,10 +1,8 @@
 name: Deploy to Vultr
-
 on:
   push:
     branches:
       - main
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -18,6 +16,7 @@ jobs:
           script: |
             cd /var/www/pactresearch-next
             git pull origin main
+            rm -rf node_modules
             npm ci
-            npm run build
+            npm run build -- --webpack
             pm2 restart pactresearch-next || pm2 start npm --name pactresearch-next -- start
