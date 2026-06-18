@@ -17,6 +17,7 @@ jobs:
             cd /var/www/pactresearch-next
             git pull origin main
             rm -rf node_modules
+            sleep 2
             npm ci
             npm run build -- --webpack
             pm2 restart pactresearch-next || pm2 start npm --name pactresearch-next -- start
