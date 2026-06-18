@@ -24,8 +24,10 @@ function generateSampleSQL(params: {
   messages: ConversationTurn[]
   userEmail: string
   slug: string
+  domain: string
+  summary: string
 }): string {
-  const { requestId, researchQuestion, context, messages, slug } = params
+  const { requestId, researchQuestion, context, messages, slug, domain, summary } = params
 
   const escape = (s: string) => s.replace(/'/g, "''")
 
@@ -35,8 +37,12 @@ function generateSampleSQL(params: {
     2
   ).replace(/'/g, "''")
 
+  const domainValue = domain ? `'${escape(domain)}'` : `'REPLACE_WITH_DOMAIN'`
+  const summaryValue = summary ? `'${escape(summary)}'` : `'REPLACE_WITH_ONE_SENTENCE_SUMMARY'`
+
   return `-- Sample Insert — generated from request ${requestId.substring(0, 8)}
 -- Run in Supabase SQL editor after delivering the PDF
+-- Only REPLACE_WITH_PDF_URL needs to be filled in manually
 
 insert into samples (
   slug,
@@ -52,9 +58,9 @@ insert into samples (
   published
 ) values (
   '${escape(slug)}',
-  'REPLACE_WITH_DOMAIN',
+  ${domainValue},
   '${escape(researchQuestion)}',
-  'REPLACE_WITH_ONE_SENTENCE_SUMMARY',
+  ${summaryValue},
   '${escape(researchQuestion)}',
   '${escape(context)}',
   'REPLACE_WITH_PDF_URL',
@@ -73,9 +79,6 @@ on conflict (slug) do update set
   ipr_conversation = excluded.ipr_conversation,
   sort_order = excluded.sort_order,
   published = excluded.published;
-
--- To publish immediately after verifying:
--- update samples set published = true where slug = '${escape(slug)}';
 `
 }
 
@@ -88,7 +91,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { requestId, researchQuestion, context, modelTier, deliveryEmail, messages } = await request.json()
+    const { requestId, researchQuestion, context, modelTier, deliveryEmail, messages, domain, summary } = await request.json()
 
     const tierLabel = modelTier === 'economy' ? 'Economy ($15)' : 'Standard ($30)'
     const toEmail = deliveryEmail || user.email!
@@ -122,6 +125,8 @@ export async function POST(request: Request) {
       messages: messages || [],
       userEmail: user.email!,
       slug: fileSlug,
+      domain: domain || '',
+      summary: summary || '',
     })
 
     const sqlFilename = `${fileSlug}.sql`
@@ -192,11 +197,15 @@ export async function POST(request: Request) {
               <td style="padding: 8px;">${tierLabel}</td>
             </tr>
             <tr>
+              <td style="padding: 8px; font-weight: bold;">Domain</td>
+              <td style="padding: 8px;">${domain || '—'}</td>
+            </tr>
+            <tr style="background: #f9f9f9;">
               <td style="padding: 8px; font-weight: bold;">Research question</td>
               <td style="padding: 8px;">${cleanQuestion}</td>
             </tr>
             ${cleanContext ? `
-            <tr style="background: #f9f9f9;">
+            <tr>
               <td style="padding: 8px; font-weight: bold;">Context</td>
               <td style="padding: 8px;">${cleanContext}</td>
             </tr>` : ''}
@@ -204,7 +213,7 @@ export async function POST(request: Request) {
           <p style="margin-top: 24px;">Two files are attached:</p>
           <ul>
             <li><strong>${pactFilename}</strong> — import into PACT, run the session, verify, then trigger payment</li>
-            <li><strong>${sqlFilename}</strong> — SQL insert for the samples collection; fill in DOMAIN, SUMMARY, and PDF_URL after delivery</li>
+            <li><strong>${sqlFilename}</strong> — SQL insert ready to run; only REPLACE_WITH_PDF_URL needs filling in</li>
           </ul>
           <p style="color: #999; font-size: 12px; margin-top: 32px;">PACT Research Service — pactresearch.net</p>
         </div>
