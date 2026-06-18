@@ -6,15 +6,34 @@ interface PactRequest {
   userEmail: string
 }
 
+const STOP_WORDS = new Set([
+  'what','how','why','when','where','who','which','the','a','an',
+  'of','in','on','to','is','are','was','were','and','or','for',
+  'its','their','your','my','our','this','that','these','those',
+  'does','do','did','has','have','had','can','could','would','should',
+  'between','among','about','with','from','into','through','during',
+  'specific','general','key','main','major','important'
+])
+
+export function generateShortSlug(researchQuestion: string): string {
+  const words = researchQuestion
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOP_WORDS.has(w))
+    .slice(0, 2)
+    .join('-')
+  return words || 'research'
+}
+
 export function generatePactFile(req: PactRequest): string {
   const now = Date.now()
   const discussionId = `discussion-${now}`
   const cellId = `${now}-${Math.random().toString(36).substring(2, 15)}`
 
-  // Generate notebook name from research question (first 60 chars)
-  const notebookName = req.researchQuestion.length > 60
-    ? req.researchQuestion.substring(0, 57) + '...'
-    : req.researchQuestion
+  // Short two-word notebook name
+  const notebookName = generateShortSlug(req.researchQuestion)
 
   // Generate system prompt from form data
   const tierInstruction = req.modelTier === 'economy'
@@ -36,7 +55,6 @@ ${tierInstruction} Organize findings clearly with headings, use evidence-based s
     ? `${req.researchQuestion}\n\nAdditional context: ${req.context}`
     : req.researchQuestion
 
-  // Generate plain unsigned export — no signature wrapper needed for inbound requests
   const pactExport = {
     version: 1,
     exportedAt: now,

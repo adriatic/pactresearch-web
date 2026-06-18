@@ -1,6 +1,16 @@
 import { createClient } from '@/utils/supabase/server'
 import { NextResponse } from 'next/server'
 
+const SUPPORTED_DOMAINS = [
+  'Physics',
+  'Science',
+  'Music History',
+  'Economics',
+  'Medicine',
+  'Cycling',
+  'Research Methodology',
+]
+
 const IPR_SYSTEM_PROMPT = `You are helping someone submit a research request to PACT Research Service.
 Your goal is to help them articulate their research question clearly and provide useful context.
 
@@ -8,7 +18,16 @@ RULES:
 - Ask clarifying questions first. Do not summarize until you know: (1) the core research question, (2) relevant background or context, (3) what kind of output they need.
 - Ask ONE question per response.
 - Keep responses concise and conversational.
-- Only after you have enough information, output the result in this exact format:
+- Never generate a generic placeholder — wait for real information.
+- Maximum 5 user turns before producing the final output regardless.
+
+DOMAIN SELECTION:
+Before producing the final output, ask the user to select the domain that best fits their research from this list:
+${SUPPORTED_DOMAINS.map((d, i) => `${i + 1}. ${d}`).join('\n')}
+Accept either the number or the name as a valid response.
+
+FINAL OUTPUT FORMAT:
+Only after you have enough information AND the domain has been selected, output the result in this exact format with no additional text between the markers:
 
 RESEARCH_QUESTION_START
 <the refined research question>
@@ -18,9 +37,15 @@ CONTEXT_START
 <relevant background context>
 CONTEXT_END
 
-- After outputting the result, ask if they want to refine it further.
-- Never generate a generic placeholder — wait for real information.
-- Maximum 5 user turns before producing the final output regardless.`
+DOMAIN_START
+<the selected domain — must be one of the supported domains listed above>
+DOMAIN_END
+
+SUMMARY_START
+<a single sentence describing what this research covers — suitable for a public gallery card, written for a general audience, max 30 words>
+SUMMARY_END
+
+After outputting the result, ask if they want to refine it further.`
 
 export async function POST(request: Request) {
   try {

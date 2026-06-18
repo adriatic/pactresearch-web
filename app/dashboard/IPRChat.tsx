@@ -9,11 +9,25 @@ interface Message {
   content: string
 }
 
-function parseIPROutput(content: string): { question: string; context: string } | null {
+interface IPRResult {
+  question: string
+  context: string
+  domain: string
+  summary: string
+}
+
+function parseIPROutput(content: string): IPRResult | null {
   const qMatch = content.match(/RESEARCH_QUESTION_START\s*([\s\S]*?)\s*RESEARCH_QUESTION_END/)
   const cMatch = content.match(/CONTEXT_START\s*([\s\S]*?)\s*CONTEXT_END/)
+  const dMatch = content.match(/DOMAIN_START\s*([\s\S]*?)\s*DOMAIN_END/)
+  const sMatch = content.match(/SUMMARY_START\s*([\s\S]*?)\s*SUMMARY_END/)
   if (qMatch && cMatch) {
-    return { question: qMatch[1].trim(), context: cMatch[1].trim() }
+    return {
+      question: qMatch[1].trim(),
+      context: cMatch[1].trim(),
+      domain: dMatch ? dMatch[1].trim() : '',
+      summary: sMatch ? sMatch[1].trim() : '',
+    }
   }
   return null
 }
@@ -22,6 +36,8 @@ function cleanContent(content: string): string {
   return content
     .replace(/RESEARCH_QUESTION_START[\s\S]*?RESEARCH_QUESTION_END/g, '')
     .replace(/CONTEXT_START[\s\S]*?CONTEXT_END/g, '')
+    .replace(/DOMAIN_START[\s\S]*?DOMAIN_END/g, '')
+    .replace(/SUMMARY_START[\s\S]*?SUMMARY_END/g, '')
     .trim()
 }
 
@@ -43,7 +59,7 @@ export default function IPRChat() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [turnCount, setTurnCount] = useState(0)
-  const [iprResult, setIprResult] = useState<{ question: string; context: string } | null>(null)
+  const [iprResult, setIprResult] = useState<IPRResult | null>(null)
   const [editedQuestion, setEditedQuestion] = useState('')
   const [editedContext, setEditedContext] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -141,6 +157,8 @@ export default function IPRChat() {
         modelTier: 'standard',
         deliveryEmail: user.email,
         messages: messages,
+        domain: iprResult?.domain || '',
+        summary: iprResult?.summary || '',
       }),
     })
 
@@ -273,6 +291,26 @@ export default function IPRChat() {
           <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
             Review and edit if needed before submitting.
           </p>
+
+          {/* Domain — read only display */}
+          {iprResult.domain && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '12px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Domain:</span>
+              <span style={{
+                display: 'inline-block',
+                padding: '3px 10px',
+                fontSize: '11px',
+                fontWeight: '500',
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+                background: '#f0f0f0',
+                borderRadius: '20px',
+                color: '#555',
+              }}>
+                {iprResult.domain}
+              </span>
+            </div>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             <label style={{ fontWeight: 'bold', fontSize: '14px' }}>Research question</label>

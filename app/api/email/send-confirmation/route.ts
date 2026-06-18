@@ -1,7 +1,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { generatePactFile } from '@/utils/generatePactFile'
+import { generatePactFile, generateShortSlug } from '@/utils/generatePactFile'
 
 const resend = new Resend(process.env.RESEND_API_KEY!)
 
@@ -23,15 +23,9 @@ function generateSampleSQL(params: {
   modelTier: string
   messages: ConversationTurn[]
   userEmail: string
+  slug: string
 }): string {
-  const { requestId, researchQuestion, context, messages } = params
-
-  const slug = researchQuestion
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .substring(0, 60)
+  const { requestId, researchQuestion, context, messages, slug } = params
 
   const escape = (s: string) => s.replace(/'/g, "''")
 
@@ -68,9 +62,19 @@ insert into samples (
   '${conversationJSON}'::jsonb,
   0,
   false
-);
+)
+on conflict (slug) do update set
+  domain = excluded.domain,
+  title = excluded.title,
+  summary = excluded.summary,
+  refined_question = excluded.refined_question,
+  refined_context = excluded.refined_context,
+  pdf_url = excluded.pdf_url,
+  ipr_conversation = excluded.ipr_conversation,
+  sort_order = excluded.sort_order,
+  published = excluded.published;
 
--- After verifying the sample page, publish with:
+-- To publish immediately after verifying:
 -- update samples set published = true where slug = '${escape(slug)}';
 `
 }
@@ -89,6 +93,10 @@ export async function POST(request: Request) {
     const tierLabel = modelTier === 'economy' ? 'Economy ($15)' : 'Standard ($30)'
     const toEmail = deliveryEmail || user.email!
 
+    // Generate short slug — used for filenames and SQL slug
+    const shortSlug = generateShortSlug(researchQuestion)
+    const fileSlug = `${shortSlug}-${requestId.substring(0, 8)}`
+
     // Strip markdown for display in emails
     const cleanQuestion = stripMarkdown(researchQuestion)
     const cleanContext = context ? stripMarkdown(context) : ''
@@ -102,7 +110,7 @@ export async function POST(request: Request) {
       userEmail: user.email!,
     })
 
-    const pactFilename = `pact-request-${requestId.substring(0, 8)}.pact`
+    const pactFilename = `${fileSlug}.pact`
     const pactBase64 = Buffer.from(pactContent).toString('base64')
 
     // Generate SQL file
@@ -113,9 +121,10 @@ export async function POST(request: Request) {
       modelTier,
       messages: messages || [],
       userEmail: user.email!,
+      slug: fileSlug,
     })
 
-    const sqlFilename = `sample-insert-${requestId.substring(0, 8)}.sql`
+    const sqlFilename = `${fileSlug}.sql`
     const sqlBase64 = Buffer.from(sqlContent).toString('base64')
 
     // Email to user
