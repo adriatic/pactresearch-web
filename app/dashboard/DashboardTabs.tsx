@@ -18,6 +18,9 @@ const tabStyle = (active: boolean): React.CSSProperties => ({
 export default function DashboardTabs({ isBeta, cardAlreadySaved }: { isBeta: boolean, cardAlreadySaved: boolean }) {
   const [tab, setTab] = useState<'how' | 'request'>('how')
   const [cardSaved, setCardSaved] = useState(false)
+  const [cardSkipped, setCardSkipped] = useState(false)
+
+  const unlocked = isBeta || cardSaved || cardAlreadySaved || cardSkipped
 
   return (
     <div>
@@ -54,7 +57,7 @@ export default function DashboardTabs({ isBeta, cardAlreadySaved }: { isBeta: bo
             Go to the <strong>Make a request</strong> tab. A short guided conversation helps sharpen your question before it's submitted. You don't need to arrive with a perfectly formed prompt — the conversation handles that.
           </p>
           <p style={{ marginBottom: '24px' }}>
-            A credit or debit card is required before submission. It is verified immediately but <strong>not charged until your research is delivered</strong>.
+            A credit or debit card can be saved before submission. It is verified immediately but <strong>not charged until your research is delivered</strong>.
           </p>
 
           <hr style={{ border: 'none', borderTop: '1px solid #eee', margin: '24px 0' }} />
@@ -109,22 +112,62 @@ export default function DashboardTabs({ isBeta, cardAlreadySaved }: { isBeta: bo
         <div>
           <h2 style={{ fontWeight: 'bold', marginBottom: '16px' }}>Make a request</h2>
 
-          {isBeta || cardSaved || cardAlreadySaved ? (
+          {unlocked ? (
             <div>
               {isBeta && (
                 <p style={{ color: '#666', marginBottom: '24px', fontStyle: 'italic' }}>
                   Beta access — no payment required.
                 </p>
               )}
+              {!isBeta && cardSkipped && !cardSaved && !cardAlreadySaved && (
+                <p style={{ color: '#666', marginBottom: '24px', fontStyle: 'italic' }}>
+                  Continuing without a saved card. You'll be asked to provide payment details before your research is delivered.
+                </p>
+              )}
               <IPRChat />
             </div>
           ) : (
-            <div>
-              <p style={{ color: '#666', marginBottom: '24px' }}>
-                Before submitting a research request, please save a payment method.
-                Your card will not be charged until your research is successfully delivered.
+            <div style={{ maxWidth: '480px' }}>
+
+              {/* Pricing summary */}
+              <div style={{ border: '1px solid #e5e5e5', borderRadius: '10px', padding: '20px', marginBottom: '24px', background: '#fafafa' }}>
+                <p style={{ fontSize: '13px', fontWeight: '600', color: '#888', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 14px' }}>
+                  Pricing
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '14px' }}>
+                  <span>Standard research</span>
+                  <span style={{ fontWeight: '600' }}>$30</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px', fontSize: '14px' }}>
+                  <span>Economy research</span>
+                  <span style={{ fontWeight: '600' }}>$15</span>
+                </div>
+                <p style={{ fontSize: '13px', color: '#666', margin: 0, lineHeight: '1.6' }}>
+                  Your card is charged only after your research is successfully delivered — never before.
+                </p>
+              </div>
+
+              <p style={{ color: '#666', marginBottom: '20px', fontSize: '14px' }}>
+                Save a payment method now, or continue and add one later — before delivery.
               </p>
+
               <CardSetup onSuccess={() => setCardSaved(true)} />
+
+              <button
+                onClick={() => setCardSkipped(true)}
+                style={{
+                  marginTop: '16px',
+                  background: 'none',
+                  border: 'none',
+                  color: '#888',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  textDecoration: 'underline',
+                  padding: 0,
+                }}
+              >
+                Skip for now — continue without saving a card
+              </button>
             </div>
           )}
         </div>
