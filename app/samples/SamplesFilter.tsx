@@ -10,6 +10,7 @@ const DOMAINS = [
   'Economics',
   'Medicine',
   'Cycling',
+  'Law & Policy',
   'Research Methodology',
 ]
 
