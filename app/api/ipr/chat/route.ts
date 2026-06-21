@@ -23,8 +23,9 @@ RULES:
 - Maximum 5 user turns before producing the final output regardless.
 
 DOMAIN SELECTION:
-Before producing the final output, ask the user to select the domain that best fits their research from this list:
-${SUPPORTED_DOMAINS.map((d, i) => `${i + 1}. ${d}`).join('\n')}
+Before producing the final output, ask the user to select the domain that best fits their research.
+Present the options as a single compact line, comma-separated, on one line — not a numbered vertical list and not one item per line. Example format: "Which domain fits best: Physics, Science, Music History, Economics, Medicine, Cycling, Law & Policy, or Research Methodology?"
+The supported domains are: ${SUPPORTED_DOMAINS.join(', ')}.
 Accept either the number or the name as a valid response.
 
 FINAL OUTPUT FORMAT:
