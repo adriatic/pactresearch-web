@@ -248,7 +248,7 @@ export default function IPRChat() {
               fontSize: '15px',
               borderRadius: '8px',
               border: '1px solid #ccc',
-              resize: 'none',
+              resize: 'vertical',
               opacity: loading ? 0.5 : 1,
               cursor: loading ? 'not-allowed' : 'text',
             }}
@@ -318,7 +318,7 @@ export default function IPRChat() {
               value={editedQuestion}
               onChange={e => setEditedQuestion(e.target.value)}
               disabled={submitted}
-              rows={3}
+              rows={5}
               style={{
                 padding: '10px',
                 fontSize: '15px',
@@ -336,7 +336,7 @@ export default function IPRChat() {
               value={editedContext}
               onChange={e => setEditedContext(e.target.value)}
               disabled={submitted}
-              rows={3}
+              rows={5}
               style={{
                 padding: '10px',
                 fontSize: '15px',
