@@ -26,7 +26,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const hasStripeCustomer = !!profile?.stripe_customer_id
 
   return (
-    <main style={{ maxWidth: '700px', margin: '60px auto', fontFamily: 'sans-serif', padding: '0 24px' }}>
+    <main style={{ maxWidth: '8600px', margin: '60px auto', fontFamily: 'sans-serif', padding: '0 24px' }}>
       <h1 style={{ fontWeight: 'bold', marginBottom: '8px' }}>PACT Research Service</h1>
 
       <p style={{ color: '#666', marginBottom: '32px' }}>
