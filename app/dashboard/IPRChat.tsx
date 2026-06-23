@@ -38,6 +38,8 @@ function cleanContent(content: string): string {
     .replace(/CONTEXT_START[\s\S]*?CONTEXT_END/g, '')
     .replace(/DOMAIN_START[\s\S]*?DOMAIN_END/g, '')
     .replace(/SUMMARY_START[\s\S]*?SUMMARY_END/g, '')
+    .replace(/^\s*---+\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
