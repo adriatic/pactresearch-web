@@ -61,6 +61,7 @@ ${tierInstruction} Organize findings clearly with headings, use evidence-based s
     notebook: {
       name: notebookName,
       systemPrompt: systemPrompt,
+      executionMode: 'index',
     },
     discussions: [
       {
