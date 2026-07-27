@@ -40,6 +40,23 @@ export function generatePactFile(req: PactRequest): string {
     ? 'Provide a focused, concise analysis covering the key points efficiently.'
     : 'Provide a thorough, comprehensive analysis with detailed explanations, citations where possible, and actionable recommendations.'
 
+  // Universal writing-style guidance, independent of model tier — added
+  // after Linda Thomas's first PACT report surfaced two related gaps in
+  // the same category: (1) technical terms (e.g. "null geodesics")
+  // introduced in passing during a derivation, with no gloss, even though
+  // the rest of the report was pitched at a teaching/conceptual level;
+  // and (2) raw LaTeX shorthand (e.g. "$\sim$" for "approximately") left
+  // in running prose, which — because delivered reports are Copy'd out of
+  // PACT as Markdown, pasted into Obsidian, then exported to PDF — never
+  // passes through an actual LaTeX renderer and shows up as literal,
+  // broken-looking text. Both are style/formatting gaps, not accuracy
+  // problems, and applying this to every request (not just ones that
+  // signal "teaching" intent) costs an expert reader nothing while
+  // meaningfully helping everyone else.
+  const styleInstruction = `Write for a reader who may not be a specialist: briefly define any technical term at the moment you introduce it, even in the middle of a derivation or proof, rather than assuming prior familiarity.
+
+Do not use LaTeX shorthand (e.g. $\\sim$) as a substitute for ordinary words in prose — write "approximately" or use a plain ~ character instead. Reserve LaTeX exclusively for genuine standalone equations, written with proper spacing so they render correctly in Markdown.`
+
   const contextSection = req.context
     ? `\n\nUser context: ${req.context}`
     : ''
@@ -48,7 +65,9 @@ export function generatePactFile(req: PactRequest): string {
 
 Research topic: ${req.researchQuestion}${contextSection}
 
-${tierInstruction} Organize findings clearly with headings, use evidence-based sources, and structure the response so it can be exported as a professional PDF report.`
+${tierInstruction} Organize findings clearly with headings, use evidence-based sources, and structure the response so it can be exported as a professional PDF report.
+
+${styleInstruction}`
 
   // Build the prompt text for the first cell
   const promptText = req.context
