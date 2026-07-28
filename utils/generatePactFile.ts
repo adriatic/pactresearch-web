@@ -55,7 +55,9 @@ export function generatePactFile(req: PactRequest): string {
   // meaningfully helping everyone else.
   const styleInstruction = `Write for a reader who may not be a specialist: briefly define any technical term at the moment you introduce it, even in the middle of a derivation or proof, rather than assuming prior familiarity.
 
-Do not use LaTeX shorthand (e.g. $\\sim$) as a substitute for ordinary words in prose — write "approximately" or use a plain ~ character instead. Reserve LaTeX exclusively for genuine standalone equations, written with proper spacing so they render correctly in Markdown.`
+Do not use LaTeX shorthand (e.g. $\\sim$) as a substitute for ordinary words in prose — write "approximately" or use a plain ~ character instead. Reserve LaTeX exclusively for genuine standalone equations, written with proper spacing so they render correctly in Markdown.
+
+Present all derivations and explanations as clean, finished reasoning. Do not narrate your own reconsideration, self-correction, or false starts (e.g. "Wait — let me be more careful," "Actually, let's reconsider") — work through the reasoning internally and present only the final, correct derivation.`
 
   const contextSection = req.context
     ? `\n\nUser context: ${req.context}`
