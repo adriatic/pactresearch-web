@@ -53,11 +53,23 @@ export function generatePactFile(req: PactRequest): string {
   // problems, and applying this to every request (not just ones that
   // signal "teaching" intent) costs an expert reader nothing while
   // meaningfully helping everyone else.
+  //
+  // A third paragraph was added later (mid-derivation self-correction
+  // leaking into saved report content, e.g. "Wait — let me be more
+  // careful..."). That first version quoted the offending phrase directly
+  // inside the "don't do this" instruction. A subsequent real report
+  // still contained a near-verbatim recurrence of that exact quoted
+  // phrase — evidence the quoted "bad example" likely primed the model
+  // toward reproducing it rather than suppressing it (the same effect as
+  // "don't think of an elephant"). The paragraph below is worded to
+  // describe the behavior to avoid without quoting it, and is paired with
+  // a structural fallback (stripSelfCorrection in ExecutionEngine.ts) as
+  // the actual backstop — this instruction alone is not assumed reliable.
   const styleInstruction = `Write for a reader who may not be a specialist: briefly define any technical term at the moment you introduce it, even in the middle of a derivation or proof, rather than assuming prior familiarity.
 
 Do not use LaTeX shorthand (e.g. $\\sim$) as a substitute for ordinary words in prose — write "approximately" or use a plain ~ character instead. Reserve LaTeX exclusively for genuine standalone equations, written with proper spacing so they render correctly in Markdown.
 
-Present all derivations and explanations as clean, finished reasoning. Do not narrate your own reconsideration, self-correction, or false starts (e.g. "Wait — let me be more careful," "Actually, let's reconsider") — work through the reasoning internally and present only the final, correct derivation.`
+Present all derivations and explanations as clean, finished reasoning, as if writing the final draft directly. Never pause mid-derivation to reconsider, correct, or restart an explanation in the visible text — if you need to think something through, do that before writing the sentence, not inside it.`
 
   const contextSection = req.context
     ? `\n\nUser context: ${req.context}`

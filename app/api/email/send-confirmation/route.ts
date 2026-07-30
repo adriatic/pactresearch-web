@@ -91,7 +91,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { requestId, researchQuestion, context, modelTier, deliveryEmail, messages, domain, summary } = await request.json()
+    // Capture the full, unmodified request body BEFORE any destructuring.
+    // This rides along to the internal notification email as its own
+    // {slug}-request.json attachment, independent of whatever fields this
+    // route happens to destructure below. Early groundwork for the planned
+    // Darwin/PACT peer-services architecture, where a request needs to
+    // carry its full original context rather than only a curated subset
+    // of fields per route. Side effect: also fixes the domain-silently-
+    // dropped problem in practice, since the full body rides along
+    // regardless of what's explicitly read out of it here — though
+    // domain/customer_email as real schema fields is still the more
+    // robust long-term fix and remains separately tracked.
+    const requestBody = await request.json()
+
+    const { requestId, researchQuestion, context, modelTier, deliveryEmail, messages, domain, summary } = requestBody
 
     const tierLabel = modelTier === 'economy' ? 'Economy ($15)' : 'Standard ($30)'
     const toEmail = deliveryEmail || user.email!
@@ -132,6 +145,11 @@ export async function POST(request: Request) {
     const sqlFilename = `${fileSlug}.sql`
     const sqlBase64 = Buffer.from(sqlContent).toString('base64')
 
+    // Full raw request-submission JSON — internal notification only, not sent to the user
+    const rawRequestJSON = JSON.stringify(requestBody, null, 2)
+    const rawRequestFilename = `${fileSlug}-request.json`
+    const rawRequestBase64 = Buffer.from(rawRequestJSON).toString('base64')
+
     // Email to user
     await resend.emails.send({
       from: 'PACT Research Service <research@pactresearch.net>',
@@ -171,7 +189,7 @@ export async function POST(request: Request) {
       `,
     })
 
-    // Email to Nik with .pact file and SQL insert attached
+    // Email to Nik with .pact file, SQL insert, and full raw request JSON attached
     await resend.emails.send({
       from: 'PACT Research Service <research@pactresearch.net>',
       to: 'nik@congral.us',
@@ -210,10 +228,11 @@ export async function POST(request: Request) {
               <td style="padding: 8px;">${cleanContext}</td>
             </tr>` : ''}
           </table>
-          <p style="margin-top: 24px;">Two files are attached:</p>
+          <p style="margin-top: 24px;">Three files are attached:</p>
           <ul>
             <li><strong>${pactFilename}</strong> — import into PACT, run the session, verify, then trigger payment</li>
             <li><strong>${sqlFilename}</strong> — SQL insert ready to run; only REPLACE_WITH_PDF_URL needs filling in</li>
+            <li><strong>${rawRequestFilename}</strong> — full raw request submission, unmodified, for reference/debugging</li>
           </ul>
           <p style="color: #999; font-size: 12px; margin-top: 32px;">PACT Research Service — pactresearch.net</p>
         </div>
@@ -226,6 +245,10 @@ export async function POST(request: Request) {
         {
           filename: sqlFilename,
           content: sqlBase64,
+        },
+        {
+          filename: rawRequestFilename,
+          content: rawRequestBase64,
         },
       ],
     })
