@@ -17,17 +17,12 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@stripe/react-stripe-js": "^6.6.0",
-    "@stripe/stripe-js": "^9.7.0",
-    "@supabase/ssr": "^0.10.3",
-    "@supabase/supabase-js": "^2.106.2",
     "next": "16.2.6",
     "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "resend": "^6.12.4",
-    "stripe": "^22.2.0"
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.106.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
