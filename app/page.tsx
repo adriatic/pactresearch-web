@@ -1,15 +1,18 @@
-export const dynamic = 'force-dynamic'
-
-import { redirect } from 'next/navigation'
-import { createClient } from '@/utils/supabase/server'
-
-export default async function Home() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (user) {
-    redirect('/dashboard')
-  } else {
-    redirect('/login')
-  }
+export default function Home() {
+  return (
+    <main
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "100vh",
+        textAlign: "center",
+        fontFamily: "sans-serif",
+      }}
+    >
+      <h1>Under construction</h1>
+      <p>This site is not yet available.</p>
+    </main>
+  );
 }
