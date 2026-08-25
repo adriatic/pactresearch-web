@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+const TEST_TABLE = "_test_probe";
+
 interface LocalSupabaseStatus {
   API_URL: string;
   SERVICE_ROLE_KEY: string;
@@ -14,6 +16,12 @@ function getLocalSupabaseStatus(): LocalSupabaseStatus {
   return JSON.parse(output) as LocalSupabaseStatus;
 }
 
+function runLocalSql(sql: string): void {
+  execFileSync("npx", ["supabase", "db", "query", "--local", sql], {
+    stdio: "inherit",
+  });
+}
+
 describe("local Supabase wiring", () => {
   let supabase: SupabaseClient;
 
@@ -24,18 +32,29 @@ describe("local Supabase wiring", () => {
 
     const { API_URL, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
     supabase = createClient(API_URL, SERVICE_ROLE_KEY);
-  }, 30000);
+
+    // Test-only table, created directly (not via supabase/migrations/, which
+    // is shared with production db push) — underscore prefix marks it as
+    // non-application schema at a glance.
+    runLocalSql(
+      `CREATE TABLE IF NOT EXISTS public.${TEST_TABLE} (` +
+        `id uuid primary key default gen_random_uuid(), ` +
+        `value text not null, ` +
+        `created_at timestamptz not null default now());`,
+    );
+    runLocalSql(`ALTER TABLE public.${TEST_TABLE} ENABLE ROW LEVEL SECURITY;`);
+    runLocalSql(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON public.${TEST_TABLE} TO service_role;`,
+    );
+  }, 45000);
 
   afterAll(async () => {
-    await supabase
-      .from("integration_test_probe")
-      .delete()
-      .not("id", "is", null);
+    runLocalSql(`DROP TABLE IF EXISTS public.${TEST_TABLE};`);
   });
 
   test("reset leaves the probe table empty, then a row round-trips", async () => {
     const { data: initialRows, error: initialError } = await supabase
-      .from("integration_test_probe")
+      .from(TEST_TABLE)
       .select("*");
 
     expect(initialError).toBeNull();
@@ -43,7 +62,7 @@ describe("local Supabase wiring", () => {
 
     const value = `probe-${Date.now()}`;
     const { data: inserted, error: insertError } = await supabase
-      .from("integration_test_probe")
+      .from(TEST_TABLE)
       .insert({ value })
       .select()
       .single();
@@ -52,7 +71,7 @@ describe("local Supabase wiring", () => {
     expect(inserted?.value).toBe(value);
 
     const { data: readBack, error: readError } = await supabase
-      .from("integration_test_probe")
+      .from(TEST_TABLE)
       .select("*")
       .eq("id", inserted!.id)
       .single();
