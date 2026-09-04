@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [tsconfigPaths(), react()],
   test: {
     environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
     // Integration tests need local Supabase (Docker) running; keep them out
     // of the default fast unit-test run. See `npm run test:integration`.
     exclude: [...configDefaults.exclude, "__tests__/integration/**"],
