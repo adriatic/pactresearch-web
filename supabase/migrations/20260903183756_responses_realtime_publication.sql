@@ -1,0 +1,13 @@
+-- Client-side half of Realtime streaming (3.14). The execution route
+-- already writes to public.responses incrementally; nothing can subscribe
+-- to those changes until the table is part of the supabase_realtime
+-- publication. Confirmed via `supabase db query --linked` against
+-- pg_publication_tables that the publication currently has no tables at
+-- all, so this is a clean addition.
+--
+-- RLS scoping for postgres_changes delivery comes for free from the
+-- existing "Users manage their own responses" policy
+-- (20260903035641_notebooks_discussions_responses_rls.sql) — Realtime
+-- evaluates that same policy per subscriber, so this does not on its own
+-- broaden who can see which rows.
+alter publication supabase_realtime add table public.responses;
