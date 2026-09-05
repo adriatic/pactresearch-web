@@ -1,4 +1,5 @@
 // Root layout: fonts + page metadata, shared by every route.
+// (Geist fonts loaded via next/font/google for automatic self-hosting.)
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
