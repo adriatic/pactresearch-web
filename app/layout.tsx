@@ -19,6 +19,7 @@ export const metadata: Metadata = {
   description: "AI-assisted research notebooks powered by Claude.",
 };
 
+// The single root layout shared by every route in the app.
 export default function RootLayout({
   children,
 }: Readonly<{
