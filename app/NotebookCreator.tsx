@@ -4,7 +4,11 @@ import { useState } from "react";
 
 const CATEGORIES = ["Personal Research", "Dev Test"] as const;
 
-export function NotebookCreator() {
+export function NotebookCreator({
+  onDiscussionCreated,
+}: {
+  onDiscussionCreated: (discussionId: string) => void;
+}) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>(
     CATEGORIES[0],
@@ -55,6 +59,9 @@ export function NotebookCreator() {
       });
       const body = await response.json();
       setDiscussionResult(JSON.stringify(body, null, 2));
+      if (response.ok) {
+        onDiscussionCreated(body.id);
+      }
     } catch (err) {
       setDiscussionResult(String(err));
     } finally {

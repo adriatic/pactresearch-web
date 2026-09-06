@@ -1,8 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { ensureDiscussion } from "@/lib/ensureDiscussion";
-import { ExecuteTester } from "./ExecuteTester";
-import { NotebookCreator } from "./NotebookCreator";
+import { Workspace } from "./Workspace";
 
 export default async function Home() {
   const supabase = await createClient();
@@ -16,11 +15,5 @@ export default async function Home() {
 
   const discussionId = await ensureDiscussion(supabase, user.id);
 
-  return (
-    <>
-      <ExecuteTester discussionId={discussionId} />
-      <hr />
-      <NotebookCreator />
-    </>
-  );
+  return <Workspace initialDiscussionId={discussionId} />;
 }
