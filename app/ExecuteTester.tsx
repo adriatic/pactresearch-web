@@ -10,7 +10,11 @@ interface PastResponse {
   resolved_model: string | null;
 }
 
-export function ExecuteTester({ discussionId }: { discussionId: string }) {
+export function ExecuteTester({
+  discussionId,
+}: {
+  discussionId: string | null;
+}) {
   const [promptText, setPromptText] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -20,6 +24,8 @@ export function ExecuteTester({ discussionId }: { discussionId: string }) {
   const [history, setHistory] = useState<PastResponse[]>([]);
 
   useEffect(() => {
+    if (!discussionId) return;
+
     let cancelled = false;
 
     fetch(`/api/responses?discussionId=${discussionId}`)
@@ -35,6 +41,7 @@ export function ExecuteTester({ discussionId }: { discussionId: string }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!discussionId) return;
     setLoading(true);
     setResult(null);
     setStreamedResponse(null);
@@ -116,8 +123,12 @@ export function ExecuteTester({ discussionId }: { discussionId: string }) {
   return (
     <main>
       <h1>Execute tester</h1>
-      <p>Discussion: {discussionId}</p>
-      {history.length > 0 && (
+      {discussionId ? (
+        <p>Discussion: {discussionId}</p>
+      ) : (
+        <p>No discussion selected — create or pick one above.</p>
+      )}
+      {discussionId && history.length > 0 && (
         <div>
           <h2>History</h2>
           {history.map((entry) => (
@@ -142,7 +153,7 @@ export function ExecuteTester({ discussionId }: { discussionId: string }) {
           cols={60}
         />
         <br />
-        <button type="submit" disabled={loading}>
+        <button type="submit" disabled={loading || !discussionId}>
           {loading ? "Running..." : "Run"}
         </button>
       </form>

@@ -10,15 +10,27 @@ export function Workspace({
 }: {
   initialDiscussionId: string;
 }) {
-  const [activeDiscussionId, setActiveDiscussionId] =
-    useState(initialDiscussionId);
-  // Bumped whenever a discussion is created, so DiscussionList's effect
-  // refetches — it doesn't otherwise depend on anything that changes here.
+  const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(
+    initialDiscussionId,
+  );
+  // Bumped whenever a discussion is created or a notebook is deleted, so
+  // DiscussionList's effect refetches — it doesn't otherwise depend on
+  // anything that changes here.
   const [discussionListRefetchToken, setDiscussionListRefetchToken] =
     useState(0);
 
   function handleDiscussionCreated(discussionId: string) {
     setActiveDiscussionId(discussionId);
+    setDiscussionListRefetchToken((t) => t + 1);
+  }
+
+  function handleNotebookDeleted(deletedDiscussionIds: string[]) {
+    if (
+      activeDiscussionId &&
+      deletedDiscussionIds.includes(activeDiscussionId)
+    ) {
+      setActiveDiscussionId(null);
+    }
     setDiscussionListRefetchToken((t) => t + 1);
   }
 
@@ -29,6 +41,7 @@ export function Workspace({
       <DiscussionList
         activeDiscussionId={activeDiscussionId}
         onSelect={setActiveDiscussionId}
+        onNotebookDeleted={handleNotebookDeleted}
         refetchToken={discussionListRefetchToken}
       />
       <hr />

@@ -39,13 +39,19 @@ function groupByNotebook(discussions: Discussion[]): NotebookGroup[] {
   return groups;
 }
 
+function fetchDiscussions(): Promise<Discussion[]> {
+  return fetch("/api/discussions").then((response) => response.json());
+}
+
 export function DiscussionList({
   activeDiscussionId,
   onSelect,
+  onNotebookDeleted,
   refetchToken,
 }: {
-  activeDiscussionId: string;
+  activeDiscussionId: string | null;
   onSelect: (discussionId: string) => void;
+  onNotebookDeleted: (deletedDiscussionIds: string[]) => void;
   refetchToken: number;
 }) {
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
@@ -53,16 +59,29 @@ export function DiscussionList({
   useEffect(() => {
     let cancelled = false;
 
-    fetch("/api/discussions")
-      .then((response) => response.json())
-      .then((body) => {
-        if (!cancelled) setDiscussions(body);
-      });
+    fetchDiscussions().then((body) => {
+      if (!cancelled) setDiscussions(body);
+    });
 
     return () => {
       cancelled = true;
     };
   }, [refetchToken]);
+
+  async function handleDeleteNotebook(group: NotebookGroup) {
+    const confirmed = window.confirm(
+      `Delete notebook "${group.notebookName}" and all its discussions? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/notebooks?id=${group.notebookId}`, {
+      method: "DELETE",
+    });
+
+    if (response.ok) {
+      onNotebookDeleted(group.discussions.map((d) => d.id));
+    }
+  }
 
   const groups = groupByNotebook(discussions);
 
@@ -71,7 +90,12 @@ export function DiscussionList({
       <h2>Discussions</h2>
       {groups.map((group) => (
         <div key={group.notebookId}>
-          <h3>{group.notebookName}</h3>
+          <h3>
+            {group.notebookName}{" "}
+            <button type="button" onClick={() => handleDeleteNotebook(group)}>
+              Delete notebook
+            </button>
+          </h3>
           <ul>
             {group.discussions.map((discussion) => (
               <li key={discussion.id}>

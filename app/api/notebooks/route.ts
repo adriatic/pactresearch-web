@@ -68,4 +68,44 @@ async function handlePost(request: Request) {
   return Response.json(notebook, { status: 201 });
 }
 
+async function handleDelete(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return Response.json({ error: "id is required." }, { status: 400 });
+  }
+
+  // Session-scoped client + RLS: this can only ever delete a notebook the
+  // caller owns. An empty result covers both "doesn't exist" and "isn't
+  // yours" — same non-distinguishing 404 pattern as the rest of this
+  // codebase, no separate ownership check first. Child rows (discussions,
+  // responses, execution_locks) cascade via their own ON DELETE CASCADE.
+  const { data: deleted, error } = await supabase
+    .from("notebooks")
+    .delete()
+    .eq("id", id)
+    .select();
+
+  if (error) {
+    throw error;
+  }
+
+  if (deleted.length === 0) {
+    return Response.json({ error: "Notebook not found." }, { status: 404 });
+  }
+
+  return Response.json(deleted[0]);
+}
+
 export const POST = withRouteErrorHandling(handlePost);
+export const DELETE = withRouteErrorHandling(handleDelete);

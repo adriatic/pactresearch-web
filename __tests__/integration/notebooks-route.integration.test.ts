@@ -42,7 +42,7 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const { POST } = await import("@/app/api/notebooks/route");
+const { POST, DELETE } = await import("@/app/api/notebooks/route");
 
 function makeRequest(body: unknown) {
   return new Request("http://localhost/api/notebooks", {
@@ -52,7 +52,13 @@ function makeRequest(body: unknown) {
   });
 }
 
-describe("POST /api/notebooks", () => {
+function makeDeleteRequest(id: string) {
+  return new Request(`http://localhost/api/notebooks?id=${id}`, {
+    method: "DELETE",
+  });
+}
+
+describe("/api/notebooks", () => {
   let API_URL: string;
   let ANON_KEY: string;
   let admin: SupabaseClient;
@@ -195,5 +201,152 @@ describe("POST /api/notebooks", () => {
     expect(response.status).toBe(400);
     const body = await response.json();
     expect(body.error).toBeTruthy();
+  });
+
+  test("DELETE removes the notebook and cascades to its discussions and responses", async () => {
+    const { userId, cookies } = await createSignedInUser();
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook to delete" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const { data: discussion, error: discussionError } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Discussion under notebook to delete",
+      })
+      .select()
+      .single();
+    expect(discussionError).toBeNull();
+
+    const { data: insertedResponse, error: responseError } = await admin
+      .from("responses")
+      .insert({
+        discussion_id: discussion!.id,
+        user_id: userId,
+        prompt_text: "prompt",
+        response: "response",
+      })
+      .select()
+      .single();
+    expect(responseError).toBeNull();
+
+    currentCookies = cookies;
+    const deleteResponse = await DELETE(makeDeleteRequest(notebook!.id));
+    expect(deleteResponse.status).toBe(200);
+    const deletedBody = await deleteResponse.json();
+    expect(deletedBody.id).toBe(notebook!.id);
+
+    // Proven, not inferred from the ON DELETE CASCADE comment in the
+    // migration — actually queried via the admin client afterward.
+    const { data: notebookRows, error: notebookCheckError } = await admin
+      .from("notebooks")
+      .select("*")
+      .eq("id", notebook!.id);
+    expect(notebookCheckError).toBeNull();
+    expect(notebookRows).toHaveLength(0);
+
+    const { data: discussionRows, error: discussionCheckError } = await admin
+      .from("discussions")
+      .select("*")
+      .eq("id", discussion!.id);
+    expect(discussionCheckError).toBeNull();
+    expect(discussionRows).toHaveLength(0);
+
+    const { data: responseRows, error: responseCheckError } = await admin
+      .from("responses")
+      .select("*")
+      .eq("id", insertedResponse!.id);
+    expect(responseCheckError).toBeNull();
+    expect(responseRows).toHaveLength(0);
+  });
+
+  test("DELETE returns 404, and leaves everything untouched, when the notebook belongs to another user", async () => {
+    const userA = await createSignedInUser();
+    const userB = await createSignedInUser();
+
+    const { data: notebookB, error: notebookBError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userB.userId, name: "User B's notebook" })
+      .select()
+      .single();
+    expect(notebookBError).toBeNull();
+
+    const { data: discussionB, error: discussionBError } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebookB!.id,
+        user_id: userB.userId,
+        name: "User B's discussion",
+      })
+      .select()
+      .single();
+    expect(discussionBError).toBeNull();
+
+    const { data: responseB, error: responseBError } = await admin
+      .from("responses")
+      .insert({
+        discussion_id: discussionB!.id,
+        user_id: userB.userId,
+        prompt_text: "User B's prompt",
+        response: "User B's response",
+      })
+      .select()
+      .single();
+    expect(responseBError).toBeNull();
+
+    currentCookies = userA.cookies;
+    const deleteResponse = await DELETE(makeDeleteRequest(notebookB!.id));
+    expect(deleteResponse.status).toBe(404);
+
+    // Not just checking the response code — proving User B's data is
+    // genuinely still there, untouched by User A's attempt.
+    const { data: notebookRows, error: notebookCheckError } = await admin
+      .from("notebooks")
+      .select("*")
+      .eq("id", notebookB!.id);
+    expect(notebookCheckError).toBeNull();
+    expect(notebookRows).toHaveLength(1);
+    expect(notebookRows?.[0].name).toBe("User B's notebook");
+
+    const { data: discussionRows, error: discussionCheckError } = await admin
+      .from("discussions")
+      .select("*")
+      .eq("id", discussionB!.id);
+    expect(discussionCheckError).toBeNull();
+    expect(discussionRows).toHaveLength(1);
+
+    const { data: responseRows, error: responseCheckError } = await admin
+      .from("responses")
+      .select("*")
+      .eq("id", responseB!.id);
+    expect(responseCheckError).toBeNull();
+    expect(responseRows).toHaveLength(1);
+  });
+
+  test("DELETE returns 401 when there is no authenticated user", async () => {
+    currentCookies = [];
+
+    const response = await DELETE(
+      makeDeleteRequest("00000000-0000-0000-0000-000000000000"),
+    );
+
+    expect(response.status).toBe(401);
+  });
+
+  test("DELETE returns 400 when id is missing", async () => {
+    const { cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const response = await DELETE(
+      new Request("http://localhost/api/notebooks", { method: "DELETE" }),
+    );
+
+    expect(response.status).toBe(400);
   });
 });
