@@ -23,6 +23,24 @@ export function ExecuteTester({
   const [isStreaming, setIsStreaming] = useState(false);
   const [history, setHistory] = useState<PastResponse[]>([]);
 
+  // Clears the live-run display (separate state from history above) when
+  // discussionId itself changes — a different discussion picked, a new one
+  // created, or the active one cleared entirely (e.g. after a delete) — so
+  // a previous discussion's response never lingers next to a different (or
+  // absent) active discussion. Adjusted directly during render, same
+  // pattern as NotebookCreator's deleted-notebook clear: an effect calling
+  // setState synchronously in its body here would trigger an avoidable
+  // extra render pass (react-hooks/set-state-in-effect).
+  const [displayedDiscussionId, setDisplayedDiscussionId] =
+    useState(discussionId);
+  if (discussionId !== displayedDiscussionId) {
+    setDisplayedDiscussionId(discussionId);
+    setResult(null);
+    setStreamedResponse(null);
+    setStreamedModel(null);
+    setIsStreaming(false);
+  }
+
   useEffect(() => {
     if (!discussionId) return;
 
