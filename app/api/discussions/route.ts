@@ -70,4 +70,30 @@ async function handlePost(request: Request) {
   return Response.json(discussion, { status: 201 });
 }
 
+async function handleGet() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Session-scoped client + RLS: this already returns only the caller's
+  // own discussions, same reliance on RLS as the notebook-ownership check
+  // above — no separate `user_id` filter needed here either.
+  const { data: discussions, error } = await supabase
+    .from("discussions")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return Response.json(discussions);
+}
+
 export const POST = withRouteErrorHandling(handlePost);
+export const GET = withRouteErrorHandling(handleGet);

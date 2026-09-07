@@ -42,7 +42,7 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const { POST } = await import("@/app/api/discussions/route");
+const { POST, GET } = await import("@/app/api/discussions/route");
 
 function makeRequest(body: unknown) {
   return new Request("http://localhost/api/discussions", {
@@ -52,7 +52,7 @@ function makeRequest(body: unknown) {
   });
 }
 
-describe("POST /api/discussions", () => {
+describe("/api/discussions", () => {
   let API_URL: string;
   let ANON_KEY: string;
   let admin: SupabaseClient;
@@ -218,5 +218,62 @@ describe("POST /api/discussions", () => {
       .eq("notebook_id", notebookA!.id);
     expect(error).toBeNull();
     expect(rows).toHaveLength(0);
+  });
+
+  test("GET returns only the caller's own discussions, not another user's", async () => {
+    const userA = await createSignedInUser();
+    const userB = await createSignedInUser();
+
+    const { data: notebookA, error: notebookAError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userA.userId, name: "User A's notebook" })
+      .select()
+      .single();
+    expect(notebookAError).toBeNull();
+
+    const { data: notebookB, error: notebookBError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userB.userId, name: "User B's notebook" })
+      .select()
+      .single();
+    expect(notebookBError).toBeNull();
+
+    const { error: discussionAError } = await admin.from("discussions").insert({
+      notebook_id: notebookA!.id,
+      user_id: userA.userId,
+      name: "User A's discussion",
+    });
+    expect(discussionAError).toBeNull();
+
+    const { error: discussionBError } = await admin.from("discussions").insert({
+      notebook_id: notebookB!.id,
+      user_id: userB.userId,
+      name: "User B's discussion",
+    });
+    expect(discussionBError).toBeNull();
+
+    currentCookies = userA.cookies;
+    const responseA = await GET();
+    expect(responseA.status).toBe(200);
+    const bodyA = await responseA.json();
+    expect(bodyA).toHaveLength(1);
+    expect(bodyA[0].name).toBe("User A's discussion");
+    expect(bodyA[0].user_id).toBe(userA.userId);
+
+    currentCookies = userB.cookies;
+    const responseB = await GET();
+    expect(responseB.status).toBe(200);
+    const bodyB = await responseB.json();
+    expect(bodyB).toHaveLength(1);
+    expect(bodyB[0].name).toBe("User B's discussion");
+    expect(bodyB[0].user_id).toBe(userB.userId);
+  });
+
+  test("GET returns 401 when there is no authenticated user", async () => {
+    currentCookies = [];
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
   });
 });
