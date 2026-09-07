@@ -8,7 +8,7 @@ import { DiscussionList } from "./DiscussionList";
 export function Workspace({
   initialDiscussionId,
 }: {
-  initialDiscussionId: string;
+  initialDiscussionId: string | null;
 }) {
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(
     initialDiscussionId,

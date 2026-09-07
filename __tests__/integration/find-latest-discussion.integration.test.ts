@@ -5,7 +5,7 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
-import { ensureDiscussion } from "@/lib/ensureDiscussion";
+import { findLatestDiscussion } from "@/lib/findLatestDiscussion";
 
 interface LocalSupabaseStatus {
   API_URL: string;
@@ -26,7 +26,7 @@ function getLocalSupabaseStatus(): LocalSupabaseStatus {
   return JSON.parse(output) as LocalSupabaseStatus;
 }
 
-describe("ensureDiscussion", () => {
+describe("findLatestDiscussion", () => {
   let API_URL: string;
   let ANON_KEY: string;
   let admin: SupabaseClient;
@@ -56,7 +56,7 @@ describe("ensureDiscussion", () => {
     userId: string;
     client: SupabaseClient;
   }> {
-    const email = `ensure-discussion-${Date.now()}-${Math.random()
+    const email = `find-latest-discussion-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2)}@example.com`;
     const password = "correct horse battery staple 2!";
@@ -97,36 +97,73 @@ describe("ensureDiscussion", () => {
     return { userId: created.user.id, client };
   }
 
-  test("creates exactly one discussion for a user with none", async () => {
+  test("returns the caller's most recently created discussion when one exists", async () => {
     const { userId, client } = await createSignedInUser();
 
-    const discussionId = await ensureDiscussion(client, userId);
-    expect(discussionId).toBeTruthy();
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
 
+    const { data: older, error: olderError } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Older discussion",
+        created_at: "2026-09-07T00:01:00Z",
+      })
+      .select()
+      .single();
+    expect(olderError).toBeNull();
+
+    const { data: newer, error: newerError } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Newer discussion",
+        created_at: "2026-09-07T00:02:00Z",
+      })
+      .select()
+      .single();
+    expect(newerError).toBeNull();
+
+    const discussionId = await findLatestDiscussion(client, userId);
+
+    expect(discussionId).toBe(newer!.id);
+    expect(discussionId).not.toBe(older!.id);
+
+    // A pure lookup — confirm it created nothing.
     const { data: rows, error } = await admin
       .from("discussions")
       .select("id")
       .eq("user_id", userId);
-
     expect(error).toBeNull();
-    expect(rows).toHaveLength(1);
-    expect(rows?.[0].id).toBe(discussionId);
+    expect(rows).toHaveLength(2);
   });
 
-  test("reuses the existing discussion on a second call, without duplicating", async () => {
+  test("returns null and creates nothing when the user has no discussions", async () => {
     const { userId, client } = await createSignedInUser();
 
-    const first = await ensureDiscussion(client, userId);
-    const second = await ensureDiscussion(client, userId);
+    const discussionId = await findLatestDiscussion(client, userId);
 
-    expect(second).toBe(first);
+    expect(discussionId).toBeNull();
 
-    const { data: rows, error } = await admin
+    const { data: discussionRows, error: discussionError } = await admin
       .from("discussions")
       .select("id")
       .eq("user_id", userId);
+    expect(discussionError).toBeNull();
+    expect(discussionRows).toHaveLength(0);
 
-    expect(error).toBeNull();
-    expect(rows).toHaveLength(1);
+    const { data: notebookRows, error: notebookError } = await admin
+      .from("notebooks")
+      .select("id")
+      .eq("user_id", userId);
+    expect(notebookError).toBeNull();
+    expect(notebookRows).toHaveLength(0);
   });
 });

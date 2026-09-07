@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
-import { ensureDiscussion } from "@/lib/ensureDiscussion";
+import { findLatestDiscussion } from "@/lib/findLatestDiscussion";
 import { Workspace } from "./Workspace";
 
 export default async function Home() {
@@ -13,7 +13,7 @@ export default async function Home() {
     redirect("/login");
   }
 
-  const discussionId = await ensureDiscussion(supabase, user.id);
+  const discussionId = await findLatestDiscussion(supabase, user.id);
 
   return <Workspace initialDiscussionId={discussionId} />;
 }
