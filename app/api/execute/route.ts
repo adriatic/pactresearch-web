@@ -49,6 +49,13 @@ async function handlePost(request: Request) {
     return Response.json({ error: "Malformed request body." }, { status: 400 });
   }
 
+  if (typeof promptText !== "string" || promptText.trim().length === 0) {
+    return Response.json(
+      { error: "promptText is required and must be a non-empty string." },
+      { status: 400 },
+    );
+  }
+
   const { data: acquired, error: lockError } = await supabase.rpc(
     "try_acquire_execution_lock",
     { p_user_id: user.id, p_discussion_id: discussionId },

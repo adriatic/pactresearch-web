@@ -304,6 +304,25 @@ describe("POST /api/execute", () => {
     expect(body.error).toBeTruthy();
   });
 
+  test("returns 400, and never acquires the lock, for an empty or whitespace-only promptText", async () => {
+    currentCookies = await signInAsTestUser();
+
+    const response = await POST(
+      makeRequest({ discussionId, promptText: "   " }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toBeTruthy();
+
+    const { data: lockRows, error: lockCheckError } = await admin
+      .from("execution_locks")
+      .select("*")
+      .eq("user_id", userId);
+    expect(lockCheckError).toBeNull();
+    expect(lockRows).toHaveLength(0);
+  });
+
   test("on success, inserts a responses row, releases the lock, and never leaks the API key", async () => {
     currentCookies = await signInAsTestUser();
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 const CATEGORIES = ["Personal Research", "Dev Test"] as const;
 
@@ -21,8 +21,17 @@ export function NotebookCreator({
   const [discussionResult, setDiscussionResult] = useState<string | null>(null);
   const [discussionLoading, setDiscussionLoading] = useState(false);
 
+  // Refs, not state, so the guard is checked synchronously at the top of
+  // the handler — closing the narrow window where a second click can fire
+  // before React has committed the disabled-button re-render from the
+  // first one.
+  const notebookInFlight = useRef(false);
+  const discussionInFlight = useRef(false);
+
   async function handleCreateNotebook(e: React.FormEvent) {
     e.preventDefault();
+    if (notebookInFlight.current) return;
+    notebookInFlight.current = true;
     setNotebookLoading(true);
     setNotebookResult(null);
     setNotebookId(null);
@@ -42,12 +51,14 @@ export function NotebookCreator({
       setNotebookResult(String(err));
     } finally {
       setNotebookLoading(false);
+      notebookInFlight.current = false;
     }
   }
 
   async function handleCreateDiscussion(e: React.FormEvent) {
     e.preventDefault();
-    if (!notebookId) return;
+    if (!notebookId || discussionInFlight.current) return;
+    discussionInFlight.current = true;
     setDiscussionLoading(true);
     setDiscussionResult(null);
 
@@ -66,6 +77,7 @@ export function NotebookCreator({
       setDiscussionResult(String(err));
     } finally {
       setDiscussionLoading(false);
+      discussionInFlight.current = false;
     }
   }
 
