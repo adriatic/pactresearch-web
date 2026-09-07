@@ -6,8 +6,10 @@ const CATEGORIES = ["Personal Research", "Dev Test"] as const;
 
 export function NotebookCreator({
   onDiscussionCreated,
+  lastDeletedNotebookId,
 }: {
   onDiscussionCreated: (discussionId: string) => void;
+  lastDeletedNotebookId: string | null;
 }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>(
@@ -27,6 +29,26 @@ export function NotebookCreator({
   // first one.
   const notebookInFlight = useRef(false);
   const discussionInFlight = useRef(false);
+
+  // Clears this component's own leftover display when the notebook it
+  // describes was just deleted elsewhere (DiscussionList's delete button,
+  // wired up via Workspace) — not on every delete, only when it's the one
+  // this component is currently showing. Adjusted directly during render
+  // (React's recommended pattern for "reset state when a prop changes"),
+  // not in an effect — an effect here would setState synchronously in its
+  // body, triggering an extra, avoidable render pass.
+  const [handledDeletedNotebookId, setHandledDeletedNotebookId] = useState<
+    string | null
+  >(null);
+  if (lastDeletedNotebookId !== handledDeletedNotebookId) {
+    setHandledDeletedNotebookId(lastDeletedNotebookId);
+    if (lastDeletedNotebookId && lastDeletedNotebookId === notebookId) {
+      setNotebookResult(null);
+      setNotebookId(null);
+      setDiscussionResult(null);
+      setDiscussionName("");
+    }
+  }
 
   async function handleCreateNotebook(e: React.FormEvent) {
     e.preventDefault();

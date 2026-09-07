@@ -18,13 +18,22 @@ export function Workspace({
   // anything that changes here.
   const [discussionListRefetchToken, setDiscussionListRefetchToken] =
     useState(0);
+  // Rebroadcast down to NotebookCreator, the same shape as
+  // discussionListRefetchToken above — set here from DiscussionList's
+  // callback, consumed by whichever child needs to react.
+  const [lastDeletedNotebookId, setLastDeletedNotebookId] = useState<
+    string | null
+  >(null);
 
   function handleDiscussionCreated(discussionId: string) {
     setActiveDiscussionId(discussionId);
     setDiscussionListRefetchToken((t) => t + 1);
   }
 
-  function handleNotebookDeleted(deletedDiscussionIds: string[]) {
+  function handleNotebookDeleted(
+    notebookId: string,
+    deletedDiscussionIds: string[],
+  ) {
     if (
       activeDiscussionId &&
       deletedDiscussionIds.includes(activeDiscussionId)
@@ -32,6 +41,7 @@ export function Workspace({
       setActiveDiscussionId(null);
     }
     setDiscussionListRefetchToken((t) => t + 1);
+    setLastDeletedNotebookId(notebookId);
   }
 
   return (
@@ -45,7 +55,10 @@ export function Workspace({
         refetchToken={discussionListRefetchToken}
       />
       <hr />
-      <NotebookCreator onDiscussionCreated={handleDiscussionCreated} />
+      <NotebookCreator
+        onDiscussionCreated={handleDiscussionCreated}
+        lastDeletedNotebookId={lastDeletedNotebookId}
+      />
     </>
   );
 }

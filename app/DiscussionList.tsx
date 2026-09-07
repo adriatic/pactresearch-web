@@ -51,7 +51,10 @@ export function DiscussionList({
 }: {
   activeDiscussionId: string | null;
   onSelect: (discussionId: string) => void;
-  onNotebookDeleted: (deletedDiscussionIds: string[]) => void;
+  onNotebookDeleted: (
+    notebookId: string,
+    deletedDiscussionIds: string[],
+  ) => void;
   refetchToken: number;
 }) {
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
@@ -79,7 +82,10 @@ export function DiscussionList({
     });
 
     if (response.ok) {
-      onNotebookDeleted(group.discussions.map((d) => d.id));
+      onNotebookDeleted(
+        group.notebookId,
+        group.discussions.map((d) => d.id),
+      );
     }
   }
 
