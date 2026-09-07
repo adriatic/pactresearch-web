@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
+
+interface PastResponse {
+  id: string;
+  prompt_text: string;
+  response: string | null;
+  resolved_model: string | null;
+}
 
 export function ExecuteTester({ discussionId }: { discussionId: string }) {
   const [promptText, setPromptText] = useState("");
@@ -10,6 +17,21 @@ export function ExecuteTester({ discussionId }: { discussionId: string }) {
   const [streamedResponse, setStreamedResponse] = useState<string | null>(null);
   const [streamedModel, setStreamedModel] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [history, setHistory] = useState<PastResponse[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`/api/responses?discussionId=${discussionId}`)
+      .then((response) => response.json())
+      .then((body) => {
+        if (!cancelled) setHistory(body);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [discussionId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -95,6 +117,23 @@ export function ExecuteTester({ discussionId }: { discussionId: string }) {
     <main>
       <h1>Execute tester</h1>
       <p>Discussion: {discussionId}</p>
+      {history.length > 0 && (
+        <div>
+          <h2>History</h2>
+          {history.map((entry) => (
+            <div key={entry.id}>
+              <p>
+                <strong>Prompt:</strong> {entry.prompt_text}
+              </p>
+              <p>
+                <strong>Response</strong>
+                {entry.resolved_model ? ` — ${entry.resolved_model}` : ""}:
+              </p>
+              <pre>{entry.response}</pre>
+            </div>
+          ))}
+        </div>
+      )}
       <form onSubmit={handleSubmit}>
         <textarea
           value={promptText}
