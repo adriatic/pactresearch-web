@@ -220,7 +220,7 @@ describe("/api/discussions", () => {
     expect(rows).toHaveLength(0);
   });
 
-  test("GET returns only the caller's own discussions, not another user's", async () => {
+  test("GET returns only the caller's own discussions, embedding each one's own notebook name, not another user's", async () => {
     const userA = await createSignedInUser();
     const userB = await createSignedInUser();
 
@@ -259,6 +259,7 @@ describe("/api/discussions", () => {
     expect(bodyA).toHaveLength(1);
     expect(bodyA[0].name).toBe("User A's discussion");
     expect(bodyA[0].user_id).toBe(userA.userId);
+    expect(bodyA[0].notebooks.name).toBe("User A's notebook");
 
     currentCookies = userB.cookies;
     const responseB = await GET();
@@ -267,6 +268,7 @@ describe("/api/discussions", () => {
     expect(bodyB).toHaveLength(1);
     expect(bodyB[0].name).toBe("User B's discussion");
     expect(bodyB[0].user_id).toBe(userB.userId);
+    expect(bodyB[0].notebooks.name).toBe("User B's notebook");
   });
 
   test("GET returns 401 when there is no authenticated user", async () => {

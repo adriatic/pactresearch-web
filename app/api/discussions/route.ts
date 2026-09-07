@@ -82,10 +82,12 @@ async function handleGet() {
 
   // Session-scoped client + RLS: this already returns only the caller's
   // own discussions, same reliance on RLS as the notebook-ownership check
-  // above — no separate `user_id` filter needed here either.
+  // above — no separate `user_id` filter needed here either. The embedded
+  // notebooks(name) is scoped by the same RLS policy on notebooks, so this
+  // can only ever resolve to a notebook the caller themselves owns.
   const { data: discussions, error } = await supabase
     .from("discussions")
-    .select("*")
+    .select("*, notebooks(name)")
     .order("created_at", { ascending: false });
 
   if (error) {

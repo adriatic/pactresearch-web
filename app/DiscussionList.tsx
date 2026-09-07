@@ -4,7 +4,39 @@ import { useEffect, useState } from "react";
 
 interface Discussion {
   id: string;
+  notebook_id: string;
   name: string | null;
+  notebooks: { name: string | null } | null;
+}
+
+interface NotebookGroup {
+  notebookId: string;
+  notebookName: string;
+  discussions: Discussion[];
+}
+
+// Groups the flat, already created_at-desc-sorted list by notebook_id,
+// preserving the order notebooks are first encountered in — no separate
+// notebook-level sort needed.
+function groupByNotebook(discussions: Discussion[]): NotebookGroup[] {
+  const groups: NotebookGroup[] = [];
+  const groupByNotebookId = new Map<string, NotebookGroup>();
+
+  for (const discussion of discussions) {
+    let group = groupByNotebookId.get(discussion.notebook_id);
+    if (!group) {
+      group = {
+        notebookId: discussion.notebook_id,
+        notebookName: discussion.notebooks?.name || discussion.notebook_id,
+        discussions: [],
+      };
+      groupByNotebookId.set(discussion.notebook_id, group);
+      groups.push(group);
+    }
+    group.discussions.push(discussion);
+  }
+
+  return groups;
 }
 
 export function DiscussionList({
@@ -32,29 +64,36 @@ export function DiscussionList({
     };
   }, [refetchToken]);
 
+  const groups = groupByNotebook(discussions);
+
   return (
     <section>
       <h2>Discussions</h2>
-      <ul>
-        {discussions.map((discussion) => (
-          <li key={discussion.id}>
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                onSelect(discussion.id);
-              }}
-              style={
-                discussion.id === activeDiscussionId
-                  ? { fontWeight: "bold" }
-                  : undefined
-              }
-            >
-              {discussion.name || discussion.id}
-            </a>
-          </li>
-        ))}
-      </ul>
+      {groups.map((group) => (
+        <div key={group.notebookId}>
+          <h3>{group.notebookName}</h3>
+          <ul>
+            {group.discussions.map((discussion) => (
+              <li key={discussion.id}>
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onSelect(discussion.id);
+                  }}
+                  style={
+                    discussion.id === activeDiscussionId
+                      ? { fontWeight: "bold" }
+                      : undefined
+                  }
+                >
+                  {discussion.name || discussion.id}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
     </section>
   );
 }
