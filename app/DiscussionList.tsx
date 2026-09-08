@@ -2,11 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+interface Notebook {
+  id: string;
+  name: string | null;
+}
+
 interface Discussion {
   id: string;
   notebook_id: string;
   name: string | null;
-  notebooks: { name: string | null } | null;
 }
 
 interface NotebookGroup {
@@ -15,28 +19,36 @@ interface NotebookGroup {
   discussions: Discussion[];
 }
 
-// Groups the flat, already created_at-desc-sorted list by notebook_id,
-// preserving the order notebooks are first encountered in — no separate
-// notebook-level sort needed.
-function groupByNotebook(discussions: Discussion[]): NotebookGroup[] {
-  const groups: NotebookGroup[] = [];
+// Every notebook gets a group, in the order notebooks were fetched
+// (created_at descending) — not derived from discussions, since a notebook
+// with zero discussions has none to derive a heading from otherwise. Each
+// discussion is then attached to its notebook's group.
+function groupByNotebook(
+  notebooks: Notebook[],
+  discussions: Discussion[],
+): NotebookGroup[] {
   const groupByNotebookId = new Map<string, NotebookGroup>();
+  const groups: NotebookGroup[] = [];
+
+  for (const notebook of notebooks) {
+    const group: NotebookGroup = {
+      notebookId: notebook.id,
+      notebookName: notebook.name || notebook.id,
+      discussions: [],
+    };
+    groupByNotebookId.set(notebook.id, group);
+    groups.push(group);
+  }
 
   for (const discussion of discussions) {
-    let group = groupByNotebookId.get(discussion.notebook_id);
-    if (!group) {
-      group = {
-        notebookId: discussion.notebook_id,
-        notebookName: discussion.notebooks?.name || discussion.notebook_id,
-        discussions: [],
-      };
-      groupByNotebookId.set(discussion.notebook_id, group);
-      groups.push(group);
-    }
-    group.discussions.push(discussion);
+    groupByNotebookId.get(discussion.notebook_id)?.discussions.push(discussion);
   }
 
   return groups;
+}
+
+function fetchNotebooks(): Promise<Notebook[]> {
+  return fetch("/api/notebooks").then((response) => response.json());
 }
 
 function fetchDiscussions(): Promise<Discussion[]> {
@@ -57,14 +69,20 @@ export function DiscussionList({
   ) => void;
   refetchToken: number;
 }) {
+  const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
 
   useEffect(() => {
     let cancelled = false;
 
-    fetchDiscussions().then((body) => {
-      if (!cancelled) setDiscussions(body);
-    });
+    Promise.all([fetchNotebooks(), fetchDiscussions()]).then(
+      ([notebooksBody, discussionsBody]) => {
+        if (!cancelled) {
+          setNotebooks(notebooksBody);
+          setDiscussions(discussionsBody);
+        }
+      },
+    );
 
     return () => {
       cancelled = true;
@@ -89,7 +107,7 @@ export function DiscussionList({
     }
   }
 
-  const groups = groupByNotebook(discussions);
+  const groups = groupByNotebook(notebooks, discussions);
 
   return (
     <section>
@@ -102,26 +120,30 @@ export function DiscussionList({
               Delete notebook
             </button>
           </h3>
-          <ul>
-            {group.discussions.map((discussion) => (
-              <li key={discussion.id}>
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onSelect(discussion.id);
-                  }}
-                  style={
-                    discussion.id === activeDiscussionId
-                      ? { fontWeight: "bold" }
-                      : undefined
-                  }
-                >
-                  {discussion.name || discussion.id}
-                </a>
-              </li>
-            ))}
-          </ul>
+          {group.discussions.length > 0 ? (
+            <ul>
+              {group.discussions.map((discussion) => (
+                <li key={discussion.id}>
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onSelect(discussion.id);
+                    }}
+                    style={
+                      discussion.id === activeDiscussionId
+                        ? { fontWeight: "bold" }
+                        : undefined
+                    }
+                  >
+                    {discussion.name || discussion.id}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No discussions yet.</p>
+          )}
         </div>
       ))}
     </section>

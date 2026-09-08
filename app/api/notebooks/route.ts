@@ -107,5 +107,31 @@ async function handleDelete(request: Request) {
   return Response.json(deleted[0]);
 }
 
+async function handleGet() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Session-scoped client + RLS: this already returns only the caller's
+  // own notebooks, same reliance on RLS as GET /api/discussions — no
+  // separate user_id filter needed here either.
+  const { data: notebooks, error } = await supabase
+    .from("notebooks")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return Response.json(notebooks);
+}
+
 export const POST = withRouteErrorHandling(handlePost);
 export const DELETE = withRouteErrorHandling(handleDelete);
+export const GET = withRouteErrorHandling(handleGet);

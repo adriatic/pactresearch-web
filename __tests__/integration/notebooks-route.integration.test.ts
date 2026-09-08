@@ -42,7 +42,7 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const { POST, DELETE } = await import("@/app/api/notebooks/route");
+const { POST, DELETE, GET } = await import("@/app/api/notebooks/route");
 
 function makeRequest(body: unknown) {
   return new Request("http://localhost/api/notebooks", {
@@ -348,5 +348,57 @@ describe("/api/notebooks", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  test("GET returns only the caller's own notebooks, including one with zero discussions, not another user's", async () => {
+    const userA = await createSignedInUser();
+    const userB = await createSignedInUser();
+
+    // User A has one notebook with a discussion and one with none — the
+    // exact shape that made an empty notebook invisible before this fix.
+    const { data: notebookWithDiscussion, error: notebookWithDiscussionError } =
+      await admin
+        .from("notebooks")
+        .insert({ user_id: userA.userId, name: "Notebook with a discussion" })
+        .select()
+        .single();
+    expect(notebookWithDiscussionError).toBeNull();
+
+    const { error: discussionError } = await admin.from("discussions").insert({
+      notebook_id: notebookWithDiscussion!.id,
+      user_id: userA.userId,
+      name: "A discussion",
+    });
+    expect(discussionError).toBeNull();
+
+    const { data: emptyNotebook, error: emptyNotebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userA.userId, name: "Empty notebook" })
+      .select()
+      .single();
+    expect(emptyNotebookError).toBeNull();
+
+    const { error: notebookBError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userB.userId, name: "User B's notebook" });
+    expect(notebookBError).toBeNull();
+
+    currentCookies = userA.cookies;
+    const response = await GET();
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(body).toHaveLength(2);
+    const ids = body.map((notebook: { id: string }) => notebook.id);
+    expect(ids).toContain(notebookWithDiscussion!.id);
+    expect(ids).toContain(emptyNotebook!.id);
+  });
+
+  test("GET returns 401 when there is no authenticated user", async () => {
+    currentCookies = [];
+
+    const response = await GET();
+
+    expect(response.status).toBe(401);
   });
 });
