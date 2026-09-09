@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 
 interface PastResponse {
@@ -8,6 +8,11 @@ interface PastResponse {
   prompt_text: string;
   response: string | null;
   resolved_model: string | null;
+}
+
+interface DiscussionRow {
+  id: string;
+  draft_prompt_text: string | null;
 }
 
 export function ExecuteTester({
@@ -23,44 +28,96 @@ export function ExecuteTester({
   const [isStreaming, setIsStreaming] = useState(false);
   const [history, setHistory] = useState<PastResponse[]>([]);
 
-  // Clears every piece of state that describes, or belongs to, the
-  // *currently active* discussion — not just the live-run display — when
-  // discussionId itself changes: a different discussion picked, a new one
-  // created, or the active one cleared entirely (e.g. after a delete).
-  // history and promptText were each added by earlier tasks and missed
-  // this reset the first time around; both belong here for the same
-  // reason the rest do — an unsent draft is scoped to the discussion it
-  // was being composed for, same as everything else on this list, and
-  // shouldn't linger and risk being sent to a different one. (loading is
-  // the one piece deliberately still excluded — it's a live in-flight
-  // flag rather than a data/draft cache; forcibly clearing it while a
-  // request for the old discussion is still genuinely running would be
-  // misleading, not corrective.) Adjusted directly during render, same
-  // pattern as NotebookCreator's deleted-notebook clear: an effect calling
-  // setState synchronously in its body here would trigger an avoidable
-  // extra render pass (react-hooks/set-state-in-effect).
+  // Non-persisted live-run display state — cleared immediately, during
+  // render, the moment discussionId changes, so a previous discussion's
+  // response never flashes next to a different (or absent) active
+  // discussion. Adjusted directly during render, same pattern as
+  // NotebookCreator's deleted-notebook clear: an effect calling setState
+  // synchronously in its body here would trigger an avoidable extra
+  // render pass (react-hooks/set-state-in-effect). promptText and history
+  // used to be reset here too (see 4d64d02) — they're real persisted data
+  // now (see the effect below), not in-memory state that needs resetting.
   const [displayedDiscussionId, setDisplayedDiscussionId] =
     useState(discussionId);
   if (discussionId !== displayedDiscussionId) {
     setDisplayedDiscussionId(discussionId);
-    setPromptText("");
     setResult(null);
     setStreamedResponse(null);
     setStreamedModel(null);
     setIsStreaming(false);
-    setHistory([]);
   }
 
+  // Always holds the latest promptText, readable from the effect below
+  // without a stale closure — promptText changes on every keystroke, but
+  // that effect only re-runs when discussionId itself changes.
+  const promptTextRef = useRef(promptText);
   useEffect(() => {
-    if (!discussionId) return;
+    promptTextRef.current = promptText;
+  }, [promptText]);
 
+  // Which discussion is currently "claimed" as active by this effect —
+  // the outgoing discussion to save the draft against on the next switch.
+  // Claimed synchronously at the very start of each effect invocation
+  // (inside the effect, before any await — not during render, so this
+  // isn't subject to the render-time ref-write restriction), not only
+  // after a load fully completes. That distinction matters: if it were
+  // only updated on load completion, a second switch that starts before
+  // the first one's load has finished would still see the *original*
+  // discussion as outgoing, never learning the first switch ever
+  // happened — exactly the bug this fixes. null on first mount.
+  const activeDiscussionIdRef = useRef<string | null>(null);
+
+  // Single source of truth for both history and the persisted draft:
+  // switching discussions saves the outgoing discussion's draft first —
+  // awaited, so switching back can't observe a lost save racing against
+  // the incoming discussion's load — then loads the new discussion's
+  // history and persisted draft. Nothing here is a special-cased
+  // in-memory value; it's real data, fetched and saved through the
+  // database like everything else in this component.
+  useEffect(() => {
     let cancelled = false;
 
-    fetch(`/api/responses?discussionId=${discussionId}`)
-      .then((response) => response.json())
-      .then((body) => {
-        if (!cancelled) setHistory(body);
-      });
+    async function saveThenLoad() {
+      const outgoingDiscussionId = activeDiscussionIdRef.current;
+      const outgoingDraft = promptTextRef.current;
+      activeDiscussionIdRef.current = discussionId;
+
+      // outgoingDiscussionId === discussionId means this invocation isn't
+      // a genuine switch — either the very first claim for this target,
+      // or React Strict Mode's dev-only second invocation of the same
+      // target (the first invocation already claimed it). Only a real
+      // mismatch is a genuine outgoing discussion to save.
+      if (outgoingDiscussionId && outgoingDiscussionId !== discussionId) {
+        await fetch(`/api/discussions?id=${outgoingDiscussionId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ draftPromptText: outgoingDraft || null }),
+        });
+      }
+
+      if (cancelled) return;
+
+      if (!discussionId) {
+        setPromptText("");
+        setHistory([]);
+        return;
+      }
+
+      const [historyBody, discussionsBody] = await Promise.all([
+        fetch(`/api/responses?discussionId=${discussionId}`).then((r) =>
+          r.json(),
+        ),
+        fetch(`/api/discussions?id=${discussionId}`).then((r) => r.json()),
+      ]);
+
+      if (cancelled) return;
+
+      setHistory(historyBody);
+      const loadedDiscussion = (discussionsBody as DiscussionRow[])[0];
+      setPromptText(loadedDiscussion?.draft_prompt_text ?? "");
+    }
+
+    saveThenLoad();
 
     return () => {
       cancelled = true;
@@ -139,6 +196,22 @@ export function ExecuteTester({
       });
       const body = await response.json();
       setResult(JSON.stringify(body, null, 2));
+
+      if (response.ok) {
+        // The draft was just promoted into a real cell — clear its
+        // persisted copy so switching away and back doesn't resurrect
+        // it. Best-effort: a failure here shouldn't overwrite the run's
+        // own result with an unrelated cleanup error.
+        try {
+          await fetch(`/api/discussions?id=${discussionId}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ draftPromptText: null }),
+          });
+        } catch {
+          // Best-effort cleanup — see comment above.
+        }
+      }
     } catch (err) {
       setResult(String(err));
     } finally {

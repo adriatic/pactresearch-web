@@ -70,7 +70,7 @@ async function handlePost(request: Request) {
   return Response.json(discussion, { status: 201 });
 }
 
-async function handleGet() {
+async function handleGet(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -85,10 +85,23 @@ async function handleGet() {
   // above — no separate `user_id` filter needed here either. The embedded
   // notebooks(name) is scoped by the same RLS policy on notebooks, so this
   // can only ever resolve to a notebook the caller themselves owns.
-  const { data: discussions, error } = await supabase
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  let query = supabase
     .from("discussions")
     .select("*, notebooks(name)")
     .order("created_at", { ascending: false });
+
+  // Optional narrowing to a single discussion (e.g. ExecuteTester loading
+  // one discussion's persisted draft) — still a "list" response shape
+  // (an array, possibly empty or single-item), just filtered server-side
+  // instead of client-side.
+  if (id) {
+    query = query.eq("id", id);
+  }
+
+  const { data: discussions, error } = await query;
 
   if (error) {
     throw error;
@@ -97,5 +110,63 @@ async function handleGet() {
   return Response.json(discussions);
 }
 
+interface UpdateDiscussionRequestBody {
+  draftPromptText: string | null;
+}
+
+async function handlePatch(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return Response.json({ error: "id is required." }, { status: 400 });
+  }
+
+  let draftPromptText: string | null;
+  try {
+    const body = (await request.json()) as UpdateDiscussionRequestBody;
+    draftPromptText = body.draftPromptText;
+  } catch {
+    return Response.json({ error: "Malformed request body." }, { status: 400 });
+  }
+
+  if (draftPromptText !== null && typeof draftPromptText !== "string") {
+    return Response.json(
+      { error: "draftPromptText must be a string or null." },
+      { status: 400 },
+    );
+  }
+
+  // Session-scoped client + RLS: this can only ever update a discussion
+  // the caller owns — an empty result covers both "doesn't exist" and
+  // "isn't yours", same non-distinguishing 404 pattern as DELETE
+  // /api/notebooks.
+  const { data: updated, error } = await supabase
+    .from("discussions")
+    .update({ draft_prompt_text: draftPromptText })
+    .eq("id", id)
+    .select();
+
+  if (error) {
+    throw error;
+  }
+
+  if (updated.length === 0) {
+    return Response.json({ error: "Discussion not found." }, { status: 404 });
+  }
+
+  return Response.json(updated[0]);
+}
+
 export const POST = withRouteErrorHandling(handlePost);
 export const GET = withRouteErrorHandling(handleGet);
+export const PATCH = withRouteErrorHandling(handlePatch);

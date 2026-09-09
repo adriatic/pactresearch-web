@@ -3,11 +3,14 @@ import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
-// Verifies ExecuteTester's promptText reset through the real UI: an unsent
-// draft typed while one discussion is active must not survive switching to
-// a different discussion — and switching back must not restore it either,
-// which would mean a hidden per-discussion cache rather than a genuine
-// reset (the bug this test guards against).
+// Verifies the composer's draft is genuinely persisted per discussion, not
+// a special-cased in-memory value (superseding 4d64d02, which cleared
+// promptText on switch instead of persisting it): switching away saves the
+// outgoing discussion's draft, switching to any discussion loads its own
+// persisted draft, and reloading the page entirely proves this is real
+// database persistence, not a session-only illusion. Also confirms the
+// original misattribution risk still doesn't happen — a discussion's
+// composer never shows another discussion's draft.
 
 interface LocalSupabaseStatus {
   API_URL: string;
@@ -24,7 +27,7 @@ function getLocalSupabaseStatus(): LocalSupabaseStatus {
 
 test.setTimeout(60_000);
 
-test("switching discussions clears the composer's draft text, in both directions", async ({
+test("a discussion's draft survives switching away and back, and reloading the page, without leaking into another discussion", async ({
   page,
   context,
 }) => {
@@ -32,12 +35,12 @@ test("switching discussions clears the composer's draft text, in both directions
   const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
 
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const email = `e2e-draft-reset-${suffix}@example.com`;
+  const email = `e2e-draft-persist-${suffix}@example.com`;
   const password = "correct horse battery staple 8!";
-  const notebookName = `E2E draft-reset notebook ${suffix}`;
-  const discussionAName = `E2E draft-reset discussion A ${suffix}`;
-  const discussionBName = `E2E draft-reset discussion B ${suffix}`;
-  const draftText = `This draft should not survive switching discussions ${suffix}`;
+  const notebookName = `E2E draft-persist notebook ${suffix}`;
+  const discussionAName = `E2E draft-persist discussion A ${suffix}`;
+  const discussionBName = `E2E draft-persist discussion B ${suffix}`;
+  const draftText = `This draft should survive switching away and reloading ${suffix}`;
 
   const { data: created, error: createUserError } =
     await admin.auth.admin.createUser({
@@ -122,16 +125,31 @@ test("switching discussions clears the composer's draft text, in both directions
   // findLatestDiscussion picked on initial load.
   await discussionALink.click();
   await expect(page.getByText(`Discussion: `)).toBeVisible();
+  await expect(composer).toHaveValue("");
 
   await composer.fill(draftText);
   await expect(composer).toHaveValue(draftText);
 
+  // Switch away — this must save A's draft (awaited by the app itself
+  // before B's data loads) before B's composer is ever shown.
   await discussionBLink.click();
+
+  // B's composer must start empty — no leakage of A's draft into a
+  // different discussion, the original misattribution risk this whole
+  // feature exists to avoid.
   await expect(composer).toHaveValue("");
 
-  // Switch back — the draft must still be gone, not restored. A hidden
-  // per-discussion cache would mask the underlying bug this test guards
-  // against by making it look reset when it's really just parked.
+  // Switch back — the draft must be there, restored from the database,
+  // not lost the way the superseded 4d64d02 approach lost it.
   await discussionALink.click();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveValue(draftText);
+
+  // Prove this is real persistence, not a session-only illusion: reload
+  // the page entirely (fresh React state, fresh network requests — the
+  // context's cookies persist across the reload on their own, no
+  // re-authentication needed) and navigate back to discussion A.
+  await page.reload();
+  await expect(discussionALink).toBeVisible();
+  await discussionALink.click();
+  await expect(composer).toHaveValue(draftText);
 });

@@ -52,6 +52,13 @@ function makeRequest(body: unknown) {
   });
 }
 
+function makeGetRequest(id?: string) {
+  const url = id
+    ? `http://localhost/api/discussions?id=${id}`
+    : "http://localhost/api/discussions";
+  return new Request(url);
+}
+
 describe("/api/discussions", () => {
   let API_URL: string;
   let ANON_KEY: string;
@@ -253,7 +260,7 @@ describe("/api/discussions", () => {
     expect(discussionBError).toBeNull();
 
     currentCookies = userA.cookies;
-    const responseA = await GET();
+    const responseA = await GET(makeGetRequest());
     expect(responseA.status).toBe(200);
     const bodyA = await responseA.json();
     expect(bodyA).toHaveLength(1);
@@ -262,7 +269,7 @@ describe("/api/discussions", () => {
     expect(bodyA[0].notebooks.name).toBe("User A's notebook");
 
     currentCookies = userB.cookies;
-    const responseB = await GET();
+    const responseB = await GET(makeGetRequest());
     expect(responseB.status).toBe(200);
     const bodyB = await responseB.json();
     expect(bodyB).toHaveLength(1);
@@ -274,7 +281,7 @@ describe("/api/discussions", () => {
   test("GET returns 401 when there is no authenticated user", async () => {
     currentCookies = [];
 
-    const response = await GET();
+    const response = await GET(makeGetRequest());
 
     expect(response.status).toBe(401);
   });
