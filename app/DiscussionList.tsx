@@ -71,6 +71,7 @@ export function DiscussionList({
 }) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +96,7 @@ export function DiscussionList({
     );
     if (!confirmed) return;
 
+    setDeleteError(null);
     const response = await fetch(`/api/notebooks?id=${group.notebookId}`, {
       method: "DELETE",
     });
@@ -104,6 +106,12 @@ export function DiscussionList({
         group.notebookId,
         group.discussions.map((d) => d.id),
       );
+    } else if (response.status === 409) {
+      setDeleteError(
+        `"${group.notebookName}" can't be deleted right now — a discussion in it is actively executing. Try again once that finishes.`,
+      );
+    } else {
+      setDeleteError(`Failed to delete "${group.notebookName}".`);
     }
   }
 
@@ -112,6 +120,7 @@ export function DiscussionList({
   return (
     <section>
       <h2>Discussions</h2>
+      {deleteError && <p>{deleteError}</p>}
       {groups.map((group) => (
         <div key={group.notebookId}>
           <h3>

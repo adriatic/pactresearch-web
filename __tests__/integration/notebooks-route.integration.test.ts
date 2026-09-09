@@ -401,4 +401,95 @@ describe("/api/notebooks", () => {
 
     expect(response.status).toBe(401);
   });
+
+  test("DELETE returns 409, and deletes nothing, when a discussion has an active (non-stale) execution lock", async () => {
+    const { userId, cookies } = await createSignedInUser();
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook with an active run" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const { data: discussion, error: discussionError } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Actively executing discussion",
+      })
+      .select()
+      .single();
+    expect(discussionError).toBeNull();
+
+    // A fresh lock — well within the 5-minute staleness threshold
+    // try_acquire_execution_lock and this check both share.
+    const { error: lockError } = await admin.from("execution_locks").insert({
+      user_id: userId,
+      discussion_id: discussion!.id,
+      acquired_at: new Date().toISOString(),
+    });
+    expect(lockError).toBeNull();
+
+    currentCookies = cookies;
+    const response = await DELETE(makeDeleteRequest(notebook!.id));
+
+    expect(response.status).toBe(409);
+    const body = await response.json();
+    expect(body.error).toBeTruthy();
+    expect(body.discussionId).toBe(discussion!.id);
+
+    // Proven, not inferred: the notebook is genuinely still there.
+    const { data: notebookRows, error: notebookCheckError } = await admin
+      .from("notebooks")
+      .select("*")
+      .eq("id", notebook!.id);
+    expect(notebookCheckError).toBeNull();
+    expect(notebookRows).toHaveLength(1);
+  });
+
+  test("DELETE succeeds normally when a discussion's execution lock is stale", async () => {
+    const { userId, cookies } = await createSignedInUser();
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook with a stale lock" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const { data: discussion, error: discussionError } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Discussion with a stale lock",
+      })
+      .select()
+      .single();
+    expect(discussionError).toBeNull();
+
+    // Past the 5-minute staleness threshold — a crashed invocation that
+    // never released its lock, not a genuinely active one.
+    const staleAcquiredAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
+    const { error: lockError } = await admin.from("execution_locks").insert({
+      user_id: userId,
+      discussion_id: discussion!.id,
+      acquired_at: staleAcquiredAt,
+    });
+    expect(lockError).toBeNull();
+
+    currentCookies = cookies;
+    const response = await DELETE(makeDeleteRequest(notebook!.id));
+
+    expect(response.status).toBe(200);
+
+    const { data: notebookRows, error: notebookCheckError } = await admin
+      .from("notebooks")
+      .select("*")
+      .eq("id", notebook!.id);
+    expect(notebookCheckError).toBeNull();
+    expect(notebookRows).toHaveLength(0);
+  });
 });

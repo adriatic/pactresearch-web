@@ -85,6 +85,32 @@ async function handleDelete(request: Request) {
     return Response.json({ error: "id is required." }, { status: 400 });
   }
 
+  // Refuse to delete a notebook while one of its discussions has a
+  // genuinely active (non-stale) execution lock — otherwise the in-flight
+  // Anthropic call keeps running against a notebook/discussion that no
+  // longer exists, and its output is silently discarded once it resolves.
+  // Reuses the exact staleness threshold try_acquire_execution_lock uses
+  // (execution_lock_stale_after()), not a separately invented one.
+  const { data: blockingDiscussionId, error: lockCheckError } =
+    await supabase.rpc("notebook_active_execution_lock_discussion_id", {
+      p_notebook_id: id,
+    });
+
+  if (lockCheckError) {
+    throw lockCheckError;
+  }
+
+  if (blockingDiscussionId) {
+    return Response.json(
+      {
+        error:
+          "Cannot delete this notebook while a discussion is actively executing.",
+        discussionId: blockingDiscussionId,
+      },
+      { status: 409 },
+    );
+  }
+
   // Session-scoped client + RLS: this can only ever delete a notebook the
   // caller owns. An empty result covers both "doesn't exist" and "isn't
   // yours" — same non-distinguishing 404 pattern as the rest of this
