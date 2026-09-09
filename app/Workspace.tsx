@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ExecuteTester } from "./ExecuteTester";
 import { NotebookCreator } from "./NotebookCreator";
-import { DiscussionList } from "./DiscussionList";
+import { Explorer } from "./Explorer";
 
 export function Workspace({
   initialDiscussionId,
@@ -14,13 +14,13 @@ export function Workspace({
     initialDiscussionId,
   );
   // Bumped whenever a discussion is created or a notebook is deleted, so
-  // DiscussionList's effect refetches — it doesn't otherwise depend on
-  // anything that changes here.
+  // Explorer's effect refetches — it doesn't otherwise depend on anything
+  // that changes here.
   const [discussionListRefetchToken, setDiscussionListRefetchToken] =
     useState(0);
   // Rebroadcast down to NotebookCreator, the same shape as
-  // discussionListRefetchToken above — set here from DiscussionList's
-  // callback, consumed by whichever child needs to react.
+  // discussionListRefetchToken above — set here from Explorer's callback,
+  // consumed by whichever child needs to react.
   const [lastDeletedNotebookId, setLastDeletedNotebookId] = useState<
     string | null
   >(null);
@@ -48,7 +48,7 @@ export function Workspace({
     <>
       <ExecuteTester discussionId={activeDiscussionId} />
       <hr />
-      <DiscussionList
+      <Explorer
         activeDiscussionId={activeDiscussionId}
         onSelect={setActiveDiscussionId}
         onNotebookDeleted={handleNotebookDeleted}
