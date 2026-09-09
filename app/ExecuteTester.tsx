@@ -23,15 +23,17 @@ export function ExecuteTester({
   const [isStreaming, setIsStreaming] = useState(false);
   const [history, setHistory] = useState<PastResponse[]>([]);
 
-  // Clears every piece of state that describes the *currently active*
-  // discussion — not just the live-run display — when discussionId itself
-  // changes: a different discussion picked, a new one created, or the
-  // active one cleared entirely (e.g. after a delete). history was added by
-  // an earlier task and missed this reset the first time around; it
-  // belongs here for the same reason the other four do. (promptText and
-  // loading are deliberately not included — promptText is the user's own
-  // draft input, not discussion-derived data, and loading is a live
-  // in-flight flag rather than a data cache; forcibly clearing it while a
+  // Clears every piece of state that describes, or belongs to, the
+  // *currently active* discussion — not just the live-run display — when
+  // discussionId itself changes: a different discussion picked, a new one
+  // created, or the active one cleared entirely (e.g. after a delete).
+  // history and promptText were each added by earlier tasks and missed
+  // this reset the first time around; both belong here for the same
+  // reason the rest do — an unsent draft is scoped to the discussion it
+  // was being composed for, same as everything else on this list, and
+  // shouldn't linger and risk being sent to a different one. (loading is
+  // the one piece deliberately still excluded — it's a live in-flight
+  // flag rather than a data/draft cache; forcibly clearing it while a
   // request for the old discussion is still genuinely running would be
   // misleading, not corrective.) Adjusted directly during render, same
   // pattern as NotebookCreator's deleted-notebook clear: an effect calling
@@ -41,6 +43,7 @@ export function ExecuteTester({
     useState(discussionId);
   if (discussionId !== displayedDiscussionId) {
     setDisplayedDiscussionId(discussionId);
+    setPromptText("");
     setResult(null);
     setStreamedResponse(null);
     setStreamedModel(null);
