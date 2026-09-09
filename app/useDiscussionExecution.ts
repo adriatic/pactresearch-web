@@ -1,9 +1,16 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 
-interface PastResponse {
+// All of ExecuteTester's state/effects/handleSubmit, unchanged, extracted
+// into a hook so the fixed-layout shell (Workspace.tsx) can render the
+// discussion content and the composer as two separately-positioned
+// components — a scrolling middle region and a pinned footer — while both
+// share this one live state instance. This is purely a structural split
+// for layout purposes; none of the composer's actual behavior changes
+// here (that rebuild is 3.13 decision 1's exempted, separately-prototyped
+// project, not part of pact-web).
+
+export interface PastResponse {
   id: string;
   prompt_text: string;
   response: string | null;
@@ -15,11 +22,7 @@ interface DiscussionRow {
   draft_prompt_text: string | null;
 }
 
-export function ExecuteTester({
-  discussionId,
-}: {
-  discussionId: string | null;
-}) {
+export function useDiscussionExecution(discussionId: string | null) {
   const [promptText, setPromptText] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -221,53 +224,15 @@ export function ExecuteTester({
     }
   }
 
-  return (
-    <main>
-      <h1>Execute tester</h1>
-      {discussionId ? (
-        <p>Discussion: {discussionId}</p>
-      ) : (
-        <p>No discussion selected — create or pick one above.</p>
-      )}
-      {discussionId && history.length > 0 && (
-        <div>
-          <h2>History</h2>
-          {history.map((entry) => (
-            <div key={entry.id}>
-              <p>
-                <strong>Prompt:</strong> {entry.prompt_text}
-              </p>
-              <p>
-                <strong>Response</strong>
-                {entry.resolved_model ? ` — ${entry.resolved_model}` : ""}:
-              </p>
-              <pre>{entry.response}</pre>
-            </div>
-          ))}
-        </div>
-      )}
-      <form onSubmit={handleSubmit}>
-        <textarea
-          value={promptText}
-          onChange={(e) => setPromptText(e.target.value)}
-          rows={4}
-          cols={60}
-        />
-        <br />
-        <button type="submit" disabled={loading || !discussionId}>
-          {loading ? "Running..." : "Run"}
-        </button>
-      </form>
-      {streamedResponse !== null && (
-        <div>
-          <h2>
-            Live response{isStreaming ? " (streaming...)" : ""}
-            {streamedModel ? ` — ${streamedModel}` : ""}
-          </h2>
-          <pre>{streamedResponse}</pre>
-        </div>
-      )}
-      {result && <pre>{result}</pre>}
-    </main>
-  );
+  return {
+    promptText,
+    setPromptText,
+    result,
+    loading,
+    streamedResponse,
+    streamedModel,
+    isStreaming,
+    history,
+    handleSubmit,
+  };
 }
