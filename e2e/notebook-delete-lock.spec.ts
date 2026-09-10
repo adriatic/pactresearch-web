@@ -127,7 +127,7 @@ test("deleting a notebook with an actively executing discussion is blocked, with
   );
 
   await page
-    .locator("h3", { hasText: notebookName })
+    .getByRole("treeitem", { name: notebookName })
     .getByRole("button", { name: "Delete notebook" })
     .click();
 

@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  syncDataLoaderFeature,
+  selectionFeature,
+  hotkeysCoreFeature,
+} from "@headless-tree/core";
+import { useTree } from "@headless-tree/react";
 
 // Phase D's real notebook tree — ports the core behavior of pact-mac's
 // Explorer.tsx (reviewed in full per 3.13 development-plan §3.13; the
@@ -14,9 +20,21 @@ import { useEffect, useState } from "react";
 // replaces that, not yet built), persisted expand/collapse state (3.13
 // decision 4, deferred — session-only is correct for now), and the inline
 // "+ New Discussion" row (NotebookCreator already covers creation).
-// Styling stays plain/unstyled, matching this test harness's existing
-// convention throughout — "match actual behavior" is read as interaction
-// logic, not pact-mac's dark-theme CSS.
+//
+// Follow-up to 220474c: the hand-rolled "▼"/"▶" text-triangle link was
+// unusable for real evaluation — no real tree control, no keyboard nav,
+// no visual hierarchy. Rather than hand-build a real one, this uses
+// @headless-tree (core + react bindings) — evaluated against
+// react-arborist (pulls in redux + react-dnd, unneeded weight for a
+// drag-free 2-level tree), react-accessible-treeview (its own README
+// opens with "SEEKING NEW MAINTAINERS" — not actually well-maintained
+// despite download counts), and react-complex-tree (headless-tree is
+// that library's own official successor, from the same author). Chosen
+// for: zero runtime dependencies, genuinely headless (no imposed CSS —
+// this project has no CSS framework), and active development. Its
+// "beta" label is a real caveat, worth noting, but beta-and-actively-
+// developed beat stable-but-orphaned here. Delete controls' visual
+// treatment is still explicitly out of scope for this task.
 
 interface Notebook {
   id: string;
@@ -29,39 +47,16 @@ interface Discussion {
   name: string | null;
 }
 
-interface NotebookGroup {
-  notebookId: string;
-  notebookName: string;
-  discussions: Discussion[];
-}
-
-// Every notebook gets a group, in the order notebooks were fetched
-// (created_at descending) — not derived from discussions, since a notebook
-// with zero discussions has none to derive a heading from otherwise. Each
-// discussion is then attached to its notebook's group.
-function groupByNotebook(
-  notebooks: Notebook[],
-  discussions: Discussion[],
-): NotebookGroup[] {
-  const groupByNotebookId = new Map<string, NotebookGroup>();
-  const groups: NotebookGroup[] = [];
-
-  for (const notebook of notebooks) {
-    const group: NotebookGroup = {
-      notebookId: notebook.id,
-      notebookName: notebook.name || notebook.id,
-      discussions: [],
-    };
-    groupByNotebookId.set(notebook.id, group);
-    groups.push(group);
-  }
-
-  for (const discussion of discussions) {
-    groupByNotebookId.get(discussion.notebook_id)?.discussions.push(discussion);
-  }
-
-  return groups;
-}
+type TreeNodeData =
+  | { kind: "root" }
+  | { kind: "notebook"; notebookId: string; name: string }
+  | {
+      kind: "discussion";
+      discussionId: string;
+      notebookId: string;
+      name: string;
+    }
+  | { kind: "empty-placeholder" };
 
 function fetchNotebooks(): Promise<Notebook[]> {
   return fetch("/api/notebooks").then((response) => response.json());
@@ -70,6 +65,8 @@ function fetchNotebooks(): Promise<Notebook[]> {
 function fetchDiscussions(): Promise<Discussion[]> {
   return fetch("/api/discussions").then((response) => response.json());
 }
+
+const ROOT_ID = "__explorer_root__";
 
 export function Explorer({
   activeDiscussionId,
@@ -88,13 +85,6 @@ export function Explorer({
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  // Session-only — no magic default-expanded IDs (pact-mac hardcodes
-  // "notebook-tutorial"/"notebook-general"; that's exactly the
-  // special-casing 3.13 decision 3's future access-rights model replaces,
-  // not yet built here). Every notebook starts collapsed.
-  const [expandedNotebooks, setExpandedNotebooks] = useState<
-    Record<string, boolean>
-  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -113,117 +103,230 @@ export function Explorer({
     };
   }, [refetchToken]);
 
-  // A restored/selected discussion must never be invisible behind a
-  // collapsed triangle — ports pact-react-v3's fix for the same gap.
-  // Adjusted directly during render (same pattern used elsewhere in this
-  // app for "react to a prop/data change"; an effect calling setState
-  // synchronously in its body here would trigger an avoidable extra
-  // render pass — react-hooks/set-state-in-effect). Tracked against a
-  // "handled" id rather than running on every render: if discussions
-  // hasn't finished loading yet when activeDiscussionId first changes,
-  // the lookup below finds nothing and this deliberately doesn't mark
-  // itself handled, so it retries once discussions arrives — but once
-  // handled, a later manual collapse by the user isn't fought.
-  const [autoExpandedForDiscussionId, setAutoExpandedForDiscussionId] =
-    useState<string | null>(null);
-  if (activeDiscussionId !== autoExpandedForDiscussionId) {
-    const discussion = discussions.find((d) => d.id === activeDiscussionId);
-    if (discussion) {
-      setAutoExpandedForDiscussionId(activeDiscussionId);
-      if (!expandedNotebooks[discussion.notebook_id]) {
-        setExpandedNotebooks((prev) => ({
-          ...prev,
-          [discussion.notebook_id]: true,
-        }));
-      }
-    }
-  }
-
-  function toggleNotebook(notebookId: string) {
-    setExpandedNotebooks((prev) => ({
-      ...prev,
-      [notebookId]: !prev[notebookId],
-    }));
-  }
-
-  async function handleDeleteNotebook(group: NotebookGroup) {
+  async function handleDeleteNotebook(notebookId: string, name: string) {
     const confirmed = window.confirm(
-      `Delete notebook "${group.notebookName}" and all its discussions? This cannot be undone.`,
+      `Delete notebook "${name}" and all its discussions? This cannot be undone.`,
     );
     if (!confirmed) return;
 
+    const deletedDiscussionIds = discussions
+      .filter((d) => d.notebook_id === notebookId)
+      .map((d) => d.id);
+
     setDeleteError(null);
-    const response = await fetch(`/api/notebooks?id=${group.notebookId}`, {
+    const response = await fetch(`/api/notebooks?id=${notebookId}`, {
       method: "DELETE",
     });
 
     if (response.ok) {
-      onNotebookDeleted(
-        group.notebookId,
-        group.discussions.map((d) => d.id),
-      );
+      onNotebookDeleted(notebookId, deletedDiscussionIds);
     } else if (response.status === 409) {
       setDeleteError(
-        `"${group.notebookName}" can't be deleted right now — a discussion in it is actively executing. Try again once that finishes.`,
+        `"${name}" can't be deleted right now — a discussion in it is actively executing. Try again once that finishes.`,
       );
     } else {
-      setDeleteError(`Failed to delete "${group.notebookName}".`);
+      setDeleteError(`Failed to delete "${name}".`);
     }
   }
 
-  const groups = groupByNotebook(notebooks, discussions);
+  const tree = useTree<TreeNodeData>({
+    rootItemId: ROOT_ID,
+    getItemName: (item) => {
+      const data = item.getItemData();
+      switch (data.kind) {
+        case "notebook":
+        case "discussion":
+          return data.name;
+        case "empty-placeholder":
+          return "No discussions yet.";
+        default:
+          return "";
+      }
+    },
+    isItemFolder: (item) => item.getItemData().kind === "notebook",
+    dataLoader: {
+      getItem: (itemId) => {
+        if (itemId === ROOT_ID) return { kind: "root" };
+        if (itemId.endsWith("::empty")) return { kind: "empty-placeholder" };
+        const notebook = notebooks.find((n) => n.id === itemId);
+        if (notebook) {
+          return {
+            kind: "notebook",
+            notebookId: notebook.id,
+            name: notebook.name || notebook.id,
+          };
+        }
+        const discussion = discussions.find((d) => d.id === itemId);
+        if (discussion) {
+          return {
+            kind: "discussion",
+            discussionId: discussion.id,
+            notebookId: discussion.notebook_id,
+            name: discussion.name || discussion.id,
+          };
+        }
+        return { kind: "root" };
+      },
+      getChildren: (itemId) => {
+        if (itemId === ROOT_ID) return notebooks.map((n) => n.id);
+        const isNotebook = notebooks.some((n) => n.id === itemId);
+        if (!isNotebook) return [];
+        const childDiscussionIds = discussions
+          .filter((d) => d.notebook_id === itemId)
+          .map((d) => d.id);
+        // A notebook with zero discussions still gets a row — a synthetic
+        // placeholder child rather than an empty children array, since
+        // this data model has no other way to render "No discussions
+        // yet." under an expanded, empty notebook.
+        return childDiscussionIds.length > 0
+          ? childDiscussionIds
+          : [`${itemId}::empty`];
+      },
+    },
+    indent: 20,
+    onPrimaryAction: (item) => {
+      const data = item.getItemData();
+      if (data.kind === "discussion") {
+        onSelect(data.discussionId);
+      }
+    },
+    features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
+  });
+
+  // The sync data loader retrieves item/children data once and caches it
+  // internally — rebuildTree() is headless-tree's own documented way to
+  // tell it the underlying data changed (a notebook/discussion created or
+  // deleted) and it should recompute rather than keep showing stale data.
+  useEffect(() => {
+    tree.rebuildTree();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notebooks, discussions]);
+
+  // A restored/selected discussion must never be invisible behind a
+  // collapsed row — ports pact-react-v3's fix for the same gap (first
+  // applied in this app's b8ca74e). Split in two: which notebook needs
+  // expanding is decided during render (the same "adjust state when a
+  // prop changes" pattern used elsewhere in this app), but handed to the
+  // effect via *state*, not a local variable — calling setState during
+  // render makes React immediately discard and restart that render (its
+  // documented behavior for this exact pattern), so a plain local
+  // variable computed in the discarded render never survives to reach a
+  // committed effect. pendingAutoExpandNotebookId is state specifically
+  // so it survives the restart. The actual tree.expand() call is a
+  // genuinely imperative call into an external, non-React-state library,
+  // which a useEffect is the correct place for — not working around
+  // react-hooks/set-state-in-effect, but a real "synchronize with an
+  // external system" case. Not reset back to null afterward: the effect
+  // is keyed on this value specifically, so it only re-fires when a new
+  // auto-expand is genuinely due, whether or not the old value is cleared.
+  const [autoExpandedForDiscussionId, setAutoExpandedForDiscussionId] =
+    useState<string | null>(null);
+  const [pendingAutoExpandNotebookId, setPendingAutoExpandNotebookId] =
+    useState<string | null>(null);
+  if (activeDiscussionId !== autoExpandedForDiscussionId) {
+    const discussion = discussions.find((d) => d.id === activeDiscussionId);
+    // discussions hasn't loaded yet — don't mark handled, so this retries
+    // once it has (this render-time check re-runs on every render where
+    // discussions has changed).
+    if (discussion) {
+      setAutoExpandedForDiscussionId(activeDiscussionId);
+      setPendingAutoExpandNotebookId(discussion.notebook_id);
+    }
+  }
+
+  useEffect(() => {
+    if (!pendingAutoExpandNotebookId) return;
+    const notebookItem = tree.getItemInstance(pendingAutoExpandNotebookId);
+    if (notebookItem && !notebookItem.isExpanded()) {
+      notebookItem.expand();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutoExpandNotebookId]);
 
   return (
     <section>
       <h2>Explorer</h2>
       {deleteError && <p>{deleteError}</p>}
-      {groups.map((group) => {
-        const isExpanded = expandedNotebooks[group.notebookId] ?? false;
+      <div {...tree.getContainerProps("Explorer")}>
+        {tree.getItems().map((item) => {
+          const data = item.getItemData();
+          const level = item.getItemMeta().level;
+          const paddingLeft = 8 + level * 20;
 
-        return (
-          <div key={group.notebookId}>
-            <h3>
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  toggleNotebook(group.notebookId);
+          if (data.kind === "root") return null;
+
+          if (data.kind === "empty-placeholder") {
+            return (
+              <div
+                key={item.getId()}
+                style={{
+                  padding: `2px 8px 2px ${paddingLeft}px`,
+                  color: "#888",
                 }}
               >
-                {isExpanded ? "▼" : "▶"} {group.notebookName}
-              </a>{" "}
-              <button type="button" onClick={() => handleDeleteNotebook(group)}>
-                Delete notebook
-              </button>
-            </h3>
-            {isExpanded &&
-              (group.discussions.length > 0 ? (
-                <ul>
-                  {group.discussions.map((discussion) => (
-                    <li key={discussion.id}>
-                      <a
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onSelect(discussion.id);
-                        }}
-                        style={
-                          discussion.id === activeDiscussionId
-                            ? { fontWeight: "bold" }
-                            : undefined
-                        }
-                      >
-                        {discussion.name || discussion.id}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>No discussions yet.</p>
-              ))}
-          </div>
-        );
-      })}
+                No discussions yet.
+              </div>
+            );
+          }
+
+          if (data.kind === "notebook") {
+            const isExpanded = item.isExpanded();
+            return (
+              <div
+                key={item.getId()}
+                {...item.getProps()}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: `4px 8px 4px ${paddingLeft}px`,
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{ width: "1em", fontSize: "0.75em" }}
+                >
+                  {isExpanded ? "▼" : "▶"}
+                </span>
+                <span aria-hidden="true">📓</span>
+                <h3 style={{ margin: 0, fontSize: "1em", flex: 1 }}>
+                  {data.name}
+                </h3>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteNotebook(data.notebookId, data.name);
+                  }}
+                >
+                  Delete notebook
+                </button>
+              </div>
+            );
+          }
+
+          // data.kind === "discussion"
+          const isActive = data.discussionId === activeDiscussionId;
+          return (
+            <div
+              key={item.getId()}
+              {...item.getProps()}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: `2px 8px 2px ${paddingLeft}px`,
+                cursor: "pointer",
+                fontWeight: isActive ? "bold" : "normal",
+              }}
+            >
+              <span aria-hidden="true">💬</span>
+              <span>{data.name}</span>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

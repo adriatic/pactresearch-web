@@ -114,8 +114,12 @@ test("a discussion's draft survives switching away and back, and reloading the p
 
   await page.goto("/");
 
-  const discussionALink = page.getByRole("link", { name: discussionAName });
-  const discussionBLink = page.getByRole("link", { name: discussionBName });
+  const discussionALink = page.getByRole("treeitem", {
+    name: discussionAName,
+  });
+  const discussionBLink = page.getByRole("treeitem", {
+    name: discussionBName,
+  });
   const composer = page.locator("textarea");
 
   await expect(discussionALink).toBeVisible();

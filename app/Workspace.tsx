@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { NotebookCreator } from "./NotebookCreator";
 import { Explorer } from "./Explorer";
 import { Composer } from "./Composer";
@@ -18,6 +19,16 @@ import { useDiscussionExecution } from "./useDiscussionExecution";
 // (New Notebook/Import/Settings/Account/Model) exist in their real fixed
 // position but stay disabled/unwired, per this task's explicit scope —
 // their dialogs/behavior are separate, not-yet-built work.
+//
+// The sidebar/main-panel split and its drag handle use
+// react-resizable-panels (Group/Panel/Separator — this app's installed
+// version, v4, renamed from the older PanelGroup/PanelResizeHandle names
+// still shown in a lot of older docs/tutorials) rather than hand-rolled
+// drag math: zero dependencies, 22M+ weekly downloads, published days
+// before this was written. minSize/maxSize on the sidebar Panel are
+// plain pixel values — session-only, matching 3.13 decision 4's
+// still-deferred persisted-UI-preference boundary (no localStorage/
+// defaultLayout wiring here).
 export function Workspace({
   initialDiscussionId,
 }: {
@@ -60,8 +71,13 @@ export function Workspace({
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      <div style={{ width: 280, flexShrink: 0, overflowY: "auto" }}>
+    <Group orientation="horizontal" style={{ height: "100vh" }}>
+      <Panel
+        defaultSize={280}
+        minSize={180}
+        maxSize={560}
+        style={{ overflowY: "auto" }}
+      >
         <Explorer
           activeDiscussionId={activeDiscussionId}
           onSelect={setActiveDiscussionId}
@@ -73,14 +89,12 @@ export function Workspace({
           onDiscussionCreated={handleDiscussionCreated}
           lastDeletedNotebookId={lastDeletedNotebookId}
         />
-      </div>
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
+      </Panel>
+      <Separator
+        style={{ width: 4, cursor: "col-resize", background: "#ccc" }}
+      />
+      <Panel
+        style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}
       >
         <header style={{ flexShrink: 0 }}>
           <strong>PACT</strong>{" "}
@@ -119,7 +133,7 @@ export function Workspace({
             result={execution.result}
           />
         </div>
-      </div>
-    </div>
+      </Panel>
+    </Group>
   );
 }

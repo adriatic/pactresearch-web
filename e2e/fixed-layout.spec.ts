@@ -125,7 +125,9 @@ test("the composer and Explorer sidebar stay fixed and visible when discussion c
   // response entries — loads without any manual selection.
   const composer = page.locator("textarea");
   const runButton = page.getByRole("button", { name: "Run" });
-  const discussionLink = page.getByRole("link", { name: discussionName });
+  const discussionLink = page.getByRole("treeitem", {
+    name: discussionName,
+  });
 
   // History has genuinely rendered (proof the tall content is actually
   // present, not an empty page that would trivially pass a visibility

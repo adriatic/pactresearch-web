@@ -19,10 +19,13 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@headless-tree/core": "^1.7.0",
+    "@headless-tree/react": "^1.7.0",
     "@supabase/ssr": "^0.10.3",
     "next": "16.2.6",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "react-resizable-panels": "^4.12.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

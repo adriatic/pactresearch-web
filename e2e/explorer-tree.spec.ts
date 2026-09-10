@@ -122,8 +122,8 @@ test("the tree view groups notebooks correctly, selecting a discussion loads it,
 
   // The seeded discussion is the only one that exists, so
   // findLatestDiscussion picks it on initial load, auto-expanding its
-  // notebook — its link becomes visible without needing a manual click.
-  const discussionLink = page.getByRole("link", { name: discussionName });
+  // notebook — its row becomes visible without needing a manual click.
+  const discussionLink = page.getByRole("treeitem", { name: discussionName });
   await expect(discussionLink).toBeVisible();
   await expect(page.getByText(`Discussion: `)).toBeVisible();
 
@@ -135,7 +135,7 @@ test("the tree view groups notebooks correctly, selecting a discussion loads it,
   // Now expand the empty notebook — a valid, real state (an empty
   // notebook a user can add a first discussion to, or delete), not an
   // error condition.
-  const emptyNotebookToggle = page.getByRole("link", {
+  const emptyNotebookToggle = page.getByRole("treeitem", {
     name: emptyNotebookName,
   });
   await emptyNotebookToggle.click();
