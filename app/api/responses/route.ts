@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
+import { timed } from "@/lib/timing";
 
 async function handleGet(request: Request) {
   const supabase = await createClient();
@@ -40,11 +41,15 @@ async function handleGet(request: Request) {
     return Response.json({ error: "Discussion not found." }, { status: 404 });
   }
 
-  const { data: responses, error } = await supabase
-    .from("responses")
-    .select("*")
-    .eq("discussion_id", discussionId)
-    .order("created_at", { ascending: true });
+  const { data: responses, error } = await timed(
+    `GET /api/responses discussionId=${discussionId}`,
+    () =>
+      supabase
+        .from("responses")
+        .select("*")
+        .eq("discussion_id", discussionId)
+        .order("created_at", { ascending: true }),
+  );
 
   if (error) {
     throw error;

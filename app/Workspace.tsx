@@ -8,6 +8,10 @@ import { Composer } from "./Composer";
 import { DiscussionContent } from "./DiscussionContent";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 
+function formatSwitchDuration(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
+}
+
 // Fixed-layout shell — opens the structural half of Phase D's port,
 // alongside Explorer's tree view: a left sidebar (Explorer, its own
 // independent scroll), a fixed header toolbar, a fixed composer, and a
@@ -112,7 +116,12 @@ export function Workspace({
           </button>{" "}
           <button type="button" disabled>
             Model
-          </button>
+          </button>{" "}
+          {execution.lastSwitchDurationMs !== null && (
+            <span style={{ color: "#666", fontSize: "0.85em" }}>
+              Switched in {formatSwitchDuration(execution.lastSwitchDurationMs)}
+            </span>
+          )}
         </header>
         <div style={{ flexShrink: 0 }}>
           <Composer

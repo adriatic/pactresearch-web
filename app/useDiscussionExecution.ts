@@ -30,6 +30,13 @@ export function useDiscussionExecution(discussionId: string | null) {
   const [streamedModel, setStreamedModel] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [history, setHistory] = useState<PastResponse[]>([]);
+  // Wall-clock time the most recent switch (or initial load) took, from the
+  // moment discussionId changed to the moment content + composer draft were
+  // both rendered. Set once, at the end of the effect below — not on every
+  // intermediate state update — so it reflects the full round trip.
+  const [lastSwitchDurationMs, setLastSwitchDurationMs] = useState<
+    number | null
+  >(null);
 
   // Non-persisted live-run display state — cleared immediately, during
   // render, the moment discussionId changes, so a previous discussion's
@@ -81,6 +88,10 @@ export function useDiscussionExecution(discussionId: string | null) {
     let cancelled = false;
 
     async function saveThenLoad() {
+      // Captured at the very top, before the outgoing-draft save — the
+      // switch is "selected" the instant discussionId changes, and that
+      // save is part of the switch's cost, not a separate step.
+      const switchStartedAt = performance.now();
       const outgoingDiscussionId = activeDiscussionIdRef.current;
       const outgoingDraft = promptTextRef.current;
       activeDiscussionIdRef.current = discussionId;
@@ -103,6 +114,7 @@ export function useDiscussionExecution(discussionId: string | null) {
       if (!discussionId) {
         setPromptText("");
         setHistory([]);
+        setLastSwitchDurationMs(performance.now() - switchStartedAt);
         return;
       }
 
@@ -118,6 +130,12 @@ export function useDiscussionExecution(discussionId: string | null) {
       setHistory(historyBody);
       const loadedDiscussion = (discussionsBody as DiscussionRow[])[0];
       setPromptText(loadedDiscussion?.draft_prompt_text ?? "");
+      // This still measures state being set, not paint — React commits the
+      // corresponding DOM update in the very next (synchronous, no
+      // network/timer in between) render, so it's a close-enough proxy for
+      // "content and composer draft fully rendered" without needing a
+      // useLayoutEffect/rAF round trip just to time a diagnostic.
+      setLastSwitchDurationMs(performance.now() - switchStartedAt);
     }
 
     saveThenLoad();
@@ -234,5 +252,6 @@ export function useDiscussionExecution(discussionId: string | null) {
     isStreaming,
     history,
     handleSubmit,
+    lastSwitchDurationMs,
   };
 }

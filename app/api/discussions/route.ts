@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
+import { timed } from "@/lib/timing";
 
 interface CreateDiscussionRequestBody {
   notebookId: string;
@@ -101,7 +102,10 @@ async function handleGet(request: Request) {
     query = query.eq("id", id);
   }
 
-  const { data: discussions, error } = await query;
+  const { data: discussions, error } = await timed(
+    `GET /api/discussions id=${id ?? "all"}`,
+    () => query,
+  );
 
   if (error) {
     throw error;
@@ -150,11 +154,15 @@ async function handlePatch(request: Request) {
   // the caller owns — an empty result covers both "doesn't exist" and
   // "isn't yours", same non-distinguishing 404 pattern as DELETE
   // /api/notebooks.
-  const { data: updated, error } = await supabase
-    .from("discussions")
-    .update({ draft_prompt_text: draftPromptText })
-    .eq("id", id)
-    .select();
+  const { data: updated, error } = await timed(
+    `PATCH /api/discussions id=${id}`,
+    () =>
+      supabase
+        .from("discussions")
+        .update({ draft_prompt_text: draftPromptText })
+        .eq("id", id)
+        .select(),
+  );
 
   if (error) {
     throw error;
