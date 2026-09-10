@@ -22,3 +22,28 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   font-size: 16px;
 }
+
+/* Plain, functional button treatment — every real <button> in the app
+   gets this by default, so no component has to remember to style one
+   individually. An inline style (e.g. login's primary CTA) still wins
+   over this, so a button that wants a different look isn't stuck with
+   it. This is the whole fix for buttons rendering as unstyled inline
+   text, indistinguishable from static content. */
+button {
+  padding: 6px 12px;
+  border: 1px solid #888;
+  border-radius: 4px;
+  background: #f0f0f0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #e0e0e0;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

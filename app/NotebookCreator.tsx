@@ -15,12 +15,18 @@ export function NotebookCreator({
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>(
     CATEGORIES[0],
   );
-  const [notebookResult, setNotebookResult] = useState<string | null>(null);
+  // Human-readable confirmation/error text — never the raw API response.
+  // The full response is still visible in the browser's own network tab
+  // for anyone who genuinely needs it; it doesn't need a second home in
+  // this UI.
+  const [notebookMessage, setNotebookMessage] = useState<string | null>(null);
   const [notebookLoading, setNotebookLoading] = useState(false);
   const [notebookId, setNotebookId] = useState<string | null>(null);
 
   const [discussionName, setDiscussionName] = useState("");
-  const [discussionResult, setDiscussionResult] = useState<string | null>(null);
+  const [discussionMessage, setDiscussionMessage] = useState<string | null>(
+    null,
+  );
   const [discussionLoading, setDiscussionLoading] = useState(false);
 
   // Refs, not state, so the guard is checked synchronously at the top of
@@ -43,9 +49,9 @@ export function NotebookCreator({
   if (lastDeletedNotebookId !== handledDeletedNotebookId) {
     setHandledDeletedNotebookId(lastDeletedNotebookId);
     if (lastDeletedNotebookId && lastDeletedNotebookId === notebookId) {
-      setNotebookResult(null);
+      setNotebookMessage(null);
       setNotebookId(null);
-      setDiscussionResult(null);
+      setDiscussionMessage(null);
       setDiscussionName("");
     }
   }
@@ -55,7 +61,7 @@ export function NotebookCreator({
     if (notebookInFlight.current) return;
     notebookInFlight.current = true;
     setNotebookLoading(true);
-    setNotebookResult(null);
+    setNotebookMessage(null);
     setNotebookId(null);
 
     try {
@@ -65,12 +71,14 @@ export function NotebookCreator({
         body: JSON.stringify({ name, category }),
       });
       const body = await response.json();
-      setNotebookResult(JSON.stringify(body, null, 2));
       if (response.ok) {
+        setNotebookMessage(`Notebook "${body.name}" created.`);
         setNotebookId(body.id);
+      } else {
+        setNotebookMessage(body.error || "Failed to create notebook.");
       }
-    } catch (err) {
-      setNotebookResult(String(err));
+    } catch {
+      setNotebookMessage("Failed to create notebook — please try again.");
     } finally {
       setNotebookLoading(false);
       notebookInFlight.current = false;
@@ -82,7 +90,7 @@ export function NotebookCreator({
     if (!notebookId || discussionInFlight.current) return;
     discussionInFlight.current = true;
     setDiscussionLoading(true);
-    setDiscussionResult(null);
+    setDiscussionMessage(null);
 
     try {
       const response = await fetch("/api/discussions", {
@@ -91,12 +99,14 @@ export function NotebookCreator({
         body: JSON.stringify({ notebookId, name: discussionName }),
       });
       const body = await response.json();
-      setDiscussionResult(JSON.stringify(body, null, 2));
       if (response.ok) {
+        setDiscussionMessage(`Discussion "${body.name}" created.`);
         onDiscussionCreated(body.id);
+      } else {
+        setDiscussionMessage(body.error || "Failed to create discussion.");
       }
-    } catch (err) {
-      setDiscussionResult(String(err));
+    } catch {
+      setDiscussionMessage("Failed to create discussion — please try again.");
     } finally {
       setDiscussionLoading(false);
       discussionInFlight.current = false;
@@ -137,7 +147,7 @@ export function NotebookCreator({
           {notebookLoading ? "Creating..." : "Create notebook"}
         </button>
       </form>
-      {notebookResult && <pre>{notebookResult}</pre>}
+      {notebookMessage && <p>{notebookMessage}</p>}
 
       {notebookId && (
         <>
@@ -158,7 +168,7 @@ export function NotebookCreator({
               {discussionLoading ? "Creating..." : "Create discussion"}
             </button>
           </form>
-          {discussionResult && <pre>{discussionResult}</pre>}
+          {discussionMessage && <p>{discussionMessage}</p>}
         </>
       )}
     </section>
