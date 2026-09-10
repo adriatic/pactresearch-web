@@ -11,6 +11,7 @@ import type { PastResponse } from "./useDiscussionExecution";
 
 export function DiscussionContent({
   discussionId,
+  discussionName,
   history,
   streamedResponse,
   streamedModel,
@@ -18,6 +19,7 @@ export function DiscussionContent({
   result,
 }: {
   discussionId: string | null;
+  discussionName: string | null;
   history: PastResponse[];
   streamedResponse: string | null;
   streamedModel: string | null;
@@ -28,7 +30,10 @@ export function DiscussionContent({
     <main>
       <h1>Execute tester</h1>
       {discussionId ? (
-        <p>Discussion: {discussionId}</p>
+        // Falls back to the raw id only in the brief window before its
+        // name has loaded (see useDiscussionExecution's discussionName) —
+        // never a permanent display value.
+        <p>Discussion: {discussionName ?? discussionId}</p>
       ) : (
         <p>No discussion selected — create or pick one above.</p>
       )}

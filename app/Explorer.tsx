@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   syncDataLoaderFeature,
   selectionFeature,
   hotkeysCoreFeature,
+  type TreeState,
 } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
 
@@ -68,6 +69,39 @@ function fetchDiscussions(): Promise<Discussion[]> {
 
 const ROOT_ID = "__explorer_root__";
 
+// Session-only expand/collapse persistence: survives a same-tab reload
+// (this bug's actual bar — it didn't even do that before) without
+// reaching for the database or surviving across tabs/devices, which
+// stays out of scope per 3.13 decision 4. sessionStorage rather than
+// localStorage specifically because it's scoped to the one tab/session.
+const EXPANDED_ITEMS_STORAGE_KEY = "pact:explorer:expandedItems";
+
+function readPersistedExpandedItems(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.sessionStorage.getItem(EXPANDED_ITEMS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistExpandedItems(expandedItems: string[]) {
+  try {
+    window.sessionStorage.setItem(
+      EXPANDED_ITEMS_STORAGE_KEY,
+      JSON.stringify(expandedItems),
+    );
+  } catch {
+    // Best-effort — a full session store or disabled storage shouldn't
+    // break the tree itself, just the persistence of its state.
+  }
+}
+
 export function Explorer({
   activeDiscussionId,
   onSelect,
@@ -129,6 +163,12 @@ export function Explorer({
     }
   }
 
+  // Tracks the tree's own last-seen state so setState below can resolve
+  // the updater-function form of SetStateFn's Updater<T> union — in
+  // practice @headless-tree/react always calls setState with a direct
+  // value, never a function, but the declared type allows either.
+  const lastTreeStateRef = useRef<Partial<TreeState<TreeNodeData>>>({});
+
   const tree = useTree<TreeNodeData>({
     rootItemId: ROOT_ID,
     getItemName: (item) => {
@@ -189,6 +229,23 @@ export function Explorer({
       if (data.kind === "discussion") {
         onSelect(data.discussionId);
       }
+    },
+    // Seeds expandedItems from sessionStorage on mount (read once, via a
+    // lazy initializer, not on every render), then persists it back on
+    // every tree state change. This only observes and mirrors
+    // expandedItems out to storage — it doesn't take over as the
+    // source of truth the way a fully-controlled `state` prop would, so
+    // the auto-expand effect below (and the tree's own internal click
+    // handling) keep working exactly as before; they still just call
+    // item.expand()/collapse() and this tags along.
+    initialState: { expandedItems: readPersistedExpandedItems() },
+    setState: (updaterOrValue) => {
+      const state =
+        typeof updaterOrValue === "function"
+          ? updaterOrValue(lastTreeStateRef.current)
+          : updaterOrValue;
+      lastTreeStateRef.current = state;
+      if (state.expandedItems) persistExpandedItems(state.expandedItems);
     },
     features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
   });

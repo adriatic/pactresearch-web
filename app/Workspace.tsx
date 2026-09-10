@@ -135,6 +135,7 @@ export function Workspace({
         <div style={{ flex: 1, overflowY: "auto" }}>
           <DiscussionContent
             discussionId={activeDiscussionId}
+            discussionName={execution.discussionName}
             history={execution.history}
             streamedResponse={execution.streamedResponse}
             streamedModel={execution.streamedModel}

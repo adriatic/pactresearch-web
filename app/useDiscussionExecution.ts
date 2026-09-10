@@ -19,6 +19,7 @@ export interface PastResponse {
 
 interface DiscussionRow {
   id: string;
+  name: string | null;
   draft_prompt_text: string | null;
 }
 
@@ -30,6 +31,10 @@ export function useDiscussionExecution(discussionId: string | null) {
   const [streamedModel, setStreamedModel] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [history, setHistory] = useState<PastResponse[]>([]);
+  // The active discussion's own name, loaded alongside its draft — real
+  // persisted data fetched by the same effect below, same reasoning as
+  // promptText/history (see the comment above displayedDiscussionId).
+  const [discussionName, setDiscussionName] = useState<string | null>(null);
   // Wall-clock time the most recent switch (or initial load) took, from the
   // moment discussionId changed to the moment content + composer draft were
   // both rendered. Set once, at the end of the effect below — not on every
@@ -114,6 +119,7 @@ export function useDiscussionExecution(discussionId: string | null) {
       if (!discussionId) {
         setPromptText("");
         setHistory([]);
+        setDiscussionName(null);
         setLastSwitchDurationMs(performance.now() - switchStartedAt);
         return;
       }
@@ -130,6 +136,7 @@ export function useDiscussionExecution(discussionId: string | null) {
       setHistory(historyBody);
       const loadedDiscussion = (discussionsBody as DiscussionRow[])[0];
       setPromptText(loadedDiscussion?.draft_prompt_text ?? "");
+      setDiscussionName(loadedDiscussion?.name ?? null);
       // This still measures state being set, not paint — React commits the
       // corresponding DOM update in the very next (synchronous, no
       // network/timer in between) render, so it's a close-enough proxy for
@@ -253,5 +260,6 @@ export function useDiscussionExecution(discussionId: string | null) {
     history,
     handleSubmit,
     lastSwitchDurationMs,
+    discussionName,
   };
 }
