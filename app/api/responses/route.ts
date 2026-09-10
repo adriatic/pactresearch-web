@@ -1,12 +1,14 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
-import { timed } from "@/lib/timing";
+import { timed, withFullTiming, type HandlerTimer } from "@/lib/timing";
 
-async function handleGet(request: Request) {
+async function handleGet(timer: HandlerTimer, request: Request) {
   const supabase = await createClient();
+  const authStart = performance.now();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  timer.mark("auth", performance.now() - authStart);
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -21,17 +23,20 @@ async function handleGet(request: Request) {
       { status: 400 },
     );
   }
+  timer.setLabel(`GET /api/responses discussionId=${discussionId}`);
 
   // Session-scoped client: RLS ("Users manage their own discussions")
   // restricts this to discussions the caller owns, so a discussionId
   // belonging to another user is indistinguishable here from one that
   // doesn't exist at all — both are just "not found" from this caller's
   // perspective. Same pattern as POST /api/discussions' notebook check.
+  const existenceCheckStart = performance.now();
   const { data: discussion, error: discussionError } = await supabase
     .from("discussions")
     .select("id")
     .eq("id", discussionId)
     .maybeSingle();
+  timer.mark("existence-check", performance.now() - existenceCheckStart);
 
   if (discussionError) {
     throw discussionError;
@@ -58,4 +63,6 @@ async function handleGet(request: Request) {
   return Response.json(responses);
 }
 
-export const GET = withRouteErrorHandling(handleGet);
+export const GET = withRouteErrorHandling(
+  withFullTiming("GET /api/responses", handleGet),
+);

@@ -1,6 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
-import { timed } from "@/lib/timing";
+import { timed, withFullTiming, type HandlerTimer } from "@/lib/timing";
 
 interface CreateDiscussionRequestBody {
   notebookId: string;
@@ -71,11 +71,13 @@ async function handlePost(request: Request) {
   return Response.json(discussion, { status: 201 });
 }
 
-async function handleGet(request: Request) {
+async function handleGet(timer: HandlerTimer, request: Request) {
   const supabase = await createClient();
+  const authStart = performance.now();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  timer.mark("auth", performance.now() - authStart);
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -88,6 +90,7 @@ async function handleGet(request: Request) {
   // can only ever resolve to a notebook the caller themselves owns.
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
+  timer.setLabel(`GET /api/discussions id=${id ?? "all"}`);
 
   let query = supabase
     .from("discussions")
@@ -118,11 +121,13 @@ interface UpdateDiscussionRequestBody {
   draftPromptText: string | null;
 }
 
-async function handlePatch(request: Request) {
+async function handlePatch(timer: HandlerTimer, request: Request) {
   const supabase = await createClient();
+  const authStart = performance.now();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  timer.mark("auth", performance.now() - authStart);
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -134,6 +139,7 @@ async function handlePatch(request: Request) {
   if (!id) {
     return Response.json({ error: "id is required." }, { status: 400 });
   }
+  timer.setLabel(`PATCH /api/discussions id=${id}`);
 
   let draftPromptText: string | null;
   try {
@@ -176,5 +182,9 @@ async function handlePatch(request: Request) {
 }
 
 export const POST = withRouteErrorHandling(handlePost);
-export const GET = withRouteErrorHandling(handleGet);
-export const PATCH = withRouteErrorHandling(handlePatch);
+export const GET = withRouteErrorHandling(
+  withFullTiming("GET /api/discussions", handleGet),
+);
+export const PATCH = withRouteErrorHandling(
+  withFullTiming("PATCH /api/discussions", handlePatch),
+);
