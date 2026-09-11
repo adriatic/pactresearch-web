@@ -217,12 +217,20 @@ export function useDiscussionExecution(discussionId: string | null) {
         });
       });
 
+      // Investigation-only: the client-observed round trip for the whole
+      // POST, diffed against the server's own [timing-full] total for the
+      // same request gives network + Vercel routing overhead, which
+      // otherwise isn't visible from either side alone.
+      const executeFetchStart = performance.now();
       const response = await fetch("/api/execute", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ discussionId, promptText }),
       });
       const body = await response.json();
+      console.log(
+        `[timing-client] POST /api/execute round trip: ${(performance.now() - executeFetchStart).toFixed(1)}ms`,
+      );
       setResult(JSON.stringify(body, null, 2));
 
       if (response.ok) {

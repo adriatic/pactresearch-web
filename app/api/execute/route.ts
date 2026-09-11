@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
+import { withFullTiming, type HandlerTimer } from "@/lib/timing";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_MODEL = "claude-sonnet-4-6";
@@ -21,11 +22,13 @@ interface ExecuteRequestBody {
   promptText: string;
 }
 
-async function handlePost(request: Request) {
+async function handlePost(timer: HandlerTimer, request: Request) {
   const supabase = await createClient();
+  const authStart = performance.now();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  timer.mark("auth", performance.now() - authStart);
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -48,6 +51,7 @@ async function handlePost(request: Request) {
   } catch {
     return Response.json({ error: "Malformed request body." }, { status: 400 });
   }
+  timer.setLabel(`POST /api/execute discussionId=${discussionId}`);
 
   if (typeof promptText !== "string" || promptText.trim().length === 0) {
     return Response.json(
@@ -56,10 +60,12 @@ async function handlePost(request: Request) {
     );
   }
 
+  const lockAcquireStart = performance.now();
   const { data: acquired, error: lockError } = await supabase.rpc(
     "try_acquire_execution_lock",
     { p_user_id: user.id, p_discussion_id: discussionId },
   );
+  timer.mark("lock-acquire", performance.now() - lockAcquireStart);
 
   if (lockError) {
     throw lockError;
@@ -73,6 +79,14 @@ async function handlePost(request: Request) {
   }
 
   try {
+    // Investigation-only timing (kept permanently, same call as the
+    // discussion-switch instrumentation: cheap, and this is the app's
+    // actual core operation). anthropicFetchStart is the reference point
+    // for both "time to establish the connection" (this await resolving —
+    // stream:true means it resolves once headers arrive, not the full
+    // body) and "time to first token" (first real text_delta), measured
+    // separately below.
+    const anthropicFetchStart = performance.now();
     const anthropicResponse = await fetch(ANTHROPIC_API_URL, {
       method: "POST",
       headers: {
@@ -87,6 +101,7 @@ async function handlePost(request: Request) {
         messages: [{ role: "user", content: promptText }],
       }),
     });
+    timer.mark("anthropic-connect", performance.now() - anthropicFetchStart);
 
     if (!anthropicResponse.ok || !anthropicResponse.body) {
       throw new Error(
@@ -102,6 +117,15 @@ async function handlePost(request: Request) {
     // the threshold and the very first delta bypasses it.
     let lastWriteAt = Date.now();
     let lastWrittenText = "";
+
+    // Streaming-phase timing state — first token marks the end of TTFB
+    // and the start of "generation"; the write counters give a cheap
+    // aggregate view of the throttled-UPDATE cost without logging every
+    // single one individually (which would be excessive for a response
+    // that can throttle-write dozens of times).
+    let firstTokenAt: number | null = null;
+    let streamingWriteCount = 0;
+    let streamingWriteTotalMs = 0;
 
     const reader = anthropicResponse.body.getReader();
     const decoder = new TextDecoder();
@@ -141,6 +165,7 @@ async function handlePost(request: Request) {
             // The row a Realtime subscriber would attach to — created as
             // soon as we know the resolved model, before any content has
             // arrived.
+            const messageStartInsertStart = performance.now();
             const { data: inserted, error: insertError } = await supabase
               .from("responses")
               .insert({
@@ -154,6 +179,10 @@ async function handlePost(request: Request) {
               })
               .select("id")
               .single();
+            timer.mark(
+              "message-start-insert",
+              performance.now() - messageStartInsertStart,
+            );
 
             if (insertError) {
               throw insertError;
@@ -166,6 +195,10 @@ async function handlePost(request: Request) {
             const delta = event.delta as
               { type?: string; text?: string } | undefined;
             if (delta?.type === "text_delta" && delta.text) {
+              if (firstTokenAt === null) {
+                firstTokenAt = performance.now();
+                timer.mark("ttfb", firstTokenAt - anthropicFetchStart);
+              }
               accumulatedText += delta.text;
             }
 
@@ -175,10 +208,13 @@ async function handlePost(request: Request) {
               accumulatedText !== lastWrittenText &&
               now - lastWriteAt >= STREAM_WRITE_THROTTLE_MS
             ) {
+              const writeStart = performance.now();
               const { error: updateError } = await supabase
                 .from("responses")
                 .update({ response: accumulatedText })
                 .eq("id", responseRowId);
+              streamingWriteCount += 1;
+              streamingWriteTotalMs += performance.now() - writeStart;
 
               if (updateError) {
                 throw updateError;
@@ -190,8 +226,20 @@ async function handlePost(request: Request) {
           }
 
           case "message_stop": {
+            // Generation is measured from the first real token, not from
+            // the Anthropic connect — TTFB and generation are reported as
+            // separate, non-overlapping phases.
+            timer.mark(
+              "generation",
+              performance.now() - (firstTokenAt ?? anthropicFetchStart),
+            );
+            console.log(
+              `[timing-detail] streaming writes count=${streamingWriteCount} totalMs=${streamingWriteTotalMs.toFixed(1)}`,
+            );
+
             // Final write, unconditional on the throttle, so no trailing
             // partial batch is lost.
+            const finalWriteStart = performance.now();
             if (!responseRowId) {
               // Defensive fallback: message_start never arrived for some
               // reason, so there's no row yet — create it now instead of
@@ -209,6 +257,7 @@ async function handlePost(request: Request) {
                 })
                 .select("id")
                 .single();
+              timer.mark("final-db-write", performance.now() - finalWriteStart);
 
               if (insertError) {
                 throw insertError;
@@ -219,10 +268,13 @@ async function handlePost(request: Request) {
                 .from("responses")
                 .update({ response: accumulatedText })
                 .eq("id", responseRowId);
+              timer.mark("final-db-write", performance.now() - finalWriteStart);
 
               if (updateError) {
                 throw updateError;
               }
+            } else {
+              timer.mark("final-db-write", 0);
             }
             break;
           }
@@ -240,8 +292,12 @@ async function handlePost(request: Request) {
   } catch {
     return Response.json({ error: "Execution failed." }, { status: 500 });
   } finally {
+    const lockReleaseStart = performance.now();
     await supabase.from("execution_locks").delete().eq("user_id", user.id);
+    timer.mark("lock-release", performance.now() - lockReleaseStart);
   }
 }
 
-export const POST = withRouteErrorHandling(handlePost);
+export const POST = withRouteErrorHandling(
+  withFullTiming("POST /api/execute", handlePost),
+);
