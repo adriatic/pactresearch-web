@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:e2e": "playwright test",
+    "test:e2e:prod": "playwright test --config e2e-prod/playwright.config.ts",
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "prepare": "husky"
