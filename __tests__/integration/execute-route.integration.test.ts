@@ -365,16 +365,21 @@ describe("POST /api/execute", () => {
     // in flight, so there's something to observe mid-stream. A test that
     // only checked the final row state would pass identically whether this
     // was truly streamed or written once at the end; this one doesn't.
-    server.use(createAnthropicStreamHandler(200));
+    // 400ms/word (11 words ≈ 4.4s total) rather than 200ms/word: the
+    // throttle interval is 2000ms (ported from the instrumented clone,
+    // where it was measured and raised from the original 500ms), so the
+    // wait below needs comfortable room past 2000ms for a write to have
+    // landed while still leaving the stream clearly unfinished.
+    server.use(createAnthropicStreamHandler(400));
 
     const promptText = `mid-flight-${Date.now()}`;
     const postPromise = POST(makeRequest({ discussionId, promptText }));
 
     // message_start arrives near-instantly (the row gets created almost
-    // immediately); the throttle (500ms) should have let one delta write
-    // land by 1000ms in, while the full stream (11 words * 200ms ≈ 2.2s)
+    // immediately); the throttle (2000ms) should have let one delta write
+    // land by 2500ms in, while the full stream (11 words * 400ms ≈ 4.4s)
     // is still well short of message_stop.
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
 
     const { data: midFlightRows, error: midFlightError } = await admin
       .from("responses")

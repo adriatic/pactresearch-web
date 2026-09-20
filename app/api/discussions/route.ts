@@ -1,6 +1,8 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
-import { timed, withFullTiming, type HandlerTimer } from "@/lib/timing";
+import { trace } from "@opentelemetry/api";
+
+const tracer = trace.getTracer("pact-api");
 
 interface CreateDiscussionRequestBody {
   notebookId: string;
@@ -71,13 +73,18 @@ async function handlePost(request: Request) {
   return Response.json(discussion, { status: 201 });
 }
 
-async function handleGet(timer: HandlerTimer, request: Request) {
+async function handleGet(request: Request) {
   const supabase = await createClient();
-  const authStart = performance.now();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  timer.mark("auth", performance.now() - authStart);
+  const user = await tracer.startActiveSpan("auth", async (span) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      return user;
+    } finally {
+      span.end();
+    }
+  });
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -90,7 +97,7 @@ async function handleGet(timer: HandlerTimer, request: Request) {
   // can only ever resolve to a notebook the caller themselves owns.
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
-  timer.setLabel(`GET /api/discussions id=${id ?? "all"}`);
+  trace.getActiveSpan()?.setAttribute("pact.discussion_id", id ?? "all");
 
   let query = supabase
     .from("discussions")
@@ -105,9 +112,15 @@ async function handleGet(timer: HandlerTimer, request: Request) {
     query = query.eq("id", id);
   }
 
-  const { data: discussions, error } = await timed(
-    `GET /api/discussions id=${id ?? "all"}`,
-    () => query,
+  const { data: discussions, error } = await tracer.startActiveSpan(
+    "discussions-select",
+    async (span) => {
+      try {
+        return await query;
+      } finally {
+        span.end();
+      }
+    },
   );
 
   if (error) {
@@ -121,13 +134,18 @@ interface UpdateDiscussionRequestBody {
   draftPromptText: string | null;
 }
 
-async function handlePatch(timer: HandlerTimer, request: Request) {
+async function handlePatch(request: Request) {
   const supabase = await createClient();
-  const authStart = performance.now();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  timer.mark("auth", performance.now() - authStart);
+  const user = await tracer.startActiveSpan("auth", async (span) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      return user;
+    } finally {
+      span.end();
+    }
+  });
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -139,7 +157,7 @@ async function handlePatch(timer: HandlerTimer, request: Request) {
   if (!id) {
     return Response.json({ error: "id is required." }, { status: 400 });
   }
-  timer.setLabel(`PATCH /api/discussions id=${id}`);
+  trace.getActiveSpan()?.setAttribute("pact.discussion_id", id);
 
   let draftPromptText: string | null;
   try {
@@ -160,14 +178,19 @@ async function handlePatch(timer: HandlerTimer, request: Request) {
   // the caller owns — an empty result covers both "doesn't exist" and
   // "isn't yours", same non-distinguishing 404 pattern as DELETE
   // /api/notebooks.
-  const { data: updated, error } = await timed(
-    `PATCH /api/discussions id=${id}`,
-    () =>
-      supabase
-        .from("discussions")
-        .update({ draft_prompt_text: draftPromptText })
-        .eq("id", id)
-        .select(),
+  const { data: updated, error } = await tracer.startActiveSpan(
+    "discussions-update",
+    async (span) => {
+      try {
+        return await supabase
+          .from("discussions")
+          .update({ draft_prompt_text: draftPromptText })
+          .eq("id", id)
+          .select();
+      } finally {
+        span.end();
+      }
+    },
   );
 
   if (error) {
@@ -182,9 +205,5 @@ async function handlePatch(timer: HandlerTimer, request: Request) {
 }
 
 export const POST = withRouteErrorHandling(handlePost);
-export const GET = withRouteErrorHandling(
-  withFullTiming("GET /api/discussions", handleGet),
-);
-export const PATCH = withRouteErrorHandling(
-  withFullTiming("PATCH /api/discussions", handlePatch),
-);
+export const GET = withRouteErrorHandling(handleGet);
+export const PATCH = withRouteErrorHandling(handlePatch);
