@@ -240,6 +240,7 @@ async function handlePost(request: Request) {
 
     let accumulatedText = "";
     let responseRowId: string | null = null;
+    let responseCreatedAt: string | null = null;
     // Seeded to "now" rather than 0, so the throttle genuinely applies to
     // the first delta too — otherwise Date.now() - 0 is always well past
     // the threshold and the very first delta bypasses it.
@@ -311,7 +312,7 @@ async function handlePost(request: Request) {
                       resolved_model: resolvedModel,
                       cell_type: "assistant",
                     })
-                    .select("id")
+                    .select("id, created_at")
                     .single();
                   if (insertError) {
                     throw insertError;
@@ -324,6 +325,7 @@ async function handlePost(request: Request) {
             );
             messageStartInsertMs = Date.now() - messageStartInsertStart;
             responseRowId = inserted.id as string;
+            responseCreatedAt = inserted.created_at as string;
             break;
           }
 
@@ -430,12 +432,13 @@ async function handlePost(request: Request) {
                       resolved_model: resolvedModel,
                       cell_type: "assistant",
                     })
-                    .select("id")
+                    .select("id, created_at")
                     .single();
                   if (insertError) {
                     throw insertError;
                   }
                   responseRowId = inserted.id as string;
+                  responseCreatedAt = inserted.created_at as string;
                 } else if (accumulatedText !== lastWrittenText) {
                   const { error: updateError } = await supabase
                     .from("responses")
@@ -462,6 +465,25 @@ async function handlePost(request: Request) {
     return Response.json({
       response: accumulatedText,
       resolved_model: resolvedModel,
+      // The real, persisted responses row this run produced -- lets the
+      // client append this exact entry directly to its in-memory history
+      // instead of only ever learning about it on a future discussion
+      // switch's own fetch. Always set by this point: the message_start
+      // branch above sets it as soon as the model resolves, and the
+      // message_stop branch's own defensive fallback insert (for the
+      // pathological case where message_start never arrived) sets it too
+      // -- null only if the stream produced neither event at all, which
+      // the client treats as "nothing to append" rather than assuming a
+      // row exists.
+      response_row_id: responseRowId,
+      // The row's own database-assigned created_at, set alongside
+      // response_row_id above -- the actual moment this response was
+      // created (near the start of generation, at message_start), not
+      // whenever this request happens to finish returning. Using the
+      // client's own "now" at receipt time here would be a genuinely
+      // wrong timestamp for anything but the fastest responses, not
+      // merely an approximation of a real one.
+      response_created_at: responseCreatedAt,
     });
   } catch (error) {
     // The real cause (Anthropic error body, a Supabase error object, a

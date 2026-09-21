@@ -42,7 +42,14 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const { POST, GET } = await import("@/app/api/discussions/route");
+const { POST, GET, DELETE } = await import("@/app/api/discussions/route");
+
+function makeDeleteRequest(id?: string) {
+  const url = id
+    ? `http://localhost/api/discussions?id=${id}`
+    : "http://localhost/api/discussions";
+  return new Request(url, { method: "DELETE" });
+}
 
 function makeRequest(body: unknown) {
   return new Request("http://localhost/api/discussions", {
@@ -168,6 +175,93 @@ describe("/api/discussions", () => {
     expect(rows?.[0].user_id).toBe(userId);
   });
 
+  // Persistence audit findings B & C: discussion names must be unique
+  // within a notebook, enforced by discussions_notebook_id_normalized_
+  // name_idx (20260916210914), not just NotebookCreator's own separate,
+  // racy client-side check.
+  test("returns 409, and creates nothing, when the notebook already has a discussion with the same name", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook for dup-name test" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const first = await POST(
+      makeRequest({ notebookId: notebook!.id, name: "Baseline" }),
+    );
+    expect(first.status).toBe(201);
+
+    const second = await POST(
+      makeRequest({ notebookId: notebook!.id, name: "Baseline" }),
+    );
+    const secondBody = await second.json();
+    expect(second.status).toBe(409);
+    expect(secondBody.error).toBe(
+      'This notebook already has a discussion named "Baseline". Pick a different name.',
+    );
+
+    const { data: rows, error } = await admin
+      .from("discussions")
+      .select("id")
+      .eq("notebook_id", notebook!.id);
+    expect(error).toBeNull();
+    expect(rows).toHaveLength(1);
+  });
+
+  test("the uniqueness constraint is trimmed and case-insensitive, matching the client-side check's own normalization", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook for normalized dup test" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const first = await POST(
+      makeRequest({ notebookId: notebook!.id, name: "Baseline" }),
+    );
+    expect(first.status).toBe(201);
+
+    const second = await POST(
+      makeRequest({ notebookId: notebook!.id, name: "  baseline  " }),
+    );
+    expect(second.status).toBe(409);
+  });
+
+  test("the same discussion name is allowed in a different notebook", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebookA, error: notebookAError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook A for cross-notebook test" })
+      .select()
+      .single();
+    expect(notebookAError).toBeNull();
+    const { data: notebookB, error: notebookBError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook B for cross-notebook test" })
+      .select()
+      .single();
+    expect(notebookBError).toBeNull();
+
+    const first = await POST(
+      makeRequest({ notebookId: notebookA!.id, name: "Baseline" }),
+    );
+    expect(first.status).toBe(201);
+
+    const second = await POST(
+      makeRequest({ notebookId: notebookB!.id, name: "Baseline" }),
+    );
+    expect(second.status).toBe(201);
+  });
+
   test("returns 401 when there is no authenticated user", async () => {
     currentCookies = [];
 
@@ -284,5 +378,173 @@ describe("/api/discussions", () => {
     const response = await GET(makeGetRequest());
 
     expect(response.status).toBe(401);
+  });
+
+  // Seeds a notebook with two discussions and one response row under the
+  // first, so cascade behavior is observable rather than assumed.
+  async function seedDeletableDiscussions(userId: string) {
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Notebook for delete test" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const { data: discussions, error: discussionsError } = await admin
+      .from("discussions")
+      .insert([
+        { notebook_id: notebook!.id, user_id: userId, name: "Doomed" },
+        { notebook_id: notebook!.id, user_id: userId, name: "Kept" },
+      ])
+      .select();
+    expect(discussionsError).toBeNull();
+
+    const doomed = discussions!.find((d) => d.name === "Doomed")!;
+    const kept = discussions!.find((d) => d.name === "Kept")!;
+
+    const { error: responseError } = await admin.from("responses").insert({
+      discussion_id: doomed.id,
+      user_id: userId,
+      prompt_text: "goes away with its discussion",
+      response: "ok",
+      model: "claude-sonnet-4-6",
+      cell_type: "assistant",
+    });
+    expect(responseError).toBeNull();
+
+    return { notebook: notebook!, doomed, kept };
+  }
+
+  test("DELETE removes the discussion and cascades to its responses, leaving siblings alone", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+    const { doomed, kept } = await seedDeletableDiscussions(userId);
+
+    const response = await DELETE(makeDeleteRequest(doomed.id));
+    expect(response.status).toBe(200);
+
+    const { data: doomedRows } = await admin
+      .from("discussions")
+      .select("id")
+      .eq("id", doomed.id);
+    expect(doomedRows).toHaveLength(0);
+
+    // Proven, not inferred from the ON DELETE CASCADE declaration.
+    const { data: responseRows } = await admin
+      .from("responses")
+      .select("id")
+      .eq("discussion_id", doomed.id);
+    expect(responseRows).toHaveLength(0);
+
+    const { data: keptRows } = await admin
+      .from("discussions")
+      .select("id")
+      .eq("id", kept.id);
+    expect(keptRows).toHaveLength(1);
+  });
+
+  test("DELETE returns 404, and deletes nothing, when the discussion belongs to another user", async () => {
+    const owner = await createSignedInUser();
+    currentCookies = owner.cookies;
+    const { doomed } = await seedDeletableDiscussions(owner.userId);
+
+    const other = await createSignedInUser();
+    currentCookies = other.cookies;
+
+    const response = await DELETE(makeDeleteRequest(doomed.id));
+    expect(response.status).toBe(404);
+
+    const { data: rows } = await admin
+      .from("discussions")
+      .select("id")
+      .eq("id", doomed.id);
+    expect(rows).toHaveLength(1);
+  });
+
+  test("DELETE returns 401 when there is no authenticated user", async () => {
+    currentCookies = [];
+
+    const response = await DELETE(makeDeleteRequest(crypto.randomUUID()));
+
+    expect(response.status).toBe(401);
+  });
+
+  test("DELETE returns 400 when id is missing", async () => {
+    const { cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const response = await DELETE(makeDeleteRequest());
+
+    expect(response.status).toBe(400);
+  });
+
+  test("DELETE returns 409, and deletes nothing, when the discussion holds an active (non-stale) execution lock", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+    const { doomed } = await seedDeletableDiscussions(userId);
+
+    const { error: lockError } = await admin.from("execution_locks").insert({
+      user_id: userId,
+      discussion_id: doomed.id,
+      acquired_at: new Date().toISOString(),
+    });
+    expect(lockError).toBeNull();
+
+    const response = await DELETE(makeDeleteRequest(doomed.id));
+    expect(response.status).toBe(409);
+
+    const { data: rows } = await admin
+      .from("discussions")
+      .select("id")
+      .eq("id", doomed.id);
+    expect(rows).toHaveLength(1);
+  });
+
+  test("DELETE is not blocked by a *sibling* discussion's active execution lock", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+    const { doomed, kept } = await seedDeletableDiscussions(userId);
+
+    // The lock belongs to the sibling, not the one being deleted — the
+    // notebook-level check would block here, this one must not.
+    const { error: lockError } = await admin.from("execution_locks").insert({
+      user_id: userId,
+      discussion_id: kept.id,
+      acquired_at: new Date().toISOString(),
+    });
+    expect(lockError).toBeNull();
+
+    const response = await DELETE(makeDeleteRequest(doomed.id));
+    expect(response.status).toBe(200);
+
+    const { data: rows } = await admin
+      .from("discussions")
+      .select("id")
+      .eq("id", doomed.id);
+    expect(rows).toHaveLength(0);
+  });
+
+  test("DELETE succeeds normally when the discussion's own execution lock is stale", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+    const { doomed } = await seedDeletableDiscussions(userId);
+
+    // Well past execution_lock_stale_after() (5 minutes) — a lock this
+    // old represents a run that died, not one still in flight.
+    const { error: lockError } = await admin.from("execution_locks").insert({
+      user_id: userId,
+      discussion_id: doomed.id,
+      acquired_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    });
+    expect(lockError).toBeNull();
+
+    const response = await DELETE(makeDeleteRequest(doomed.id));
+    expect(response.status).toBe(200);
+
+    const { data: rows } = await admin
+      .from("discussions")
+      .select("id")
+      .eq("id", doomed.id);
+    expect(rows).toHaveLength(0);
   });
 });

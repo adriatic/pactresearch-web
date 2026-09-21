@@ -1,0 +1,35 @@
+-- Duplicate discussion names within a notebook were only ever rejected
+-- client-side (NotebookCreator's own separate GET-then-POST check), never
+-- enforced by the database itself. That left a genuine TOCTOU race -- two
+-- near-simultaneous creation attempts (two tabs, or a fast double-submit
+-- slipping past the in-flight guard) could both pass the client-side
+-- check and both succeed.
+--
+-- Ported from the instrumented clone (pactresearch-web-instrumented),
+-- where this exact schema was already built, reviewed, and running --
+-- see that repo's 20260916210914_discussion_name_unique_per_notebook.sql.
+-- NOT YET APPLIED: drafted for Nik to review and run himself against
+-- production's hosted Supabase project, per the standing rule.
+--
+-- Scoped to notebook_id, not globally: the same discussion name in a
+-- different notebook is intentionally fine, matching the client-side
+-- check's own scoping and this app's existing product decision (see
+-- NotebookCreator's discussion-name validation).
+--
+-- lower(trim(name)) matches the client-side check's own normalization
+-- exactly ("Baseline" and "baseline " are the same duplicate a user
+-- means to be warned about) -- a plain UNIQUE column constraint can't
+-- express that, so this is a unique index over the normalized
+-- expression instead. discussions.name is `text not null` (see
+-- 20260825032825), so no null-handling case exists here.
+--
+-- IMPORTANT, check before running: if this fails to apply because a
+-- notebook already has two discussions whose names collide under this
+-- normalization, that reflects real pre-existing duplicate data that
+-- needs a one-time manual rename before this migration can be applied --
+-- not something to silently resolve as part of a schema change. Worth
+-- checking production's real data for this case before running, since
+-- production has had longer to accumulate discussions than the clone did
+-- when this constraint was first added there.
+create unique index discussions_notebook_id_normalized_name_idx
+  on public.discussions (notebook_id, lower(trim(name)));

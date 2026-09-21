@@ -16,31 +16,37 @@ export function DiscussionContent({
   history,
   streamedResponse,
   streamedModel,
+  streamedResponseCreatedAt,
   isStreaming,
-  result,
+  executionError,
 }: {
   discussionId: string | null;
   discussionName: string | null;
   history: PastResponse[];
   streamedResponse: string | null;
   streamedModel: string | null;
+  streamedResponseCreatedAt: string | null;
   isStreaming: boolean;
-  result: string | null;
+  executionError: string | null;
 }) {
   return (
     <main>
-      <h1>Execute tester</h1>
       {discussionId ? (
-        // Falls back to the raw id only in the brief window before its
-        // name has loaded (see useDiscussionExecution's discussionName) —
-        // never a permanent display value.
-        <p>Discussion: {discussionName ?? discussionId}</p>
+        // Persistence audit finding E: previously fell back to the raw
+        // id in the brief window before its name loaded (see
+        // useDiscussionExecution's discussionName) -- self-correcting,
+        // never a permanent display value, but still a uuid rendering as
+        // identifying text for a moment. Replaced with a loading label
+        // instead: nothing about this fix requires a raw id to ever
+        // appear on screen, even transiently, and this audit's whole
+        // premise is that identifying state showing something other than
+        // its real value is worth closing even when it's brief.
+        <p>Discussion: {discussionName ?? "Loading..."}</p>
       ) : (
         <p>No discussion selected — create or pick one above.</p>
       )}
       {discussionId && history.length > 0 && (
         <div>
-          <h2>History</h2>
           {history.map((entry) => (
             <div key={entry.id}>
               <p>
@@ -48,7 +54,13 @@ export function DiscussionContent({
               </p>
               <p>
                 <strong>Response</strong>
-                {entry.resolved_model ? ` — ${entry.resolved_model}` : ""}:
+                {entry.resolved_model ? ` — ${entry.resolved_model}` : ""}
+                {/* Each entry's own created_at, not a single header-level
+                    value -- 7986c92 originally put this on the
+                    "Discussion:" line sourced from the *latest* response,
+                    which stayed wrong for every older entry once you
+                    scrolled past it. */}
+                {` — ${new Date(entry.created_at).toLocaleString()}`}:
               </p>
               <MarkdownResponse content={entry.response ?? ""} />
             </div>
@@ -58,13 +70,15 @@ export function DiscussionContent({
       {streamedResponse !== null && (
         <div>
           <h2>
-            Live response{isStreaming ? " (streaming...)" : ""}
+            {isStreaming ? "Live response (streaming...)" : "Response"}
             {streamedModel ? ` — ${streamedModel}` : ""}
+            {streamedResponseCreatedAt &&
+              ` — ${new Date(streamedResponseCreatedAt).toLocaleString()}`}
           </h2>
           <MarkdownResponse content={streamedResponse} />
         </div>
       )}
-      {result && <pre>{result}</pre>}
+      {executionError && <p>{executionError}</p>}
     </main>
   );
 }

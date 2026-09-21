@@ -16,11 +16,17 @@ import { useTree } from "@headless-tree/react";
 // underneath, selecting a discussion drives the active discussionId, and
 // the notebook containing the active discussion auto-expands so a
 // restored selection is never hidden behind a collapsed row. Deliberately
-// not ported: export/import, the isSystem lock icon and hardcoded
-// tutorial/drafts notebook IDs (3.13 decision 3's access-rights model
-// replaces that, not yet built), persisted expand/collapse state (3.13
-// decision 4, deferred — session-only is correct for now), and the inline
-// "+ New Discussion" row (NotebookCreator already covers creation).
+// not ported: the isSystem lock icon and hardcoded tutorial/drafts
+// notebook IDs (3.13 decision 3's access-rights model replaces that, not
+// yet built), persisted expand/collapse state (3.13 decision 4, deferred
+// — session-only is correct for now), and the inline "+ New Discussion"
+// row (NotebookCreator already covers creation).
+//
+// Notebook export (a per-row "Export" button, downloading a .pact file)
+// exists on the instrumented clone but is deliberately not ported here —
+// see the port task's own report for why (.pact export/import is an
+// ambiguous item, not a clear-cut fix, so it's left for a separate
+// decision rather than silently included or excluded).
 //
 // Follow-up to 220474c: the hand-rolled "▼"/"▶" text-triangle link was
 // unusable for real evaluation — no real tree control, no keyboard nav,
@@ -105,15 +111,23 @@ function persistExpandedItems(expandedItems: string[]) {
 export function Explorer({
   activeDiscussionId,
   onSelect,
+  onNotebookSelected,
   onNotebookDeleted,
+  onDiscussionDeleted,
   refetchToken,
 }: {
   activeDiscussionId: string | null;
-  onSelect: (discussionId: string) => void;
+  // notebookId is the discussion's own parent -- selecting a discussion
+  // also selects the notebook it lives in, so "Add a discussion to this
+  // notebook" targets the right one even if the user never separately
+  // clicked the notebook row itself.
+  onSelect: (discussionId: string, notebookId: string) => void;
+  onNotebookSelected: (notebookId: string) => void;
   onNotebookDeleted: (
     notebookId: string,
     deletedDiscussionIds: string[],
   ) => void;
+  onDiscussionDeleted: (discussionId: string) => void;
   refetchToken: number;
 }) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -163,6 +177,33 @@ export function Explorer({
     }
   }
 
+  // Per-discussion counterpart to handleDeleteNotebook above. The 409 it
+  // can get back is about *this* discussion's own active execution lock
+  // (DELETE /api/discussions), not the notebook-level "some discussion in
+  // here is executing" check — deleting one discussion is never blocked
+  // by a sibling's run.
+  async function handleDeleteDiscussion(discussionId: string, name: string) {
+    const confirmed = window.confirm(
+      `Delete discussion "${name}" and all its responses? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    setDeleteError(null);
+    const response = await fetch(`/api/discussions?id=${discussionId}`, {
+      method: "DELETE",
+    });
+
+    if (response.ok) {
+      onDiscussionDeleted(discussionId);
+    } else if (response.status === 409) {
+      setDeleteError(
+        `"${name}" can't be deleted right now — it's actively executing. Try again once that finishes.`,
+      );
+    } else {
+      setDeleteError(`Failed to delete "${name}".`);
+    }
+  }
+
   // Tracks the tree's own last-seen state so setState below can resolve
   // the updater-function form of SetStateFn's Updater<T> union — in
   // practice @headless-tree/react always calls setState with a direct
@@ -193,7 +234,12 @@ export function Explorer({
           return {
             kind: "notebook",
             notebookId: notebook.id,
-            name: notebook.name || notebook.id,
+            // Falls back to a placeholder, never the raw id -- a
+            // notebook's own uuid is meaningless to a user and was
+            // previously shown here whenever name was empty. Kept as a
+            // display-layer guard regardless of how an empty name might
+            // reach the database.
+            name: notebook.name || "Untitled notebook",
           };
         }
         const discussion = discussions.find((d) => d.id === itemId);
@@ -202,7 +248,7 @@ export function Explorer({
             kind: "discussion",
             discussionId: discussion.id,
             notebookId: discussion.notebook_id,
-            name: discussion.name || discussion.id,
+            name: discussion.name || "Untitled discussion",
           };
         }
         return { kind: "root" };
@@ -226,8 +272,14 @@ export function Explorer({
     indent: 20,
     onPrimaryAction: (item) => {
       const data = item.getItemData();
-      if (data.kind === "discussion") {
-        onSelect(data.discussionId);
+      // Purely additive to whatever headless-tree's own default handling
+      // of this same event already does for a folder item (the
+      // expand/collapse toggle) -- nothing here replaces or needs to
+      // coordinate with that.
+      if (data.kind === "notebook") {
+        onNotebookSelected(data.notebookId);
+      } else if (data.kind === "discussion") {
+        onSelect(data.discussionId, data.notebookId);
       }
     },
     // Seeds expandedItems from sessionStorage on mount (read once, via a
@@ -379,7 +431,16 @@ export function Explorer({
               }}
             >
               <span aria-hidden="true">💬</span>
-              <span>{data.name}</span>
+              <span style={{ flex: 1 }}>{data.name}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteDiscussion(data.discussionId, data.name);
+                }}
+              >
+                Delete discussion
+              </button>
             </div>
           );
         })}

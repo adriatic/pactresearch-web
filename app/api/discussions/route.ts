@@ -67,6 +67,24 @@ async function handlePost(request: Request) {
     .single();
 
   if (insertError) {
+    // 23505 = unique_violation, from discussions_notebook_id_normalized_
+    // name_idx (see 20260916210914) -- this is the authoritative,
+    // race-proof enforcement of the same rule NotebookCreator's own
+    // client-side check applies optimistically before ever reaching this
+    // route. That earlier check is real UX (instant feedback, no round
+    // trip through a failed create), but it reads and decides in two
+    // separate steps with nothing atomic tying them together, so it
+    // can't be the actual source of truth -- two near-simultaneous
+    // requests (two tabs, or a fast double-submit) could both pass it.
+    // This is what makes the rule actually hold.
+    if (insertError.code === "23505") {
+      return Response.json(
+        {
+          error: `This notebook already has a discussion named "${name.trim()}". Pick a different name.`,
+        },
+        { status: 409 },
+      );
+    }
     throw insertError;
   }
 
@@ -204,6 +222,71 @@ async function handlePatch(request: Request) {
   return Response.json(updated[0]);
 }
 
+async function handleDelete(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return Response.json({ error: "id is required." }, { status: 400 });
+  }
+
+  // Same protection DELETE /api/notebooks already applies, scoped to this
+  // one discussion: refuse while its own execution lock is genuinely
+  // active (non-stale), so an in-flight Anthropic call can't keep writing
+  // responses rows against a discussion that no longer exists. Note this
+  // is unrelated to the notebook-level check — that one blocks deleting a
+  // *notebook* because some discussion inside it is executing; deleting a
+  // discussion is never blocked by a sibling discussion's lock.
+  const { data: hasActiveLock, error: lockCheckError } = await supabase.rpc(
+    "discussion_has_active_execution_lock",
+    { p_discussion_id: id },
+  );
+
+  if (lockCheckError) {
+    throw lockCheckError;
+  }
+
+  if (hasActiveLock) {
+    return Response.json(
+      {
+        error: "Cannot delete this discussion while it is actively executing.",
+      },
+      { status: 409 },
+    );
+  }
+
+  // Session-scoped client + RLS: this can only ever delete a discussion
+  // the caller owns. An empty result covers both "doesn't exist" and
+  // "isn't yours" — same non-distinguishing 404 pattern as DELETE
+  // /api/notebooks. Child rows (responses, execution_locks) cascade via
+  // their own ON DELETE CASCADE.
+  const { data: deleted, error } = await supabase
+    .from("discussions")
+    .delete()
+    .eq("id", id)
+    .select();
+
+  if (error) {
+    throw error;
+  }
+
+  if (deleted.length === 0) {
+    return Response.json({ error: "Discussion not found." }, { status: 404 });
+  }
+
+  return Response.json(deleted[0]);
+}
+
 export const POST = withRouteErrorHandling(handlePost);
+export const DELETE = withRouteErrorHandling(handleDelete);
 export const GET = withRouteErrorHandling(handleGet);
 export const PATCH = withRouteErrorHandling(handlePatch);

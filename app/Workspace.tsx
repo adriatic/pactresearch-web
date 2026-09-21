@@ -17,19 +17,23 @@ function formatSwitchDuration(ms: number): string {
 // independent scroll), a fixed header toolbar, a fixed composer, and a
 // scrolling middle region for the active discussion's content. Ports
 // pact-mac's actual App.tsx shell structure (confirmed against a
-// screenshot of the real app): the composer sits fixed near the top of
-// the main panel, directly below the header, above the scrolling
-// content — not a bottom-pinned footer. Header toolbar buttons
+// screenshot of the real app): the composer sits near the top of the
+// main panel, directly below the header, above the scrolling content —
+// not a bottom-pinned footer. Header toolbar buttons
 // (New Notebook/Import/Settings/Account/Model) exist in their real fixed
-// position but stay disabled/unwired, per this task's explicit scope —
-// their dialogs/behavior are separate, not-yet-built work.
+// position but stay disabled/unwired -- their dialogs/behavior are
+// separate, not-yet-built work. Run is wired (acts on the selected
+// discussion, see execution.run()). Import/Export (.pact files) exist on
+// the instrumented clone but are deliberately not ported here — see the
+// port task's own report for why (an ambiguous item, not a clear-cut
+// fix).
 //
-// The sidebar/main-panel split and its drag handle use
-// react-resizable-panels (Group/Panel/Separator — this app's installed
-// version, v4, renamed from the older PanelGroup/PanelResizeHandle names
-// still shown in a lot of older docs/tutorials) rather than hand-rolled
-// drag math: zero dependencies, 22M+ weekly downloads, published days
-// before this was written. minSize/maxSize on the sidebar Panel are
+// Both splits — sidebar/main-panel, and composer/discussion-content —
+// use react-resizable-panels (Group/Panel/Separator — this app's
+// installed version, v4, renamed from the older PanelGroup/
+// PanelResizeHandle names still shown in a lot of older docs/tutorials)
+// rather than hand-rolled drag math: zero dependencies, 22M+ weekly
+// downloads, published days before this was written. minSize/maxSize are
 // plain pixel values — session-only, matching 3.13 decision 4's
 // still-deferred persisted-UI-preference boundary (no localStorage/
 // defaultLayout wiring here).
@@ -41,23 +45,47 @@ export function Workspace({
   const [activeDiscussionId, setActiveDiscussionId] = useState<string | null>(
     initialDiscussionId,
   );
+  // Which notebook "Add a discussion to this notebook" (NotebookCreator)
+  // targets -- the single source of truth for that, driven by whatever
+  // the user actually selected: clicking a notebook row directly, or a
+  // discussion (whose own parent counts too, see handleDiscussionSelected
+  // below), or a notebook this session just created (see
+  // handleNotebookCreated). Previously NotebookCreator tracked this
+  // itself, from its own create-notebook success only -- meaning the
+  // panel always targeted whichever notebook was most recently *created*
+  // through that one form, silently ignoring any notebook the user
+  // actually clicked afterward once two or more existed.
+  const [selectedNotebookId, setSelectedNotebookId] = useState<string | null>(
+    null,
+  );
   // Bumped whenever a discussion is created or a notebook is deleted, so
   // Explorer's effect refetches — it doesn't otherwise depend on anything
   // that changes here.
   const [discussionListRefetchToken, setDiscussionListRefetchToken] =
     useState(0);
-  // Rebroadcast down to NotebookCreator, the same shape as
-  // discussionListRefetchToken above — set here from Explorer's callback,
-  // consumed by whichever child needs to react.
-  const [lastDeletedNotebookId, setLastDeletedNotebookId] = useState<
-    string | null
-  >(null);
 
   const execution = useDiscussionExecution(activeDiscussionId);
 
   function handleDiscussionCreated(discussionId: string) {
     setActiveDiscussionId(discussionId);
     setDiscussionListRefetchToken((t) => t + 1);
+  }
+
+  // A newly created notebook becomes the selected one -- immediately the
+  // target for "Add a discussion to this notebook", without requiring a
+  // separate click on its own row first.
+  function handleNotebookCreated(notebookId: string) {
+    setSelectedNotebookId(notebookId);
+    setDiscussionListRefetchToken((t) => t + 1);
+  }
+
+  // Selecting a discussion also selects the notebook it lives in --
+  // switching to a discussion inside Notebook B and then using "Add a
+  // discussion" (without separately clicking B's own row) must target B,
+  // not whatever was selected before.
+  function handleDiscussionSelected(discussionId: string, notebookId: string) {
+    setActiveDiscussionId(discussionId);
+    setSelectedNotebookId(notebookId);
   }
 
   function handleNotebookDeleted(
@@ -70,8 +98,22 @@ export function Workspace({
     ) {
       setActiveDiscussionId(null);
     }
+    // The deleted notebook can't stay the selected target for "Add a
+    // discussion to this notebook" -- NotebookCreator's own render-time
+    // reset (keyed on selectedNotebookId itself) picks this up and clears
+    // its input/error the instant this commits, before it could ever
+    // submit against a notebook that no longer exists.
+    if (selectedNotebookId === notebookId) {
+      setSelectedNotebookId(null);
+    }
     setDiscussionListRefetchToken((t) => t + 1);
-    setLastDeletedNotebookId(notebookId);
+  }
+
+  function handleDiscussionDeleted(discussionId: string) {
+    if (activeDiscussionId === discussionId) {
+      setActiveDiscussionId(null);
+    }
+    setDiscussionListRefetchToken((t) => t + 1);
   }
 
   return (
@@ -84,14 +126,17 @@ export function Workspace({
       >
         <Explorer
           activeDiscussionId={activeDiscussionId}
-          onSelect={setActiveDiscussionId}
+          onSelect={handleDiscussionSelected}
+          onNotebookSelected={setSelectedNotebookId}
           onNotebookDeleted={handleNotebookDeleted}
+          onDiscussionDeleted={handleDiscussionDeleted}
           refetchToken={discussionListRefetchToken}
         />
         <hr />
         <NotebookCreator
+          selectedNotebookId={selectedNotebookId}
+          onNotebookCreated={handleNotebookCreated}
           onDiscussionCreated={handleDiscussionCreated}
-          lastDeletedNotebookId={lastDeletedNotebookId}
         />
       </Panel>
       <Separator
@@ -104,6 +149,27 @@ export function Workspace({
           <strong>PACT</strong>{" "}
           <button type="button" disabled>
             New Notebook
+          </button>{" "}
+          {/* Acts on whatever discussion is currently selected, using
+              whatever text is in that discussion's composer. Disabled
+              with no discussion selected (matching how the other header
+              buttons gate on their own applicability) or with nothing
+              worth running — execution.promptText is the same live state
+              the composer's textarea is bound to, so this reacts to every
+              keystroke and to a discussion switch's restored draft with
+              no separate wiring. This is the sole run trigger — see
+              Composer.tsx for why the composer no longer has one of its
+              own. */}
+          <button
+            type="button"
+            onClick={() => execution.run()}
+            disabled={
+              execution.loading ||
+              !activeDiscussionId ||
+              execution.promptText.trim().length === 0
+            }
+          >
+            {execution.loading ? "Running..." : "Run"}
           </button>{" "}
           <button type="button" disabled>
             Import
@@ -123,26 +189,37 @@ export function Workspace({
             </span>
           )}
         </header>
-        <div style={{ flexShrink: 0 }}>
-          <Composer
-            discussionId={activeDiscussionId}
-            promptText={execution.promptText}
-            setPromptText={execution.setPromptText}
-            loading={execution.loading}
-            onSubmit={execution.handleSubmit}
+        {/* The composer and the discussion content are their own vertical
+            Group so the boundary between them is a real draggable
+            divider, replacing the textarea's native corner resize grip
+            (see Composer.tsx). Same library and same session-only,
+            pixel-valued sizing as the sidebar split above — persisting
+            this layout stays behind 3.13 decision 4. minHeight: 0 is
+            what lets this Group actually shrink inside the surrounding
+            flex column rather than being floored at its content height. */}
+        <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+          <Panel defaultSize={140} minSize={64} maxSize={480}>
+            <Composer
+              promptText={execution.promptText}
+              setPromptText={execution.setPromptText}
+            />
+          </Panel>
+          <Separator
+            style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
           />
-        </div>
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          <DiscussionContent
-            discussionId={activeDiscussionId}
-            discussionName={execution.discussionName}
-            history={execution.history}
-            streamedResponse={execution.streamedResponse}
-            streamedModel={execution.streamedModel}
-            isStreaming={execution.isStreaming}
-            result={execution.result}
-          />
-        </div>
+          <Panel style={{ overflowY: "auto" }}>
+            <DiscussionContent
+              discussionId={activeDiscussionId}
+              discussionName={execution.discussionName}
+              history={execution.history}
+              streamedResponse={execution.streamedResponse}
+              streamedModel={execution.streamedModel}
+              streamedResponseCreatedAt={execution.streamedResponseCreatedAt}
+              isStreaming={execution.isStreaming}
+              executionError={execution.executionError}
+            />
+          </Panel>
+        </Group>
       </Panel>
     </Group>
   );

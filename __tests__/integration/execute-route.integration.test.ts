@@ -68,6 +68,53 @@ function makeRequest(body: unknown) {
   });
 }
 
+// Minimal SSE stream for tests that only care about what request body was
+// sent to Anthropic, not about incremental delta timing (unlike
+// createAnthropicStreamHandler's multi-word, optionally-delayed stream).
+function buildTinySseStream(text: string): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const events = [
+    {
+      type: "message_start",
+      data: {
+        type: "message_start",
+        message: {
+          id: "msg_tiny",
+          type: "message",
+          role: "assistant",
+          model: mockAnthropicStreamedModel,
+          content: [],
+          stop_reason: null,
+          stop_sequence: null,
+          usage: { input_tokens: 1, output_tokens: 0 },
+        },
+      },
+    },
+    {
+      type: "content_block_delta",
+      data: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text },
+      },
+    },
+    { type: "message_stop", data: { type: "message_stop" } },
+  ];
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(
+          encoder.encode(
+            `event: ${event.type}\ndata: ${JSON.stringify(event.data)}\n\n`,
+          ),
+        );
+      }
+      controller.close();
+    },
+  });
+}
+
 describe("POST /api/execute", () => {
   let API_URL: string;
   let ANON_KEY: string;
@@ -100,6 +147,9 @@ describe("POST /api/execute", () => {
     runLocalSql(
       "GRANT EXECUTE ON FUNCTION public.try_acquire_execution_lock" +
         "(uuid, uuid, interval) TO anon, authenticated, service_role;",
+    );
+    runLocalSql(
+      "GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO anon, authenticated, service_role;",
     );
 
     const status = getLocalSupabaseStatus();
@@ -347,6 +397,18 @@ describe("POST /api/execute", () => {
     expect(responseRows?.[0].resolved_model).toBe(mockAnthropicStreamedModel);
     expect(responseRows?.[0].response).toBe(mockAnthropicStreamedText);
 
+    // Persistence audit finding A: the client needs the real row id to
+    // append this run directly into its own in-memory history, instead
+    // of only learning about it via a future, unrelated discussion
+    // switch's own fetch.
+    expect(parsed.response_row_id).toBe(responseRows?.[0].id);
+
+    // Display cleanup: the client shows this timestamp next to
+    // "Discussion: {name}" -- must be the row's own database-assigned
+    // created_at (set at message_start, near the start of generation),
+    // never an approximation of when this request happened to finish.
+    expect(parsed.response_created_at).toBe(responseRows?.[0].created_at);
+
     const { data: lockRows, error: lockError } = await admin
       .from("execution_locks")
       .select("*")
@@ -365,20 +427,19 @@ describe("POST /api/execute", () => {
     // in flight, so there's something to observe mid-stream. A test that
     // only checked the final row state would pass identically whether this
     // was truly streamed or written once at the end; this one doesn't.
-    // 400ms/word (11 words ≈ 4.4s total) rather than 200ms/word: the
-    // throttle interval is 2000ms (ported from the instrumented clone,
-    // where it was measured and raised from the original 500ms), so the
-    // wait below needs comfortable room past 2000ms for a write to have
-    // landed while still leaving the stream clearly unfinished.
+    // 400ms/word (11 words ≈ 4.4s total) rather than 200ms/word: task 18
+    // raised STREAM_WRITE_THROTTLE_MS 500ms -> 2000ms, so the wait below
+    // needs comfortable room past 2000ms for a write to have landed while
+    // still leaving the stream clearly unfinished, not a photo finish.
     server.use(createAnthropicStreamHandler(400));
 
     const promptText = `mid-flight-${Date.now()}`;
     const postPromise = POST(makeRequest({ discussionId, promptText }));
 
     // message_start arrives near-instantly (the row gets created almost
-    // immediately); the throttle (2000ms) should have let one delta write
-    // land by 2500ms in, while the full stream (11 words * 400ms ≈ 4.4s)
-    // is still well short of message_stop.
+    // immediately); the throttle (2000ms, task 18) should have let one
+    // delta write land by 2500ms in, while the full stream (11 words *
+    // 400ms ≈ 4.4s) is still well short of message_stop.
     await new Promise((resolve) => setTimeout(resolve, 2500));
 
     const { data: midFlightRows, error: midFlightError } = await admin
@@ -427,6 +488,70 @@ describe("POST /api/execute", () => {
       .eq("user_id", userId);
     expect(lockErrorAfter).toBeNull();
     expect(lockRowsAfter).toHaveLength(0);
+  });
+
+  test("uses the configured app_settings.max_tokens value, not a hardcoded one", async () => {
+    currentCookies = await signInAsTestUser();
+
+    const { error: settingsError } = await admin
+      .from("app_settings")
+      .update({ max_tokens: 55 })
+      .eq("id", 1);
+    expect(settingsError).toBeNull();
+
+    let capturedMaxTokens: number | undefined;
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as { max_tokens?: number };
+          capturedMaxTokens = body.max_tokens;
+          return new HttpResponse(buildTinySseStream("configured"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const promptText = `configured-max-tokens-${Date.now()}`;
+    const response = await POST(makeRequest({ discussionId, promptText }));
+
+    expect(response.status).toBe(200);
+    expect(capturedMaxTokens).toBe(55);
+
+    await admin.from("app_settings").update({ max_tokens: 40000 }).eq("id", 1);
+  });
+
+  test("falls back to the old hardcoded max_tokens when app_settings has no row", async () => {
+    currentCookies = await signInAsTestUser();
+
+    const { error: deleteError } = await admin
+      .from("app_settings")
+      .delete()
+      .eq("id", 1);
+    expect(deleteError).toBeNull();
+
+    let capturedMaxTokens: number | undefined;
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as { max_tokens?: number };
+          capturedMaxTokens = body.max_tokens;
+          return new HttpResponse(buildTinySseStream("fallback"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const promptText = `fallback-max-tokens-${Date.now()}`;
+    const response = await POST(makeRequest({ discussionId, promptText }));
+
+    expect(response.status).toBe(200);
+    expect(capturedMaxTokens).toBe(1000);
+
+    await admin.from("app_settings").insert({ id: 1, max_tokens: 40000 });
   });
 
   test("logs the real Anthropic error server-side but returns only a generic message to the user", async () => {

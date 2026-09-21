@@ -11,10 +11,8 @@ import { isAdmin } from "@/lib/isAdmin";
 // which is what actually makes a non-admin's own session unable to see
 // other users' rows regardless of what this page's own check does.
 //
-// No /admin index page exists in production yet (unlike the clone, which
-// links here from its own max_tokens settings form) -- that page isn't
-// part of this task's scope, so this route stands alone, reachable
-// directly at /admin/timings.
+// Linked from /admin (the max_tokens settings form), added in the
+// clone-parity port that also brought this comment up to date.
 const PAGE_SIZE = 50;
 
 interface ExecutionTimingRow {
