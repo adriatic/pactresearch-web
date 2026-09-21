@@ -166,6 +166,7 @@ export function Workspace({
       >
         <Explorer
           activeDiscussionId={activeDiscussionId}
+          selectedNotebookId={selectedNotebookId}
           onSelect={handleDiscussionSelected}
           onNotebookSelected={setSelectedNotebookId}
           onNotebookDeleted={handleNotebookDeleted}

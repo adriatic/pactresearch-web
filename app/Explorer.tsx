@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   syncDataLoaderFeature,
-  selectionFeature,
   hotkeysCoreFeature,
   type TreeState,
 } from "@headless-tree/core";
@@ -104,6 +103,7 @@ function persistExpandedItems(expandedItems: string[]) {
 
 export function Explorer({
   activeDiscussionId,
+  selectedNotebookId,
   onSelect,
   onNotebookSelected,
   onNotebookDeleted,
@@ -111,6 +111,12 @@ export function Explorer({
   refetchToken,
 }: {
   activeDiscussionId: string | null;
+  // The notebook NotebookCreator's "Add a discussion to this notebook"
+  // currently targets (Workspace's own state, driven by whichever
+  // notebook/discussion the user actually clicked) -- rendered here only
+  // to give that selection a visible indicator in the tree itself, which
+  // it previously had none of.
+  selectedNotebookId: string | null;
   // notebookId is the discussion's own parent -- selecting a discussion
   // also selects the notebook it lives in, so "Add a discussion to this
   // notebook" targets the right one even if the user never separately
@@ -128,6 +134,17 @@ export function Explorer({
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  // Which discussion (at most one -- execution_locks is keyed by user_id,
+  // one lock per user, not per discussion) the signed-in user currently
+  // has running, regardless of which discussion is active in Workspace --
+  // a run left executing after switching away from it previously looked
+  // identical to an idle discussion in this tree. Polled rather than tied
+  // to refetchToken: a run starting/finishing doesn't bump that token
+  // today, and adding that wiring through Workspace/useDiscussionExecution
+  // would be a bigger change than this fix calls for.
+  const [executingDiscussionId, setExecutingDiscussionId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,6 +162,32 @@ export function Explorer({
       cancelled = true;
     };
   }, [refetchToken]);
+
+  // 3s poll: frequent enough that "still running" feels live without
+  // hammering the DB for what's ultimately a single small row read,
+  // scoped to the caller's own lock by RLS. Runs independently of
+  // refetchToken/mount-only effects above -- this needs to keep noticing
+  // a run finish even while nothing else about the tree changes.
+  useEffect(() => {
+    let cancelled = false;
+    function poll() {
+      fetch("/api/execution-locks")
+        .then((response) => response.json())
+        .then((body: { discussionId: string | null }) => {
+          if (!cancelled) setExecutingDiscussionId(body.discussionId);
+        })
+        .catch(() => {
+          // Best-effort -- a failed poll just leaves the last-known
+          // state on screen until the next tick succeeds.
+        });
+    }
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   async function handleDeleteNotebook(notebookId: string, name: string) {
     const confirmed = window.confirm(
@@ -329,7 +372,44 @@ export function Explorer({
       lastTreeStateRef.current = state;
       if (state.expandedItems) persistExpandedItems(state.expandedItems);
     },
-    features: [syncDataLoaderFeature, selectionFeature, hotkeysCoreFeature],
+    // Enter/Space fire the exact same primaryAction a click does, for
+    // whichever row keyboard focus is currently on -- item.primaryAction()
+    // is the same call onClick already makes (see itemInstance.getProps()
+    // in @headless-tree/core's main feature), so this can't drift from
+    // click behavior. Deliberately NOT also toggling expand/collapse the
+    // way a click on a notebook does -- Arrow Left/Right already own
+    // expand/collapse for keyboard users, and primaryAction() alone
+    // doesn't touch it either, so doubling it up here isn't needed.
+    // Two separate entries, not one: HotkeyConfig only matches a single
+    // key (or Shift/Ctrl+key combo) per entry, not a list of alternatives.
+    hotkeys: {
+      customPrimaryActionEnter: {
+        hotkey: "enter",
+        preventDefault: true,
+        handler: (_e, tree) => {
+          tree.getFocusedItem()?.primaryAction();
+        },
+      },
+      customPrimaryActionSpace: {
+        hotkey: "space",
+        preventDefault: true,
+        handler: (_e, tree) => {
+          tree.getFocusedItem()?.primaryAction();
+        },
+      },
+    },
+    // selectionFeature (Ctrl/Shift-click, Ctrl+A, Ctrl+Space, Shift+Arrow)
+    // was removed -- it had no visible effect (nothing rendered
+    // isSelected()) and its real bug was that a modifier-held click still
+    // fired the same primaryAction a plain click does, silently switching
+    // the active discussion/target notebook while the user thought they
+    // were building a multi-selection. No replacement multi-select
+    // feature is wanted (confirmed with Nik) -- a modifier-held click now
+    // just does what mainFeature's own click handling already does
+    // (focus + primaryAction, skipping the expand/collapse toggle when a
+    // modifier is held, same as before), with no separate selection
+    // side-effect layered on top.
+    features: [syncDataLoaderFeature, hotkeysCoreFeature],
   });
 
   // The sync data loader retrieves item/children data once and caches it
@@ -411,6 +491,12 @@ export function Explorer({
 
           if (data.kind === "notebook") {
             const isExpanded = item.isExpanded();
+            // Same kind of signal as a discussion's bold "active" text,
+            // but a background rather than font-weight -- notebook names
+            // render as an <h3>, already bold by default, so font-weight
+            // alone wouldn't be visible here the way it is on a
+            // discussion's plain <span>.
+            const isSelected = data.notebookId === selectedNotebookId;
             return (
               <div
                 key={item.getId()}
@@ -421,6 +507,7 @@ export function Explorer({
                   gap: 6,
                   padding: `4px 8px 4px ${paddingLeft}px`,
                   cursor: "pointer",
+                  background: isSelected ? "#dbe9ff" : "transparent",
                 }}
               >
                 <span
@@ -457,6 +544,7 @@ export function Explorer({
 
           // data.kind === "discussion"
           const isActive = data.discussionId === activeDiscussionId;
+          const isExecuting = data.discussionId === executingDiscussionId;
           return (
             <div
               key={item.getId()}
@@ -472,6 +560,21 @@ export function Explorer({
             >
               <span aria-hidden="true">💬</span>
               <span style={{ flex: 1 }}>{data.name}</span>
+              {isExecuting && (
+                <span
+                  aria-label="Currently running"
+                  style={{
+                    fontSize: "0.75em",
+                    fontWeight: "bold",
+                    color: "#fff",
+                    background: "#d97706",
+                    borderRadius: 3,
+                    padding: "1px 6px",
+                  }}
+                >
+                  ● Running
+                </span>
+              )}
               <button
                 type="button"
                 onClick={(e) => {
