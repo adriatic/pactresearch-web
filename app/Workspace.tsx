@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { NotebookCreator } from "./NotebookCreator";
 import { Explorer } from "./Explorer";
@@ -20,13 +20,12 @@ function formatSwitchDuration(ms: number): string {
 // screenshot of the real app): the composer sits near the top of the
 // main panel, directly below the header, above the scrolling content —
 // not a bottom-pinned footer. Header toolbar buttons
-// (New Notebook/Import/Settings/Account/Model) exist in their real fixed
+// (New Notebook/Settings/Account/Model) exist in their real fixed
 // position but stay disabled/unwired -- their dialogs/behavior are
-// separate, not-yet-built work. Run is wired (acts on the selected
-// discussion, see execution.run()). Import/Export (.pact files) exist on
-// the instrumented clone but are deliberately not ported here — see the
-// port task's own report for why (an ambiguous item, not a clear-cut
-// fix).
+// separate, not-yet-built work. Run and Import are wired (Run acts on
+// the selected discussion, see execution.run(); Import handles .pact
+// files, see handleImportFileSelected); Export lives on each notebook
+// row in Explorer.tsx, not in this header.
 //
 // Both splits — sidebar/main-panel, and composer/discussion-content —
 // use react-resizable-panels (Group/Panel/Separator — this app's
@@ -63,6 +62,8 @@ export function Workspace({
   // that changes here.
   const [discussionListRefetchToken, setDiscussionListRefetchToken] =
     useState(0);
+  const [importError, setImportError] = useState<string | null>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   const execution = useDiscussionExecution(activeDiscussionId);
 
@@ -86,6 +87,45 @@ export function Workspace({
   function handleDiscussionSelected(discussionId: string, notebookId: string) {
     setActiveDiscussionId(discussionId);
     setSelectedNotebookId(notebookId);
+  }
+
+  // Reads the selected .pact file, POSTs it to /api/notebooks/import (the
+  // server does the real validation regardless of what's parsed here --
+  // this is just an early, friendly error for "not even valid JSON"),
+  // and refetches the tree so the new notebook appears. Resets the input
+  // itself so selecting the exact same file again still fires onChange.
+  async function handleImportFileSelected(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    setImportError(null);
+    try {
+      const text = await file.text();
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        setImportError("That file isn't valid JSON -- not a .pact file.");
+        return;
+      }
+
+      const response = await fetch("/api/notebooks/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(parsed),
+      });
+      const body = await response.json();
+      if (response.ok) {
+        setDiscussionListRefetchToken((t) => t + 1);
+      } else {
+        setImportError(body.error || "Failed to import .pact file.");
+      }
+    } catch {
+      setImportError("Failed to read the selected file.");
+    }
   }
 
   function handleNotebookDeleted(
@@ -171,9 +211,19 @@ export function Workspace({
           >
             {execution.loading ? "Running..." : "Run"}
           </button>{" "}
-          <button type="button" disabled>
+          <button
+            type="button"
+            onClick={() => importFileInputRef.current?.click()}
+          >
             Import
           </button>{" "}
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".pact"
+            style={{ display: "none" }}
+            onChange={handleImportFileSelected}
+          />{" "}
           <button type="button" disabled>
             Settings
           </button>{" "}
@@ -186,6 +236,12 @@ export function Workspace({
           {execution.lastSwitchDurationMs !== null && (
             <span style={{ color: "#666", fontSize: "0.85em" }}>
               Switched in {formatSwitchDuration(execution.lastSwitchDurationMs)}
+            </span>
+          )}
+          {importError && (
+            <span style={{ color: "#a00", fontSize: "0.85em" }}>
+              {" "}
+              {importError}
             </span>
           )}
         </header>

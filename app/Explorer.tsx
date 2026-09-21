@@ -16,17 +16,11 @@ import { useTree } from "@headless-tree/react";
 // underneath, selecting a discussion drives the active discussionId, and
 // the notebook containing the active discussion auto-expands so a
 // restored selection is never hidden behind a collapsed row. Deliberately
-// not ported: the isSystem lock icon and hardcoded tutorial/drafts
-// notebook IDs (3.13 decision 3's access-rights model replaces that, not
-// yet built), persisted expand/collapse state (3.13 decision 4, deferred
-// — session-only is correct for now), and the inline "+ New Discussion"
-// row (NotebookCreator already covers creation).
-//
-// Notebook export (a per-row "Export" button, downloading a .pact file)
-// exists on the instrumented clone but is deliberately not ported here —
-// see the port task's own report for why (.pact export/import is an
-// ambiguous item, not a clear-cut fix, so it's left for a separate
-// decision rather than silently included or excluded).
+// not ported: export/import, the isSystem lock icon and hardcoded
+// tutorial/drafts notebook IDs (3.13 decision 3's access-rights model
+// replaces that, not yet built), persisted expand/collapse state (3.13
+// decision 4, deferred — session-only is correct for now), and the inline
+// "+ New Discussion" row (NotebookCreator already covers creation).
 //
 // Follow-up to 220474c: the hand-rolled "▼"/"▶" text-triangle link was
 // unusable for real evaluation — no real tree control, no keyboard nav,
@@ -133,6 +127,7 @@ export function Explorer({
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,6 +170,39 @@ export function Explorer({
     } else {
       setDeleteError(`Failed to delete "${name}".`);
     }
+  }
+
+  // Downloads the notebook as a .pact file -- a plain JSON file (ported
+  // from pact-mac's export format, unsigned, minus desktop-only xmState)
+  // that importNotebook() can turn back into a fully independent notebook
+  // instance. The file itself is fetched and blobbed client-side rather
+  // than navigated to directly, matching every other action in this
+  // component being a fetch() call.
+  async function handleExportNotebook(notebookId: string, name: string) {
+    setExportError(null);
+    const response = await fetch(`/api/notebooks/export?id=${notebookId}`);
+    if (!response.ok) {
+      setExportError(`Failed to export "${name}".`);
+      return;
+    }
+    const pactExport = await response.json();
+    const blob = new Blob([JSON.stringify(pactExport, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    // Same sanitization concern as any user-provided string ending up in
+    // a filename -- strip anything that isn't safe across filesystems,
+    // collapse the rest to single hyphens.
+    const safeName = name
+      .replace(/[^a-zA-Z0-9-_]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    link.download = `${safeName || "notebook"}.pact`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 
   // Per-discussion counterpart to handleDeleteNotebook above. The 409 it
@@ -236,9 +264,11 @@ export function Explorer({
             notebookId: notebook.id,
             // Falls back to a placeholder, never the raw id -- a
             // notebook's own uuid is meaningless to a user and was
-            // previously shown here whenever name was empty. Kept as a
+            // previously shown here for anything imported from a .pact
+            // file with an empty-string name (now rejected at import
+            // validation, see lib/pactExport.ts, but this stays as a
             // display-layer guard regardless of how an empty name might
-            // reach the database.
+            // reach the database).
             name: notebook.name || "Untitled notebook",
           };
         }
@@ -356,6 +386,7 @@ export function Explorer({
     <section>
       <h2>Explorer</h2>
       {deleteError && <p>{deleteError}</p>}
+      {exportError && <p>{exportError}</p>}
       <div {...tree.getContainerProps("Explorer")}>
         {tree.getItems().map((item) => {
           const data = item.getItemData();
@@ -402,6 +433,15 @@ export function Explorer({
                 <h3 style={{ margin: 0, fontSize: "1em", flex: 1 }}>
                   {data.name}
                 </h3>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleExportNotebook(data.notebookId, data.name);
+                  }}
+                >
+                  Export
+                </button>
                 <button
                   type="button"
                   onClick={(e) => {
