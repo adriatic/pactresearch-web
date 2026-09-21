@@ -123,7 +123,7 @@ test("the composer and Explorer sidebar stay fixed and visible when discussion c
   // findLatestDiscussion picks this discussion (the only one that
   // exists), so its notebook auto-expands and its history — 15 long
   // response entries — loads without any manual selection.
-  const composer = page.locator("textarea");
+  const composer = page.getByLabel("Prompt");
   const runButton = page.getByRole("button", { name: "Run" });
   const discussionLink = page.getByRole("treeitem", {
     name: discussionName,
@@ -140,7 +140,7 @@ test("the composer and Explorer sidebar stay fixed and visible when discussion c
   await expect(composer).toBeVisible();
   await expect(runButton).toBeVisible();
   await composer.fill("Still reachable");
-  await expect(composer).toHaveValue("Still reachable");
+  await expect(composer).toHaveText("Still reachable");
 
   // The Explorer sidebar and its discussion link are also still visible
   // and clickable — the tall content region didn't push the sidebar out

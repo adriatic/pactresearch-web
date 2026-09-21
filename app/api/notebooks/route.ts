@@ -1,5 +1,6 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
+import { removePromptImagesForDiscussion } from "@/lib/promptImagesCleanup";
 
 // "Samples" was cut from pact-web entirely (see 3.13) — not a valid category
 // here even though the old pact-mac dialog offered it.
@@ -108,6 +109,34 @@ async function handleDelete(request: Request) {
         discussionId: blockingDiscussionId,
       },
       { status: 409 },
+    );
+  }
+
+  // Storage cleanup for every discussion in this notebook, before the
+  // notebook row delete -- same reasoning as DELETE /api/discussions:
+  // fail the whole request (don't delete the row) if any of it errors,
+  // so a retry can pick up wherever it left off rather than the
+  // discussion_ids needed to find these images becoming unreachable the
+  // moment the notebook (and its cascaded discussion rows) is gone.
+  const { data: notebookDiscussions, error: discussionsListError } =
+    await supabase.from("discussions").select("id").eq("notebook_id", id);
+
+  if (discussionsListError) {
+    throw discussionsListError;
+  }
+
+  try {
+    for (const discussion of notebookDiscussions ?? []) {
+      await removePromptImagesForDiscussion(supabase, user.id, discussion.id);
+    }
+  } catch (cleanupError) {
+    console.error(
+      "Failed to clean up prompt images before notebook delete:",
+      cleanupError,
+    );
+    return Response.json(
+      { error: "Failed to remove this notebook's images. Try again." },
+      { status: 500 },
     );
   }
 

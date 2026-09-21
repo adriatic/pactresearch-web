@@ -1,5 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
+import { removePromptImagesForDiscussion } from "@/lib/promptImagesCleanup";
+import type { RichContent } from "@/lib/richContent";
 import { trace } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("pact-api");
@@ -149,7 +151,7 @@ async function handleGet(request: Request) {
 }
 
 interface UpdateDiscussionRequestBody {
-  draftPromptText: string | null;
+  draftContent: RichContent | null;
 }
 
 async function handlePatch(request: Request) {
@@ -177,17 +179,17 @@ async function handlePatch(request: Request) {
   }
   trace.getActiveSpan()?.setAttribute("pact.discussion_id", id);
 
-  let draftPromptText: string | null;
+  let draftContent: RichContent | null;
   try {
     const body = (await request.json()) as UpdateDiscussionRequestBody;
-    draftPromptText = body.draftPromptText;
+    draftContent = body.draftContent;
   } catch {
     return Response.json({ error: "Malformed request body." }, { status: 400 });
   }
 
-  if (draftPromptText !== null && typeof draftPromptText !== "string") {
+  if (draftContent !== null && typeof draftContent !== "object") {
     return Response.json(
-      { error: "draftPromptText must be a string or null." },
+      { error: "draftContent must be a JSON object or null." },
       { status: 400 },
     );
   }
@@ -196,13 +198,19 @@ async function handlePatch(request: Request) {
   // the caller owns — an empty result covers both "doesn't exist" and
   // "isn't yours", same non-distinguishing 404 pattern as DELETE
   // /api/notebooks.
+  //
+  // draft_prompt_text is deliberately not written here anymore -- once
+  // the rich composer shipped, draft_content became the sole go-forward
+  // source. draft_prompt_text stays in the schema, frozen at whatever it
+  // last held, read only as the backward-compat fallback for discussions
+  // that predate this rebuild (see useDiscussionExecution.ts's load path).
   const { data: updated, error } = await tracer.startActiveSpan(
     "discussions-update",
     async (span) => {
       try {
         return await supabase
           .from("discussions")
-          .update({ draft_prompt_text: draftPromptText })
+          .update({ draft_content: draftContent })
           .eq("id", id)
           .select();
       } finally {
@@ -261,6 +269,24 @@ async function handleDelete(request: Request) {
         error: "Cannot delete this discussion while it is actively executing.",
       },
       { status: 409 },
+    );
+  }
+
+  // Storage cleanup before the row delete, not after or in parallel --
+  // if this fails, the discussion row must still exist so a retry (the
+  // user clicking delete again) naturally re-lists the same prefix and
+  // finishes the job, rather than the prefix becoming unreachable the
+  // moment the row (and the discussion_id it's keyed by) is gone.
+  try {
+    await removePromptImagesForDiscussion(supabase, user.id, id);
+  } catch (cleanupError) {
+    console.error(
+      "Failed to clean up prompt images before discussion delete:",
+      cleanupError,
+    );
+    return Response.json(
+      { error: "Failed to remove this discussion's images. Try again." },
+      { status: 500 },
     );
   }
 

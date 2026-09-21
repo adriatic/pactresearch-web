@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { docToPlainText } from "@/lib/richContent";
 
 // Investigated a manual report: typed a prompt into a discussion's
 // composer, switched to a different discussion without running it, then
@@ -160,7 +161,7 @@ test("switching away then immediately back shows the just-typed draft, even befo
   // resolved, but well before its (slow) outgoing-save PATCH has. Before
   // the fix, this read stale (pre-save) data and showed an empty
   // composer permanently, even though the save went on to succeed.
-  await expect(page.getByLabel("Prompt")).toHaveValue(draftText, {
+  await expect(page.getByLabel("Prompt")).toHaveText(draftText, {
     timeout: 5_000,
   });
 
@@ -168,13 +169,13 @@ test("switching away then immediately back shows the just-typed draft, even befo
   // PATCH, has settled -- not a flicker that only happened to pass at
   // the exact moment checked above.
   await page.waitForTimeout(2_500);
-  await expect(page.getByLabel("Prompt")).toHaveValue(draftText);
+  await expect(page.getByLabel("Prompt")).toHaveText(draftText);
 
   const { data: discussionAAfter, error: checkError } = await admin
     .from("discussions")
-    .select("draft_prompt_text")
+    .select("draft_content")
     .eq("id", discussionA.id)
     .single();
   expect(checkError).toBeNull();
-  expect(discussionAAfter!.draft_prompt_text).toBe(draftText);
+  expect(docToPlainText(discussionAAfter!.draft_content)).toBe(draftText);
 });

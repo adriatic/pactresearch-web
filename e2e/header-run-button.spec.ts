@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { docToPlainText, type RichContent } from "@/lib/richContent";
 
 // The Run action moved out of the composer and into the global header,
 // alongside New Notebook / Import / Settings / Account / Model. What
@@ -109,8 +110,12 @@ test("Run lives in the header, is the page's only Run control, and runs the sele
   const responseText = "# Ran from the header\n\nIt **worked**.";
   let executedPromptText: string | null = null;
   await page.route("**/api/execute", async (route) => {
-    const body = route.request().postDataJSON() as { promptText?: string };
-    executedPromptText = body.promptText ?? null;
+    const body = route.request().postDataJSON() as {
+      promptContent?: RichContent;
+    };
+    executedPromptText = body.promptContent
+      ? docToPlainText(body.promptContent)
+      : null;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -154,7 +159,7 @@ test("Run lives in the header, is the page's only Run control, and runs the sele
   // This discussion has no saved draft, so its composer loads empty --
   // Run must be disabled even though a discussion is selected.
   const prompt = page.getByLabel("Prompt");
-  await expect(prompt).toHaveValue("");
+  await expect(prompt).toHaveText("");
   await expect(headerRun).toBeDisabled();
 
   // Enables live as the user types -- no separate save/submit step.
@@ -285,19 +290,19 @@ test("the header Run button reflects each discussion's own draft when switching 
 
   // Switching to the empty-draft discussion leaves Run disabled.
   await emptyRow.click();
-  await expect(page.getByLabel("Prompt")).toHaveValue("");
+  await expect(page.getByLabel("Prompt")).toHaveText("");
   await expect(headerRun).toBeDisabled();
 
   // Switching to the saved-draft discussion enables it, with no typing.
   await draftRow.click();
-  await expect(page.getByLabel("Prompt")).toHaveValue(
+  await expect(page.getByLabel("Prompt")).toHaveText(
     "a saved draft with real content",
   );
   await expect(headerRun).toBeEnabled();
 
   // Switching back to the empty one disables it again.
   await emptyRow.click();
-  await expect(page.getByLabel("Prompt")).toHaveValue("");
+  await expect(page.getByLabel("Prompt")).toHaveText("");
   await expect(headerRun).toBeDisabled();
 });
 

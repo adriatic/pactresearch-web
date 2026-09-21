@@ -155,7 +155,7 @@ test("a successful run never shows the raw JSON result block", async ({
     }),
   );
 
-  const composer = page.locator("textarea");
+  const composer = page.getByLabel("Prompt");
   await composer.fill("Trigger a mocked successful run");
   const runButton = page.getByRole("button", { name: "Run" });
   await Promise.all([
@@ -168,7 +168,7 @@ test("a successful run never shows the raw JSON result block", async ({
   // itself finishing is confirmed by the "Running..." label being gone.
   await expect(runButton).not.toHaveText("Running...");
   await expect(runButton).toBeDisabled();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveText("");
 
   // The real fix: the response must actually render as markdown, sourced
   // from /api/execute's own body -- not merely "no raw JSON block".
@@ -200,7 +200,7 @@ test("a failed run shows the generic message and errorId, never the raw JSON bod
     }),
   );
 
-  const composer = page.locator("textarea");
+  const composer = page.getByLabel("Prompt");
   await composer.fill("Trigger a mocked failed run");
   const runButton = page.getByRole("button", { name: "Run" });
   await Promise.all([
