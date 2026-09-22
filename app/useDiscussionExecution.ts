@@ -176,8 +176,24 @@ export function useDiscussionExecution(discussionId: string | null) {
   // selected).
   const contentOwnerRef = useRef<string | null>(null);
   useEffect(() => {
+    // Guards against React Strict Mode's dev-only mount-time double
+    // invocation of this exact effect: it re-runs this body a second
+    // time with the *same* closure-captured `content` (no real
+    // re-render happened in between), by which point
+    // activeDiscussionIdRef.current may have already been advanced by
+    // the switch effect below -- re-stamping contentOwnerRef.current
+    // from that stale invocation would falsely mark the new discussion
+    // as "owning" content the user never actually typed (confirmed
+    // directly: it made a genuine, seeded legacy draft get silently
+    // skipped on load, with nothing ever typed). Comparing against
+    // contentRef.current's own *previous* value (before this line
+    // updates it) distinguishes a real content change from a redundant
+    // re-invocation of this same effect for the same value.
+    const isGenuineChange = contentRef.current !== content;
     contentRef.current = content;
-    contentOwnerRef.current = activeDiscussionIdRef.current;
+    if (isGenuineChange) {
+      contentOwnerRef.current = activeDiscussionIdRef.current;
+    }
   }, [content]);
 
   // Which discussion is currently "claimed" as active by this effect —
@@ -373,8 +389,22 @@ export function useDiscussionExecution(discussionId: string | null) {
         discussionOwnContent(loadedDiscussion) ??
         lastCellContent(lastCell) ??
         EMPTY_DOC;
-      setContentState(resolvedContent);
-      setContentVersion((v) => v + 1);
+      // Only apply the server's resolved content if the user hasn't
+      // already typed something real into *this* discussion since the
+      // switch began (contentOwnerRef.current only equals discussionId
+      // once a genuine content change has been stamped as belonging to
+      // it -- see the content-tracking effect above). Applying
+      // resolvedContent unconditionally here would silently overwrite
+      // that real, unsent input with whatever the server had -- for any
+      // brand-new discussion, the server always has EMPTY_DOC, so the
+      // very first thing a user types right after creating a discussion
+      // could vanish the moment this load resolves. A real, confirmed
+      // race (task 36) -- previously unguarded, unlike the outgoing-save
+      // side's own analogous ownership check above.
+      if (contentOwnerRef.current !== discussionId) {
+        setContentState(resolvedContent);
+        setContentVersion((v) => v + 1);
+      }
       setDiscussionName(loadedDiscussion?.name ?? null);
       setNotebookId(loadedDiscussion?.notebook_id ?? null);
       // This still measures state being set, not paint — React commits the
