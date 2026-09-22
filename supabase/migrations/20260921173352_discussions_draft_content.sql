@@ -1,0 +1,28 @@
+-- Adds structured (Tiptap/ProseMirror JSON) draft content alongside the
+-- existing plain-text draft_prompt_text column, for the rich-composer
+-- rebuild (task 28's design proposal). Additive only -- draft_prompt_text
+-- is untouched, stays exactly as it is, and is not backfilled: existing
+-- rows simply have draft_content = null until the new composer next
+-- saves that discussion's draft, at which point the app-level fallback
+-- (draft_content ?? wrap(draft_prompt_text) ?? ...) reads the old value
+-- without any data loss. See the design doc's "Backward compatibility"
+-- section for the full fallback chain.
+--
+-- draft_prompt_text itself is deliberately left in the schema, not
+-- dropped: once the new composer ships it becomes read-only/legacy (the
+-- PATCH /api/discussions route stops writing it), kept solely as the
+-- backward-compat source for discussions that predate this rebuild.
+-- Dropping it is a separate, later decision once nothing could still
+-- need it -- not assumed here.
+--
+-- jsonb, not json: standard preference here (more efficient storage,
+-- queryable later if ever needed), no reason to want json's exact
+-- whitespace round-trip behavior for this.
+--
+-- Already reviewed and applied to production by Nik directly from task
+-- 28's design proposal report before this task (28's implementation)
+-- began -- this file records that change in the repo's own migration
+-- history (and lets `supabase db reset` apply it locally for tests) but
+-- does not itself need to be re-run against the hosted project.
+alter table public.discussions
+  add column draft_content jsonb;

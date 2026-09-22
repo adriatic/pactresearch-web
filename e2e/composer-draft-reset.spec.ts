@@ -120,7 +120,7 @@ test("a discussion's draft survives switching away and back, and reloading the p
   const discussionBLink = page.getByRole("treeitem", {
     name: discussionBName,
   });
-  const composer = page.locator("textarea");
+  const composer = page.getByLabel("Prompt");
 
   await expect(discussionALink).toBeVisible();
   await expect(discussionBLink).toBeVisible();
@@ -129,10 +129,10 @@ test("a discussion's draft survives switching away and back, and reloading the p
   // findLatestDiscussion picked on initial load.
   await discussionALink.click();
   await expect(page.getByText(`Discussion: `)).toBeVisible();
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveText("");
 
   await composer.fill(draftText);
-  await expect(composer).toHaveValue(draftText);
+  await expect(composer).toHaveText(draftText);
 
   // Switch away — this must save A's draft (awaited by the app itself
   // before B's data loads) before B's composer is ever shown.
@@ -141,12 +141,12 @@ test("a discussion's draft survives switching away and back, and reloading the p
   // B's composer must start empty — no leakage of A's draft into a
   // different discussion, the original misattribution risk this whole
   // feature exists to avoid.
-  await expect(composer).toHaveValue("");
+  await expect(composer).toHaveText("");
 
   // Switch back — the draft must be there, restored from the database,
   // not lost the way the superseded 4d64d02 approach lost it.
   await discussionALink.click();
-  await expect(composer).toHaveValue(draftText);
+  await expect(composer).toHaveText(draftText);
 
   // Prove this is real persistence, not a session-only illusion: reload
   // the page entirely (fresh React state, fresh network requests — the
@@ -155,5 +155,5 @@ test("a discussion's draft survives switching away and back, and reloading the p
   await page.reload();
   await expect(discussionALink).toBeVisible();
   await discussionALink.click();
-  await expect(composer).toHaveValue(draftText);
+  await expect(composer).toHaveText(draftText);
 });

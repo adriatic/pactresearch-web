@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { docToPlainText, type RichContent } from "@/lib/richContent";
 
 // Persistence audit finding A: run() never appended to the in-memory
 // history array -- a newly-completed prompt+response was only visible
@@ -109,14 +110,18 @@ test("running two prompts in the same discussion without switching away shows bo
   const secondResponse = `second response ${suffix}`;
 
   await page.route("**/api/execute", async (route) => {
-    const body = route.request().postDataJSON() as { promptText: string };
-    const isFirst = body.promptText === firstPrompt;
+    const body = route.request().postDataJSON() as {
+      promptContent: RichContent;
+    };
+    const promptText = docToPlainText(body.promptContent);
+    const isFirst = promptText === firstPrompt;
     const { data: inserted, error } = await admin
       .from("responses")
       .insert({
         discussion_id: discussion!.id,
         user_id: userId,
-        prompt_text: body.promptText,
+        prompt_text: promptText,
+        prompt_content: body.promptContent,
         response: isFirst ? firstResponse : secondResponse,
         model: "claude-sonnet-4-6",
         resolved_model: "claude-sonnet-4-6-mock",
@@ -177,10 +182,11 @@ test("running two prompts in the same discussion without switching away shows bo
   // via the separate "Live response"/"Response" section. The first run's
   // content only appears via History (that section only ever shows the
   // *most recent* run, so it's been overwritten by the second run by
-  // this point); the second run's content legitimately appears twice --
-  // once in History (this fix), once still in the "Response" section
-  // (pre-existing, unrelated to this fix) -- so its assertion allows
-  // either.
+  // this point); the second run's content is folded into History and the
+  // separate "Response" section is cleared the moment that happens (see
+  // useDiscussionExecution's run(), fixed to stop double-rendering the
+  // same just-completed response) -- so it now appears exactly once,
+  // via History alone. .first() still tolerates either count.
   const historySection = page.locator("main");
   await expect(historySection.getByText(firstPrompt)).toBeVisible();
   await expect(historySection.getByText(firstResponse)).toBeVisible();

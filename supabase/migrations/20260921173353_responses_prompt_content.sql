@@ -1,0 +1,25 @@
+-- Adds structured (Tiptap/ProseMirror JSON) prompt content alongside the
+-- existing plain-text prompt_text column -- the durable, full-fidelity
+-- record of what was actually submitted once a prompt can contain
+-- formatting/images, not just the flattened text extraction.
+--
+-- Additive only. prompt_text stays exactly as it is (text, not null) --
+-- still what .pact export, History, and admin/timings all read; this
+-- migration changes nothing about any of them (confirmed against
+-- lib/pactExport.ts's own explicit column list, which does not use
+-- select(*) and so is unaffected by a new column it doesn't ask for).
+--
+-- Not read by anything as of this migration -- populated by /api/execute
+-- once the rich composer ships (this task's own scope), consumed by
+-- nothing until a future response-panel task renders rich prompt/response
+-- content. Purely forward-looking: exists now so that task doesn't need
+-- its own backfill migration later for data this task is already
+-- capable of capturing at the moment it's created.
+--
+-- Already reviewed and applied to production by Nik directly from task
+-- 28's design proposal report before this task (28's implementation)
+-- began -- this file records that change in the repo's own migration
+-- history (and lets `supabase db reset` apply it locally for tests) but
+-- does not itself need to be re-run against the hosted project.
+alter table public.responses
+  add column prompt_content jsonb;

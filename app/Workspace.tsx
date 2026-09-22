@@ -7,6 +7,7 @@ import { Explorer } from "./Explorer";
 import { Composer } from "./Composer";
 import { DiscussionContent } from "./DiscussionContent";
 import { useDiscussionExecution } from "./useDiscussionExecution";
+import { isEmptyDoc } from "@/lib/richContent";
 
 function formatSwitchDuration(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
@@ -192,22 +193,22 @@ export function Workspace({
             New Notebook
           </button>{" "}
           {/* Acts on whatever discussion is currently selected, using
-              whatever text is in that discussion's composer. Disabled
+              whatever content is in that discussion's composer. Disabled
               with no discussion selected (matching how the other header
               buttons gate on their own applicability) or with nothing
-              worth running — execution.promptText is the same live state
-              the composer's textarea is bound to, so this reacts to every
-              keystroke and to a discussion switch's restored draft with
-              no separate wiring. This is the sole run trigger — see
-              Composer.tsx for why the composer no longer has one of its
-              own. */}
+              worth running — execution.content is the same live state
+              the composer's editor is bound to, so this reacts to every
+              keystroke/image-insert and to a discussion switch's restored
+              draft with no separate wiring. This is the sole run
+              trigger — see Composer.tsx for why the composer no longer
+              has one of its own. */}
           <button
             type="button"
             onClick={() => execution.run()}
             disabled={
               execution.loading ||
               !activeDiscussionId ||
-              execution.promptText.trim().length === 0
+              isEmptyDoc(execution.content)
             }
           >
             {execution.loading ? "Running..." : "Run"}
@@ -257,8 +258,10 @@ export function Workspace({
         <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
           <Panel defaultSize={140} minSize={64} maxSize={480}>
             <Composer
-              promptText={execution.promptText}
-              setPromptText={execution.setPromptText}
+              discussionId={activeDiscussionId}
+              content={execution.content}
+              contentVersion={execution.contentVersion}
+              onContentChange={execution.setContent}
             />
           </Panel>
           <Separator

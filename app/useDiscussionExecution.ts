@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
+import {
+  EMPTY_DOC,
+  isEmptyDoc,
+  plainTextToDoc,
+  docToPlainText,
+  type RichContent,
+} from "@/lib/richContent";
 
 // All of ExecuteTester's state/effects/run(), unchanged, extracted
 // into a hook so the fixed-layout shell (Workspace.tsx) can render the
@@ -9,10 +16,21 @@ import { createClient } from "@/utils/supabase/client";
 // for layout purposes; none of the composer's actual behavior changes
 // here (that rebuild is 3.13 decision 1's exempted, separately-prototyped
 // project, not part of pact-web).
+//
+// The rich-composer rebuild (task 28's design, this task's
+// implementation) changed promptText: string to content: RichContent
+// (Tiptap/ProseMirror JSON) throughout -- see the design doc's own
+// mapping of every existing behavior onto the new shape. draft-save
+// autosave (2000ms debounce + immediate on image insert) is new; the
+// save-before-switch ordering and both race-condition guards
+// (stale-content misattribution, switch-away-then-back) are unchanged in
+// mechanism, now sharing their machinery with autosave rather than only
+// firing on switch/run.
 
 export interface PastResponse {
   id: string;
   prompt_text: string;
+  prompt_content: RichContent | null;
   response: string | null;
   resolved_model: string | null;
   created_at: string;
@@ -21,11 +39,58 @@ export interface PastResponse {
 interface DiscussionRow {
   id: string;
   name: string | null;
+  draft_content: RichContent | null;
   draft_prompt_text: string | null;
 }
 
+// How long to wait after the user stops typing before autosaving --
+// reuses this app's own already-measured STREAM_WRITE_THROTTLE_MS
+// precedent (app/api/execute/route.ts) rather than a fresh guess: long
+// enough that normal typing doesn't fire a PATCH on every pause, short
+// enough that a crash mid-draft loses at most ~2s of unsaved content.
+const AUTOSAVE_DEBOUNCE_MS = 2000;
+
+// Resolves a discussion row's own content for display, without data
+// loss for anything that predates the rich-composer rebuild: a real
+// draft_content wins outright; otherwise draft_prompt_text (the old
+// plain-text column, still populated on pre-rebuild discussions, frozen
+// and no longer written once this shipped) is wrapped into a doc rather
+// than shown as nothing.
+function discussionOwnContent(
+  discussion: DiscussionRow | undefined,
+): RichContent | null {
+  if (!discussion) return null;
+  if (discussion.draft_content) return discussion.draft_content;
+  if (discussion.draft_prompt_text)
+    return plainTextToDoc(discussion.draft_prompt_text);
+  return null;
+}
+
+// Same fallback, one layer further down, for the "no draft at all -- fall
+// back to the last-run cell's own prompt" behavior: a cell's
+// prompt_content wins if it has one (a cell created by the rich
+// composer), else its plain prompt_text is wrapped the same way.
+function lastCellContent(
+  lastCell: PastResponse | undefined,
+): RichContent | null {
+  if (!lastCell) return null;
+  if (lastCell.prompt_content) return lastCell.prompt_content;
+  if (lastCell.prompt_text) return plainTextToDoc(lastCell.prompt_text);
+  return null;
+}
+
 export function useDiscussionExecution(discussionId: string | null) {
-  const [promptText, setPromptText] = useState("");
+  const [content, setContentState] = useState<RichContent>(EMPTY_DOC);
+  // Bumped only when the hook itself authoritatively sets content from an
+  // external source (a discussion finished loading, a run just cleared
+  // the draft) -- never by the composer's own typing-driven updates. This
+  // is the signal Composer.tsx's own effect watches to know when it must
+  // imperatively call editor.commands.setContent() (a discussion switch,
+  // or a post-run clear) versus when a `content` change is just its own
+  // onUpdate round-tripping back in (which must NOT re-trigger
+  // setContent(), or every keystroke would fight the editor's own cursor
+  // position).
+  const [contentVersion, setContentVersion] = useState(0);
   // Human-readable error text only — never the raw API error payload. Set
   // on a failed run (from /api/execute's { error, errorId } body, or a
   // thrown network error) and cleared at the start of every new run and
@@ -41,7 +106,7 @@ export function useDiscussionExecution(discussionId: string | null) {
   const [history, setHistory] = useState<PastResponse[]>([]);
   // The active discussion's own name, loaded alongside its draft — real
   // persisted data fetched by the same effect below, same reasoning as
-  // promptText/history (see the comment above displayedDiscussionId).
+  // content/history (see the comment above displayedDiscussionId).
   const [discussionName, setDiscussionName] = useState<string | null>(null);
   // Wall-clock time the most recent switch (or initial load) took, from the
   // moment discussionId changed to the moment content + composer draft were
@@ -57,7 +122,7 @@ export function useDiscussionExecution(discussionId: string | null) {
   // discussion. Adjusted directly during render, same pattern as
   // NotebookCreator's deleted-notebook clear: an effect calling setState
   // synchronously in its body here would trigger an avoidable extra
-  // render pass (react-hooks/set-state-in-effect). promptText and history
+  // render pass (react-hooks/set-state-in-effect). content and history
   // used to be reset here too (see 4d64d02) — they're real persisted data
   // now (see the effect below), not in-memory state that needs resetting.
   const [displayedDiscussionId, setDisplayedDiscussionId] =
@@ -71,39 +136,39 @@ export function useDiscussionExecution(discussionId: string | null) {
     setIsStreaming(false);
   }
 
-  // Always holds the latest promptText, readable from the effect below
-  // without a stale closure — promptText changes on every keystroke, but
-  // that effect only re-runs when discussionId itself changes.
-  const promptTextRef = useRef(promptText);
+  // Always holds the latest content, readable from the effects below
+  // without a stale closure — content changes on every keystroke, but the
+  // switch effect only re-runs when discussionId itself changes.
+  const contentRef = useRef(content);
 
-  // Which discussion's own content promptText currently, genuinely
-  // represents — distinct from activeDiscussionIdRef below, which tracks
-  // which discussion is *claimed* as outgoing regardless of whether the
-  // user (or its own load) ever actually produced real content for it.
-  // Updated below, alongside promptTextRef, to activeDiscussionIdRef's
-  // *current* value every time promptText actually changes for any
-  // reason — the user typing (by far the common case: the composer's
-  // onChange fires setPromptText directly, with no connection to
-  // saveThenLoad at all) just as much as a load completing or run()'s
-  // post-success clear. Deliberately not narrower (e.g. only updated from
-  // saveThenLoad's own completion): an earlier version of this fix did
-  // that and broke the single most basic case it needed to preserve --
-  // typing a real draft into a discussion whose own background load
-  // hadn't technically finished yet still got silently dropped on the
-  // next switch, because nothing had ever marked that discussion as the
-  // content's genuine owner. What this guards against is the opposite,
-  // rarer case: switching through several discussions fast enough that
-  // an intermediate one's own load is interrupted *and* the user never
-  // typed anything into it either -- then promptText never changes while
-  // it's nominally active, this ref is never touched, and it keeps
-  // pointing at whichever discussion's content is still actually
-  // displayed. null when promptText represents nothing real yet (initial
-  // mount, or no discussion selected).
-  const promptTextOwnerRef = useRef<string | null>(null);
+  // Which discussion's own content currently, genuinely represents —
+  // distinct from activeDiscussionIdRef below, which tracks which
+  // discussion is *claimed* as outgoing regardless of whether the user
+  // (or its own load) ever actually produced real content for it. Updated
+  // below, alongside contentRef, to activeDiscussionIdRef's *current*
+  // value every time content actually changes for any reason — the user
+  // typing (by far the common case: the composer's onUpdate calls
+  // setContent directly, with no connection to saveThenLoad at all) just
+  // as much as a load completing or run()'s post-success clear.
+  // Deliberately not narrower (e.g. only updated from saveThenLoad's own
+  // completion): an earlier version of this fix did that and broke the
+  // single most basic case it needed to preserve -- typing a real draft
+  // into a discussion whose own background load hadn't technically
+  // finished yet still got silently dropped on the next switch, because
+  // nothing had ever marked that discussion as the content's genuine
+  // owner. What this guards against is the opposite, rarer case:
+  // switching through several discussions fast enough that an
+  // intermediate one's own load is interrupted *and* the user never typed
+  // anything into it either -- then content never changes while it's
+  // nominally active, this ref is never touched, and it keeps pointing at
+  // whichever discussion's content is still actually displayed. null when
+  // content represents nothing real yet (initial mount, or no discussion
+  // selected).
+  const contentOwnerRef = useRef<string | null>(null);
   useEffect(() => {
-    promptTextRef.current = promptText;
-    promptTextOwnerRef.current = activeDiscussionIdRef.current;
-  }, [promptText]);
+    contentRef.current = content;
+    contentOwnerRef.current = activeDiscussionIdRef.current;
+  }, [content]);
 
   // Which discussion is currently "claimed" as active by this effect —
   // the outgoing discussion to save the draft against on the next switch.
@@ -117,24 +182,85 @@ export function useDiscussionExecution(discussionId: string | null) {
   // happened — exactly the bug this fixes. null on first mount.
   const activeDiscussionIdRef = useRef<string | null>(null);
 
-  // The most recently fired outgoing-draft-save request, if it might
-  // still be in flight — shared across every invocation of the effect
-  // below, not local to any one of them. Needed for a real, confirmed
-  // race: switch away from a discussion (firing its outgoing save),
-  // then switch straight back before that save has actually landed. The
-  // switch-back's own invocation has nothing new to save (the discussion
-  // it's leaving never had its own load validated — see
-  // outgoingDraftIsValid below), so it always used to proceed straight
-  // to reloading the discussion being returned to — racing ahead of the
-  // still-in-flight save and reading the *pre-save* draft_prompt_text,
-  // showing an empty composer even though the save goes on to succeed a
-  // moment later. Nothing ever re-synced afterward, so the empty
-  // composer was permanent until another switch happened to reload it
-  // correctly. Confirmed locally with artificial latency (local dev's
-  // near-zero round trips otherwise make this exact window very hard to
-  // land in) matching real production timing, where an ordinary,
-  // unhurried switch-away-and-back is well within reach of this window.
-  const pendingOutgoingSaveRef = useRef<Promise<unknown> | null>(null);
+  // The most recently fired save request, if it might still be in
+  // flight — shared across EVERY save this hook issues, switch-triggered
+  // or autosaved, not local to any one trigger. Needed for a real,
+  // confirmed race: switch away from a discussion (firing its outgoing
+  // save, whichever trigger caused it to be pending), then switch
+  // straight back before that save has actually landed. The switch-back's
+  // own invocation has nothing new to save (the discussion it's leaving
+  // never had its own load validated — see outgoingContentIsValid below),
+  // so it always used to proceed straight to reloading the discussion
+  // being returned to — racing ahead of the still-in-flight save and
+  // reading the *pre-save* draft_content, showing an empty composer even
+  // though the save goes on to succeed a moment later. An autosave timer
+  // firing right as a switch begins is exactly as much "a save that might
+  // still be in flight" as a switch-triggered one — this ref doesn't
+  // distinguish, and doesn't need to.
+  const pendingSaveRef = useRef<Promise<unknown> | null>(null);
+
+  // The one and only place a PATCH /api/discussions draft-save request is
+  // ever issued — called from four places (see saveContent's own call
+  // sites below): the switch-away effect, the debounce timer firing, an
+  // image-insert detection, and run()'s post-success draft-clear. Not
+  // four separate save mechanisms; one, reused, so pendingSaveRef and the
+  // ownership guard above only ever have one code path to reason about
+  // regardless of what triggered a given save.
+  function saveContent(targetDiscussionId: string, targetContent: RichContent) {
+    const savePromise = fetch(`/api/discussions?id=${targetDiscussionId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        draftContent: isEmptyDoc(targetContent) ? null : targetContent,
+      }),
+    });
+    pendingSaveRef.current = savePromise;
+    return savePromise;
+  }
+
+  // Debounce timer for autosave-while-typing -- owned by, and cleared
+  // inside, the same discussionId-keyed effect as everything else here,
+  // so switching away before it fires cancels it cleanly (the switch-away
+  // path below calls saveContent directly instead) exactly the way the
+  // saveThenLoad effect's own `cancelled` flag already prevents a stale
+  // in-flight *load* from a previous discussion from applying to a newer
+  // one. There is no scenario where a stale timer fires a save against
+  // the wrong (already-switched-away-from) discussion.
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function clearAutosaveTimer() {
+    if (autosaveTimerRef.current !== null) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+  }
+
+  // Composer.tsx's own onChange -- called on every real content change
+  // (typing, an image inserted). saveImmediately is set by Composer when
+  // its own onUpdate transaction detects the doc's image-node count just
+  // increased: a pasted/dropped image is a bigger loss than a few words
+  // if the tab dies before the debounce timer fires, so it bypasses the
+  // debounce entirely rather than merely shortening it.
+  function setContent(
+    newContent: RichContent,
+    options?: { saveImmediately?: boolean },
+  ) {
+    setContentState(newContent);
+    // contentRef/contentOwnerRef are updated by the effect above (keyed on
+    // `content`), not here -- this only decides the SAVE side.
+    clearAutosaveTimer();
+    const targetDiscussionId = activeDiscussionIdRef.current;
+    if (!targetDiscussionId) return;
+
+    if (options?.saveImmediately) {
+      saveContent(targetDiscussionId, newContent);
+    } else {
+      autosaveTimerRef.current = setTimeout(() => {
+        autosaveTimerRef.current = null;
+        saveContent(targetDiscussionId, newContent);
+      }, AUTOSAVE_DEBOUNCE_MS);
+    }
+  }
 
   // Single source of truth for both history and the persisted draft:
   // switching discussions saves the outgoing discussion's draft first —
@@ -145,6 +271,7 @@ export function useDiscussionExecution(discussionId: string | null) {
   // database like everything else in this component.
   useEffect(() => {
     let cancelled = false;
+    clearAutosaveTimer();
 
     async function saveThenLoad() {
       // Captured at the very top, before the outgoing-draft save — the
@@ -152,8 +279,8 @@ export function useDiscussionExecution(discussionId: string | null) {
       // save is part of the switch's cost, not a separate step.
       const switchStartedAt = performance.now();
       const outgoingDiscussionId = activeDiscussionIdRef.current;
-      const outgoingDraft = promptTextRef.current;
-      // True only if promptText's current value genuinely belongs to
+      const outgoingContent = contentRef.current;
+      // True only if content's current value genuinely belongs to
       // outgoingDiscussionId (its own completed load, a user keystroke
       // typed while it was active, or its own run() clear) — not
       // leftover from whichever discussion was active before it, which
@@ -161,10 +288,10 @@ export function useDiscussionExecution(discussionId: string | null) {
       // before its own saveThenLoad ever got a chance to load its data
       // *and* the user never typed anything into it either. Saving in
       // that case would silently overwrite this discussion's real,
-      // correct draft (typically null/none) with someone else's
+      // correct draft (typically empty/none) with someone else's
       // unrelated content.
-      const outgoingDraftIsValid =
-        promptTextOwnerRef.current === outgoingDiscussionId;
+      const outgoingContentIsValid =
+        contentOwnerRef.current === outgoingDiscussionId;
       activeDiscussionIdRef.current = discussionId;
 
       // outgoingDiscussionId === discussionId means this invocation isn't
@@ -175,36 +302,29 @@ export function useDiscussionExecution(discussionId: string | null) {
       if (
         outgoingDiscussionId &&
         outgoingDiscussionId !== discussionId &&
-        outgoingDraftIsValid
+        outgoingContentIsValid
       ) {
-        const savePromise = fetch(
-          `/api/discussions?id=${outgoingDiscussionId}`,
-          {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ draftPromptText: outgoingDraft || null }),
-          },
-        );
-        pendingOutgoingSaveRef.current = savePromise;
-        await savePromise;
-      } else if (pendingOutgoingSaveRef.current) {
+        await saveContent(outgoingDiscussionId, outgoingContent);
+      } else if (pendingSaveRef.current) {
         // This invocation has nothing of its own to save, but an earlier
-        // switch's own save may still be in flight -- wait for it before
-        // reading anything below. Otherwise a fast switch-away-then-back
-        // (this invocation is exactly that: outgoingDraftIsValid is false
-        // because the discussion being left never had its own load
-        // validated) can read stale, pre-save data. Harmless to wait on
-        // even when the pending save targets some other discussion
-        // entirely -- it's already resolved or resolving regardless, so
-        // this never blocks on work that wasn't already happening.
-        await pendingOutgoingSaveRef.current;
+        // save (switch-triggered or autosaved) may still be in flight --
+        // wait for it before reading anything below. Otherwise a fast
+        // switch-away-then-back (this invocation is exactly that:
+        // outgoingContentIsValid is false because the discussion being
+        // left never had its own load validated) can read stale,
+        // pre-save data. Harmless to wait on even when the pending save
+        // targets some other discussion entirely -- it's already
+        // resolved or resolving regardless, so this never blocks on work
+        // that wasn't already happening.
+        await pendingSaveRef.current;
       }
 
       if (cancelled) return;
 
       if (!discussionId) {
-        setPromptText("");
-        promptTextOwnerRef.current = null;
+        setContentState(EMPTY_DOC);
+        setContentVersion((v) => v + 1);
+        contentOwnerRef.current = null;
         setHistory([]);
         setDiscussionName(null);
         setLastSwitchDurationMs(performance.now() - switchStartedAt);
@@ -224,24 +344,26 @@ export function useDiscussionExecution(discussionId: string | null) {
       const loadedDiscussion = (discussionsBody as DiscussionRow[])[0];
       // An actual unsent draft always wins — it may well differ from any
       // cell's prompt (the user started typing something new). Absent
-      // one, fall back to the most recently run cell's own prompt_text
+      // one, fall back to the most recently run cell's own content
       // (history is ordered oldest-first, so the last entry is the most
       // recent) rather than leaving the composer blank. Without this, any
       // discussion loaded fresh — a normal switch/reload after a
-      // successful run clears draft_prompt_text by design (see run()'s
-      // cleanup below), and an imported discussion never had one to begin
-      // with — showed an empty composer despite the exact text being
-      // sitting right there in its own history. draft_prompt_text can
-      // only ever be a non-empty string or null (the switch-save below
-      // uses `|| null`, never persisting ""), so `??` alone is enough to
-      // tell "no draft" from "an intentionally short draft".
-      const lastCellPromptText =
+      // successful run clears the draft by design (see run()'s cleanup
+      // below), and an imported discussion never had one to begin with —
+      // showed an empty composer despite the exact content sitting right
+      // there in its own history. Each layer wraps a legacy plain-text
+      // value into a single-paragraph doc via plainTextToDoc rather than
+      // assuming every existing row already has structured content.
+      const lastCell =
         historyBody.length > 0
-          ? (historyBody[historyBody.length - 1] as PastResponse).prompt_text
-          : null;
-      setPromptText(
-        loadedDiscussion?.draft_prompt_text ?? lastCellPromptText ?? "",
-      );
+          ? (historyBody[historyBody.length - 1] as PastResponse)
+          : undefined;
+      const resolvedContent =
+        discussionOwnContent(loadedDiscussion) ??
+        lastCellContent(lastCell) ??
+        EMPTY_DOC;
+      setContentState(resolvedContent);
+      setContentVersion((v) => v + 1);
       setDiscussionName(loadedDiscussion?.name ?? null);
       // This still measures state being set, not paint — React commits the
       // corresponding DOM update in the very next (synchronous, no
@@ -255,6 +377,7 @@ export function useDiscussionExecution(discussionId: string | null) {
 
     return () => {
       cancelled = true;
+      clearAutosaveTimer();
     };
   }, [discussionId]);
 
@@ -264,10 +387,10 @@ export function useDiscussionExecution(discussionId: string | null) {
   async function run() {
     if (!discussionId) return;
     // Fixed for this call — read once, up front, distinct from
-    // promptTextRef.current below, which keeps tracking live edits made
+    // contentRef.current below, which keeps tracking live edits made
     // while this run is in flight (the composer isn't disabled during a
     // run).
-    const submittedPromptText = promptText;
+    const submittedContent = content;
     setLoading(true);
     setExecutionError(null);
     setStreamedResponse(null);
@@ -340,7 +463,7 @@ export function useDiscussionExecution(discussionId: string | null) {
       const response = await fetch("/api/execute", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ discussionId, promptText: submittedPromptText }),
+        body: JSON.stringify({ discussionId, promptContent: submittedContent }),
       });
       const body = await response.json();
 
@@ -373,12 +496,26 @@ export function useDiscussionExecution(discussionId: string | null) {
             ...prev,
             {
               id: body.response_row_id,
-              prompt_text: submittedPromptText,
+              prompt_text: docToPlainText(submittedContent),
+              prompt_content: submittedContent,
               response: body.response ?? "",
               resolved_model: body.resolved_model ?? null,
               created_at: body.response_created_at,
             },
           ]);
+          // Now permanently folded into history -- clear the transient
+          // "Live response" display so the same just-completed response
+          // isn't rendered a second time right below History showing the
+          // identical prompt/response/model/timestamp. Previously this
+          // was never cleared here, so it stayed visible until the next
+          // run or a discussion switch happened to reset it (see
+          // displayedDiscussionId's render-time reset above) -- on the
+          // very first run in a fresh discussion, neither of those had
+          // happened yet, so the duplicate was visible indefinitely.
+          setStreamedResponse(null);
+          setStreamedModel(null);
+          setStreamedResponseCreatedAt(null);
+          setIsStreaming(false);
         }
 
         // The draft was just promoted into a real cell — clear both its
@@ -387,26 +524,22 @@ export function useDiscussionExecution(discussionId: string | null) {
         // copy was cleared; the client-side value survived and looked
         // cleared only by accident, because the very next discussion
         // switch's own outgoing-draft save re-persisted that same stale
-        // text right back (see 3a02b68's investigation notes) — a
+        // content right back (see 3a02b68's investigation notes) — a
         // passing invariant by coincidence, not by design. Only clears
         // if the composer still holds exactly what was just submitted:
         // if the user has already started typing something new while
         // this run was in flight (the composer isn't disabled during a
         // run), that's real, unsent content and must not be wiped.
-        if (promptTextRef.current === submittedPromptText) {
-          setPromptText("");
-        }
-
-        // Best-effort: a failure here shouldn't overwrite the run's own
-        // result with an unrelated cleanup error.
-        try {
-          await fetch(`/api/discussions?id=${discussionId}`, {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ draftPromptText: null }),
-          });
-        } catch {
-          // Best-effort cleanup — see comment above.
+        if (contentRef.current === submittedContent) {
+          clearAutosaveTimer();
+          setContentState(EMPTY_DOC);
+          setContentVersion((v) => v + 1);
+          if (discussionId) {
+            await saveContent(discussionId, EMPTY_DOC).catch(() => {
+              // Best-effort: a failure here shouldn't overwrite the
+              // run's own result with an unrelated cleanup error.
+            });
+          }
         }
       } else {
         setExecutionError(
@@ -425,8 +558,9 @@ export function useDiscussionExecution(discussionId: string | null) {
   }
 
   return {
-    promptText,
-    setPromptText,
+    content,
+    contentVersion,
+    setContent,
     executionError,
     loading,
     streamedResponse,

@@ -1,5 +1,8 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
+import { promptContentToAnthropicBlocks } from "@/lib/promptContentToAnthropicBlocks";
+import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
+import type { RichContent } from "@/lib/richContent";
 import { trace, context } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("pact-api");
@@ -40,7 +43,7 @@ const STREAM_WRITE_THROTTLE_MS = 2000;
 
 interface ExecuteRequestBody {
   discussionId: string;
-  promptText: string;
+  promptContent: RichContent;
 }
 
 async function handlePost(request: Request) {
@@ -73,11 +76,11 @@ async function handlePost(request: Request) {
   }
 
   let discussionId: string;
-  let promptText: string;
+  let promptContent: RichContent;
   try {
     const body = (await request.json()) as ExecuteRequestBody;
     discussionId = body.discussionId;
-    promptText = body.promptText;
+    promptContent = body.promptContent;
   } catch {
     return Response.json({ error: "Malformed request body." }, { status: 400 });
   }
@@ -87,12 +90,20 @@ async function handlePost(request: Request) {
   // not names. Replaces the old HandlerTimer.setLabel mechanism.
   trace.getActiveSpan()?.setAttribute("pact.discussion_id", discussionId);
 
-  if (typeof promptText !== "string" || promptText.trim().length === 0) {
+  if (!promptContent || isEmptyDoc(promptContent)) {
     return Response.json(
-      { error: "promptText is required and must be a non-empty string." },
+      { error: "promptContent is required and must not be empty." },
       { status: 400 },
     );
   }
+
+  // The durable, plain-text record for everything that still reads
+  // responses.prompt_text as a plain string (.pact export, History,
+  // admin/timings) -- computed once, up front, reused at every insert
+  // site below rather than re-derived. See docToPlainText's own comment
+  // for why this is deliberately not the same Markdown-formatted text
+  // sent to Anthropic below.
+  const promptPlainText = docToPlainText(promptContent);
 
   const lockAcquireStart = Date.now();
   const { acquired, lockError } = await tracer.startActiveSpan(
@@ -197,6 +208,29 @@ async function handlePost(request: Request) {
     });
     settingsReadMs = Date.now() - settingsReadStart;
 
+    // Walks the submitted rich content into Anthropic's multimodal
+    // content-block array (interleaved text/image blocks, formatting
+    // marks converted to inline Markdown) -- see
+    // lib/promptContentToAnthropicBlocks.ts and lib/promptContentToMarkdownBlocks.ts
+    // for the actual conversion. A separate span for visibility, not a
+    // new execution_timings column -- that table's shape is unchanged by
+    // this task, per its own explicit scope.
+    const contentConvertStart = Date.now();
+    const anthropicContent = await tracer.startActiveSpan(
+      "prompt-content-convert",
+      async (span) => {
+        try {
+          return await promptContentToAnthropicBlocks(promptContent, supabase);
+        } finally {
+          span.end();
+        }
+      },
+    );
+    const contentConvertMs = Date.now() - contentConvertStart;
+    trace
+      .getActiveSpan()
+      ?.setAttribute("pact.prompt_content_convert_ms", contentConvertMs);
+
     const anthropicConnectStart = Date.now();
     const anthropicResponse = await context.with(ttftCtx, () =>
       tracer.startActiveSpan("anthropic-connect", async (span) => {
@@ -212,7 +246,7 @@ async function handlePost(request: Request) {
               model: ANTHROPIC_MODEL,
               max_tokens: maxTokens,
               stream: true,
-              messages: [{ role: "user", content: promptText }],
+              messages: [{ role: "user", content: anthropicContent }],
             }),
           });
         } finally {
@@ -306,7 +340,8 @@ async function handlePost(request: Request) {
                     .insert({
                       discussion_id: discussionId,
                       user_id: user.id,
-                      prompt_text: promptText,
+                      prompt_text: promptPlainText,
+                      prompt_content: promptContent,
                       response: null,
                       model: ANTHROPIC_MODEL,
                       resolved_model: resolvedModel,
@@ -426,7 +461,8 @@ async function handlePost(request: Request) {
                     .insert({
                       discussion_id: discussionId,
                       user_id: user.id,
-                      prompt_text: promptText,
+                      prompt_text: promptPlainText,
+                      prompt_content: promptContent,
                       response: accumulatedText,
                       model: ANTHROPIC_MODEL,
                       resolved_model: resolvedModel,

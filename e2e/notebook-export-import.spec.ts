@@ -424,14 +424,14 @@ test("after export, delete, and re-import, each discussion's composer shows its 
 
   await importedD1.click();
   await expect(page.getByText(d1Prompt).first()).toBeVisible();
-  await expect(prompt).toHaveValue(d1Prompt, { timeout: 10_000 });
+  await expect(prompt).toHaveText(d1Prompt, { timeout: 10_000 });
 
   await importedD2.click();
   await expect(page.getByText(d2Prompt).first()).toBeVisible();
-  await expect(prompt).toHaveValue(d2Prompt, { timeout: 10_000 });
+  await expect(prompt).toHaveText(d2Prompt, { timeout: 10_000 });
 
   // And switching back to D1 still shows D1's own prompt, not D2's --
   // this is per-discussion history, not a leftover from the last switch.
   await importedD1.click();
-  await expect(prompt).toHaveValue(d1Prompt, { timeout: 10_000 });
+  await expect(prompt).toHaveText(d1Prompt, { timeout: 10_000 });
 });

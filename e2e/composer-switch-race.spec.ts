@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { docToPlainText } from "@/lib/richContent";
 
 // Root-caused during a persistence audit (following up on the 3a02b68
 // export/import composer investigation): switching away from a
@@ -191,27 +192,30 @@ test("switching through a discussion before its own load completes doesn't corru
   // must never have been persisted under B's id.
   const { data: bAfter, error: bAfterError } = await admin
     .from("discussions")
-    .select("draft_prompt_text")
+    .select("draft_content")
     .eq("id", discussionB.id)
     .single();
   expect(bAfterError).toBeNull();
-  expect(bAfter!.draft_prompt_text).toBeNull();
+  expect(bAfter!.draft_content).toBeNull();
 
   // A's own real draft must still be intact -- correctly saved on the
-  // first, non-interrupted switch away from it.
+  // first, non-interrupted switch away from it. Compared via
+  // docToPlainText rather than deep-equal against a hand-built doc, since
+  // this only cares that A's real text survived, not the exact JSON shape
+  // Tiptap happened to serialize it as.
   const { data: aAfter, error: aAfterError } = await admin
     .from("discussions")
-    .select("draft_prompt_text")
+    .select("draft_content")
     .eq("id", discussionA.id)
     .single();
   expect(aAfterError).toBeNull();
-  expect(aAfter!.draft_prompt_text).toBe(draftForA);
+  expect(docToPlainText(aAfter!.draft_content)).toBe(draftForA);
 
   // End to end: visiting B now shows its own last-run prompt (via the
   // 3a02b68 fallback, since its draft is correctly null), not A's draft
   // and not C's.
   await bRow.click();
-  await expect(page.getByLabel("Prompt")).toHaveValue(bLastPrompt, {
+  await expect(page.getByLabel("Prompt")).toHaveText(bLastPrompt, {
     timeout: 10_000,
   });
 });

@@ -21,6 +21,7 @@ import {
   mockAnthropicStreamedModel,
   mockAnthropicStreamedText,
 } from "../mocks/handlers";
+import { plainTextToDoc } from "@/lib/richContent";
 
 interface LocalSupabaseStatus {
   API_URL: string;
@@ -251,7 +252,7 @@ describe("POST /api/execute", () => {
     currentCookies = [];
 
     const response = await POST(
-      makeRequest({ discussionId, promptText: "hello" }),
+      makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
     );
 
     expect(response.status).toBe(401);
@@ -274,7 +275,7 @@ describe("POST /api/execute", () => {
     );
 
     const response = await POST(
-      makeRequest({ discussionId, promptText: "hello" }),
+      makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
     );
 
     expect(response.status).toBe(409);
@@ -301,7 +302,9 @@ describe("POST /api/execute", () => {
     expect(backdateError).toBeNull();
 
     const promptText = `stale-reclaim-${Date.now()}`;
-    const response = await POST(makeRequest({ discussionId, promptText }));
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc(promptText) }),
+    );
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -323,7 +326,7 @@ describe("POST /api/execute", () => {
 
     try {
       const response = await POST(
-        makeRequest({ discussionId, promptText: "hello" }),
+        makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
       );
       expect(response.status).toBe(500);
 
@@ -354,11 +357,11 @@ describe("POST /api/execute", () => {
     expect(body.error).toBeTruthy();
   });
 
-  test("returns 400, and never acquires the lock, for an empty or whitespace-only promptText", async () => {
+  test("returns 400, and never acquires the lock, for an empty or whitespace-only promptContent", async () => {
     currentCookies = await signInAsTestUser();
 
     const response = await POST(
-      makeRequest({ discussionId, promptText: "   " }),
+      makeRequest({ discussionId, promptContent: plainTextToDoc("   ") }),
     );
 
     expect(response.status).toBe(400);
@@ -377,7 +380,9 @@ describe("POST /api/execute", () => {
     currentCookies = await signInAsTestUser();
 
     const promptText = `probe-${Date.now()}`;
-    const response = await POST(makeRequest({ discussionId, promptText }));
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc(promptText) }),
+    );
     const rawText = await response.text();
     const parsed = JSON.parse(rawText);
 
@@ -434,7 +439,9 @@ describe("POST /api/execute", () => {
     server.use(createAnthropicStreamHandler(400));
 
     const promptText = `mid-flight-${Date.now()}`;
-    const postPromise = POST(makeRequest({ discussionId, promptText }));
+    const postPromise = POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc(promptText) }),
+    );
 
     // message_start arrives near-instantly (the row gets created almost
     // immediately); the throttle (2000ms, task 18) should have let one
@@ -514,7 +521,9 @@ describe("POST /api/execute", () => {
     );
 
     const promptText = `configured-max-tokens-${Date.now()}`;
-    const response = await POST(makeRequest({ discussionId, promptText }));
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc(promptText) }),
+    );
 
     expect(response.status).toBe(200);
     expect(capturedMaxTokens).toBe(55);
@@ -546,7 +555,9 @@ describe("POST /api/execute", () => {
     );
 
     const promptText = `fallback-max-tokens-${Date.now()}`;
-    const response = await POST(makeRequest({ discussionId, promptText }));
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc(promptText) }),
+    );
 
     expect(response.status).toBe(200);
     expect(capturedMaxTokens).toBe(1000);
@@ -581,7 +592,12 @@ describe("POST /api/execute", () => {
     let loggedCalls: unknown[][];
     try {
       const promptText = `anthropic-failure-${Date.now()}`;
-      response = await POST(makeRequest({ discussionId, promptText }));
+      response = await POST(
+        makeRequest({
+          discussionId,
+          promptContent: plainTextToDoc(promptText),
+        }),
+      );
       body = await response.json();
     } finally {
       // Captured before restoring -- mockRestore() also clears the
