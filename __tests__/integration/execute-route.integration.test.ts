@@ -121,6 +121,7 @@ describe("POST /api/execute", () => {
   let ANON_KEY: string;
   let admin: SupabaseClient;
   let userId: string;
+  let notebookId: string;
   let discussionId: string;
   const email = `execute-route-${Date.now()}@example.com`;
   const password = "correct horse battery staple 1!";
@@ -184,6 +185,7 @@ describe("POST /api/execute", () => {
     if (notebookError || !notebook) {
       throw notebookError ?? new Error("failed to seed notebook");
     }
+    notebookId = notebook.id;
 
     const { data: discussion, error: discussionError } = await admin
       .from("discussions")
@@ -563,6 +565,78 @@ describe("POST /api/execute", () => {
     expect(capturedMaxTokens).toBe(1000);
 
     await admin.from("app_settings").insert({ id: 1, max_tokens: 40000 });
+  });
+
+  test("sends the active discussion's notebook system_prompt as Anthropic's system parameter", async () => {
+    currentCookies = await signInAsTestUser();
+
+    const { error: notebookUpdateError } = await admin
+      .from("notebooks")
+      .update({ system_prompt: "Always respond in French." })
+      .eq("id", notebookId);
+    expect(notebookUpdateError).toBeNull();
+
+    let capturedSystem: string | undefined;
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as { system?: string };
+          capturedSystem = body.system;
+          return new HttpResponse(buildTinySseStream("bonjour"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const promptText = `system-prompt-sent-${Date.now()}`;
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc(promptText) }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedSystem).toBe("Always respond in French.");
+
+    await admin
+      .from("notebooks")
+      .update({ system_prompt: null })
+      .eq("id", notebookId);
+  });
+
+  test("omits Anthropic's system parameter entirely when the notebook has no system_prompt", async () => {
+    currentCookies = await signInAsTestUser();
+
+    // Explicit, not assumed: confirms the notebook is genuinely in the
+    // same state every pre-existing notebook is already in today, rather
+    // than relying on test order to have left it that way.
+    const { error: notebookUpdateError } = await admin
+      .from("notebooks")
+      .update({ system_prompt: null })
+      .eq("id", notebookId);
+    expect(notebookUpdateError).toBeNull();
+
+    let capturedBody: Record<string, unknown> | undefined;
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          capturedBody = (await request.json()) as Record<string, unknown>;
+          return new HttpResponse(buildTinySseStream("no system prompt"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const promptText = `no-system-prompt-${Date.now()}`;
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc(promptText) }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedBody).toBeDefined();
+    expect("system" in capturedBody!).toBe(false);
   });
 
   test("logs the real Anthropic error server-side but returns only a generic message to the user", async () => {
