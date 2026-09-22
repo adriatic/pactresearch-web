@@ -162,6 +162,30 @@ export function Composer({
         // prototype spike).
         role: "textbox",
         "aria-multiline": "true",
+        // A real, reported bug: a browser extension (Bitwarden, confirmed
+        // by directly A/B testing with it disabled -- Enter started
+        // working the moment extensions were off, nothing else changed)
+        // was intercepting Enter before ProseMirror ever saw it. Chrome's
+        // own console flagged this element as an autofill-eligible form
+        // field once it has role="textbox" (see "A form field element
+        // should have an id or name attribute"), which is almost
+        // certainly what invited the interference in the first place.
+        // autocomplete="off" plus the Grammarly-specific opt-out
+        // attributes below are the standard mitigation for this class of
+        // extension interference (password managers, Grammarly, and
+        // similar writing-assistant tools all key off similar autofill
+        // heuristics) -- confirmed necessary for Enter specifically. Not
+        // a fix for anything else: Bold and image paste turned out to
+        // have an unrelated cause elsewhere (under active investigation
+        // as of this comment, not this attribute), so don't assume this
+        // block explains every composer symptom ever reported.
+        autocomplete: "off",
+        autocorrect: "off",
+        autocapitalize: "off",
+        spellcheck: "true",
+        "data-gramm": "false",
+        "data-gramm_editor": "false",
+        "data-enable-grammarly": "false",
         style: "outline: none; min-height: 100%;",
       },
     },
