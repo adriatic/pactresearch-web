@@ -182,10 +182,11 @@ test("running two prompts in the same discussion without switching away shows bo
   // via the separate "Live response"/"Response" section. The first run's
   // content only appears via History (that section only ever shows the
   // *most recent* run, so it's been overwritten by the second run by
-  // this point); the second run's content legitimately appears twice --
-  // once in History (this fix), once still in the "Response" section
-  // (pre-existing, unrelated to this fix) -- so its assertion allows
-  // either.
+  // this point); the second run's content is folded into History and the
+  // separate "Response" section is cleared the moment that happens (see
+  // useDiscussionExecution's run(), fixed to stop double-rendering the
+  // same just-completed response) -- so it now appears exactly once,
+  // via History alone. .first() still tolerates either count.
   const historySection = page.locator("main");
   await expect(historySection.getByText(firstPrompt)).toBeVisible();
   await expect(historySection.getByText(firstResponse)).toBeVisible();

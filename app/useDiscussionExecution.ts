@@ -503,6 +503,19 @@ export function useDiscussionExecution(discussionId: string | null) {
               created_at: body.response_created_at,
             },
           ]);
+          // Now permanently folded into history -- clear the transient
+          // "Live response" display so the same just-completed response
+          // isn't rendered a second time right below History showing the
+          // identical prompt/response/model/timestamp. Previously this
+          // was never cleared here, so it stayed visible until the next
+          // run or a discussion switch happened to reset it (see
+          // displayedDiscussionId's render-time reset above) -- on the
+          // very first run in a fresh discussion, neither of those had
+          // happened yet, so the duplicate was visible indefinitely.
+          setStreamedResponse(null);
+          setStreamedModel(null);
+          setStreamedResponseCreatedAt(null);
+          setIsStreaming(false);
         }
 
         // The draft was just promoted into a real cell — clear both its

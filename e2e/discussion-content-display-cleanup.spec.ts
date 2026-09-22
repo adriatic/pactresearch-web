@@ -401,11 +401,12 @@ test("the Live response section shows its own response's created_at, sourced fro
     page.locator("header").getByRole("button", { name: "Run" }).click(),
   ]);
 
-  // Two legitimate matches, not a bug: this same successful run is also
-  // appended into History (see history-live-append.spec.ts and the
-  // persistence audit's finding A), which independently renders this
-  // same response's same timestamp a second time. .first() disambiguates
-  // without asserting away that (correct, unrelated) duplication.
+  // This same successful run is also appended into History (see
+  // history-live-append.spec.ts and the persistence audit's finding A);
+  // once that happens, the separate "Live response" display is cleared
+  // (useDiscussionExecution's run(), fixed to stop double-rendering the
+  // same just-completed response), so this timestamp now renders exactly
+  // once, via History alone. .first() still tolerates either count.
   await expect(
     page.getByText(knownCreatedAt.toLocaleString()).first(),
   ).toBeVisible();
