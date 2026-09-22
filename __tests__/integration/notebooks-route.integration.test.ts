@@ -42,7 +42,7 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const { POST, DELETE, GET } = await import("@/app/api/notebooks/route");
+const { POST, DELETE, GET, PATCH } = await import("@/app/api/notebooks/route");
 
 function makeRequest(body: unknown) {
   return new Request("http://localhost/api/notebooks", {
@@ -55,6 +55,21 @@ function makeRequest(body: unknown) {
 function makeDeleteRequest(id: string) {
   return new Request(`http://localhost/api/notebooks?id=${id}`, {
     method: "DELETE",
+  });
+}
+
+function makeGetRequest(id?: string) {
+  const url = id
+    ? `http://localhost/api/notebooks?id=${id}`
+    : "http://localhost/api/notebooks";
+  return new Request(url);
+}
+
+function makePatchRequest(id: string, body: unknown) {
+  return new Request(`http://localhost/api/notebooks?id=${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 
@@ -384,7 +399,7 @@ describe("/api/notebooks", () => {
     expect(notebookBError).toBeNull();
 
     currentCookies = userA.cookies;
-    const response = await GET();
+    const response = await GET(makeGetRequest());
     expect(response.status).toBe(200);
     const body = await response.json();
 
@@ -397,7 +412,122 @@ describe("/api/notebooks", () => {
   test("GET returns 401 when there is no authenticated user", async () => {
     currentCookies = [];
 
-    const response = await GET();
+    const response = await GET(makeGetRequest());
+
+    expect(response.status).toBe(401);
+  });
+
+  test("GET ?id= narrows to a single notebook, including its system_prompt", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({
+        user_id: userId,
+        name: "Narrowed notebook",
+        system_prompt: "Always respond in French.",
+      })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const response = await GET(makeGetRequest(notebook!.id));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(body).toHaveLength(1);
+    expect(body[0].id).toBe(notebook!.id);
+    expect(body[0].system_prompt).toBe("Always respond in French.");
+  });
+
+  test("PATCH updates a notebook's system_prompt", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Editable notebook" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const response = await PATCH(
+      makePatchRequest(notebook!.id, {
+        systemPrompt: "You are a clinical pharmacist.",
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.system_prompt).toBe("You are a clinical pharmacist.");
+
+    const { data: row, error } = await admin
+      .from("notebooks")
+      .select("system_prompt")
+      .eq("id", notebook!.id)
+      .single();
+    expect(error).toBeNull();
+    expect(row?.system_prompt).toBe("You are a clinical pharmacist.");
+  });
+
+  test("PATCH with an empty/whitespace-only systemPrompt clears it back to null, not a stale or blank string", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({
+        user_id: userId,
+        name: "Notebook with a prompt to clear",
+        system_prompt: "Be terse.",
+      })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const response = await PATCH(
+      makePatchRequest(notebook!.id, { systemPrompt: "   " }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.system_prompt).toBeNull();
+
+    const { data: row, error } = await admin
+      .from("notebooks")
+      .select("system_prompt")
+      .eq("id", notebook!.id)
+      .single();
+    expect(error).toBeNull();
+    expect(row?.system_prompt).toBeNull();
+  });
+
+  test("PATCH returns 404 for a notebook the caller doesn't own", async () => {
+    const userA = await createSignedInUser();
+    const userB = await createSignedInUser();
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userB.userId, name: "Someone else's notebook" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    currentCookies = userA.cookies;
+    const response = await PATCH(
+      makePatchRequest(notebook!.id, { systemPrompt: "Take over." }),
+    );
+
+    expect(response.status).toBe(404);
+  });
+
+  test("PATCH returns 401 when there is no authenticated user", async () => {
+    currentCookies = [];
+
+    const response = await PATCH(
+      makePatchRequest("00000000-0000-0000-0000-000000000000", {
+        systemPrompt: "x",
+      }),
+    );
 
     expect(response.status).toBe(401);
   });

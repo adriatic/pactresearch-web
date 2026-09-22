@@ -208,6 +208,40 @@ async function handlePost(request: Request) {
     });
     settingsReadMs = Date.now() - settingsReadStart;
 
+    // The active discussion's own notebook's system prompt (task 33) --
+    // read fresh on every run, not cached anywhere, so an edit made in
+    // SettingsDialog.tsx takes effect on the very next run without
+    // requiring a discussion switch or reload. A missing/unreadable row
+    // degrades to "no system prompt" (today's exact behavior) rather than
+    // failing the run -- same fallback philosophy as maxTokens above: a
+    // read hiccup on a field that only ever narrows the model's behavior
+    // shouldn't block execution outright when running with no system
+    // prompt is already a known-safe, already-existing behavior.
+    let systemPrompt: string | null = null;
+    await tracer.startActiveSpan("system-prompt-read", async (span) => {
+      try {
+        const { data: discussionRow, error: discussionError } = await supabase
+          .from("discussions")
+          .select("notebooks(system_prompt)")
+          .eq("id", discussionId)
+          .maybeSingle();
+
+        if (discussionError) {
+          console.error(
+            `[system-prompt-read-failed] discussionId=${discussionId}:`,
+            discussionError,
+          );
+          return;
+        }
+        const notebook = discussionRow?.notebooks as
+          { system_prompt: string | null } | null | undefined;
+        const trimmed = notebook?.system_prompt?.trim();
+        systemPrompt = trimmed ? trimmed : null;
+      } finally {
+        span.end();
+      }
+    });
+
     // Walks the submitted rich content into Anthropic's multimodal
     // content-block array (interleaved text/image blocks, formatting
     // marks converted to inline Markdown) -- see
@@ -246,6 +280,7 @@ async function handlePost(request: Request) {
               model: ANTHROPIC_MODEL,
               max_tokens: maxTokens,
               stream: true,
+              ...(systemPrompt ? { system: systemPrompt } : {}),
               messages: [{ role: "user", content: anthropicContent }],
             }),
           });

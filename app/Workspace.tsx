@@ -6,6 +6,7 @@ import { NotebookCreator } from "./NotebookCreator";
 import { Explorer } from "./Explorer";
 import { Composer } from "./Composer";
 import { DiscussionContent } from "./DiscussionContent";
+import { SettingsDialog } from "./SettingsDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 import { isEmptyDoc } from "@/lib/richContent";
 
@@ -21,12 +22,14 @@ function formatSwitchDuration(ms: number): string {
 // screenshot of the real app): the composer sits near the top of the
 // main panel, directly below the header, above the scrolling content —
 // not a bottom-pinned footer. Header toolbar buttons
-// (New Notebook/Settings/Account/Model) exist in their real fixed
-// position but stay disabled/unwired -- their dialogs/behavior are
-// separate, not-yet-built work. Run and Import are wired (Run acts on
-// the selected discussion, see execution.run(); Import handles .pact
-// files, see handleImportFileSelected); Export lives on each notebook
-// row in Explorer.tsx, not in this header.
+// (New Notebook/Account/Model) exist in their real fixed position but
+// stay disabled/unwired -- their dialogs/behavior are separate,
+// not-yet-built work. Run and Import are wired (Run acts on the selected
+// discussion, see execution.run(); Import handles .pact files, see
+// handleImportFileSelected); Export lives on each notebook row in
+// Explorer.tsx, not in this header. Settings opens SettingsDialog.tsx
+// (task 33) -- the per-notebook system prompt editor, the first of these
+// four to be wired.
 //
 // Both splits — sidebar/main-panel, and composer/discussion-content —
 // use react-resizable-panels (Group/Panel/Separator — this app's
@@ -65,6 +68,7 @@ export function Workspace({
     useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const execution = useDiscussionExecution(activeDiscussionId);
 
@@ -158,129 +162,151 @@ export function Workspace({
   }
 
   return (
-    <Group orientation="horizontal" style={{ height: "100vh" }}>
-      <Panel
-        defaultSize={280}
-        minSize={180}
-        maxSize={560}
-        style={{ overflowY: "auto" }}
-      >
-        <Explorer
-          activeDiscussionId={activeDiscussionId}
-          selectedNotebookId={selectedNotebookId}
-          onSelect={handleDiscussionSelected}
-          onNotebookSelected={setSelectedNotebookId}
-          onNotebookDeleted={handleNotebookDeleted}
-          onDiscussionDeleted={handleDiscussionDeleted}
-          refetchToken={discussionListRefetchToken}
-        />
-        <hr />
-        <NotebookCreator
-          selectedNotebookId={selectedNotebookId}
-          onNotebookCreated={handleNotebookCreated}
-          onDiscussionCreated={handleDiscussionCreated}
-        />
-      </Panel>
-      <Separator
-        style={{ width: 4, cursor: "col-resize", background: "#ccc" }}
+    <>
+      <SettingsDialog
+        notebookId={execution.notebookId}
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
       />
-      <Panel
-        style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}
-      >
-        <header style={{ flexShrink: 0 }}>
-          <strong>PACT</strong>{" "}
-          <button type="button" disabled>
-            New Notebook
-          </button>{" "}
-          {/* Acts on whatever discussion is currently selected, using
-              whatever content is in that discussion's composer. Disabled
-              with no discussion selected (matching how the other header
-              buttons gate on their own applicability) or with nothing
-              worth running — execution.content is the same live state
-              the composer's editor is bound to, so this reacts to every
-              keystroke/image-insert and to a discussion switch's restored
-              draft with no separate wiring. This is the sole run
-              trigger — see Composer.tsx for why the composer no longer
-              has one of its own. */}
-          <button
-            type="button"
-            onClick={() => execution.run()}
-            disabled={
-              execution.loading ||
-              !activeDiscussionId ||
-              isEmptyDoc(execution.content)
-            }
-          >
-            {execution.loading ? "Running..." : "Run"}
-          </button>{" "}
-          <button
-            type="button"
-            onClick={() => importFileInputRef.current?.click()}
-          >
-            Import
-          </button>{" "}
-          <input
-            ref={importFileInputRef}
-            type="file"
-            accept=".pact"
-            style={{ display: "none" }}
-            onChange={handleImportFileSelected}
-          />{" "}
-          <button type="button" disabled>
-            Settings
-          </button>{" "}
-          <button type="button" disabled>
-            Account
-          </button>{" "}
-          <button type="button" disabled>
-            Model
-          </button>{" "}
-          {execution.lastSwitchDurationMs !== null && (
-            <span style={{ color: "#666", fontSize: "0.85em" }}>
-              Switched in {formatSwitchDuration(execution.lastSwitchDurationMs)}
-            </span>
-          )}
-          {importError && (
-            <span style={{ color: "#a00", fontSize: "0.85em" }}>
-              {" "}
-              {importError}
-            </span>
-          )}
-        </header>
-        {/* The composer and the discussion content are their own vertical
-            Group so the boundary between them is a real draggable
-            divider, replacing the textarea's native corner resize grip
-            (see Composer.tsx). Same library and same session-only,
-            pixel-valued sizing as the sidebar split above — persisting
-            this layout stays behind 3.13 decision 4. minHeight: 0 is
-            what lets this Group actually shrink inside the surrounding
-            flex column rather than being floored at its content height. */}
-        <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-          <Panel defaultSize={140} minSize={64} maxSize={480}>
-            <Composer
-              discussionId={activeDiscussionId}
-              content={execution.content}
-              contentVersion={execution.contentVersion}
-              onContentChange={execution.setContent}
-            />
-          </Panel>
-          <Separator
-            style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
+      <Group orientation="horizontal" style={{ height: "100vh" }}>
+        <Panel
+          defaultSize={280}
+          minSize={180}
+          maxSize={560}
+          style={{ overflowY: "auto" }}
+        >
+          <Explorer
+            activeDiscussionId={activeDiscussionId}
+            selectedNotebookId={selectedNotebookId}
+            onSelect={handleDiscussionSelected}
+            onNotebookSelected={setSelectedNotebookId}
+            onNotebookDeleted={handleNotebookDeleted}
+            onDiscussionDeleted={handleDiscussionDeleted}
+            refetchToken={discussionListRefetchToken}
           />
-          <Panel style={{ overflowY: "auto" }}>
-            <DiscussionContent
-              discussionId={activeDiscussionId}
-              discussionName={execution.discussionName}
-              history={execution.history}
-              streamedResponse={execution.streamedResponse}
-              streamedModel={execution.streamedModel}
-              streamedResponseCreatedAt={execution.streamedResponseCreatedAt}
-              isStreaming={execution.isStreaming}
-              executionError={execution.executionError}
+          <hr />
+          <NotebookCreator
+            selectedNotebookId={selectedNotebookId}
+            onNotebookCreated={handleNotebookCreated}
+            onDiscussionCreated={handleDiscussionCreated}
+          />
+        </Panel>
+        <Separator
+          style={{ width: 4, cursor: "col-resize", background: "#ccc" }}
+        />
+        <Panel
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
+          <header style={{ flexShrink: 0 }}>
+            <strong>PACT</strong>{" "}
+            <button type="button" disabled>
+              New Notebook
+            </button>{" "}
+            {/* Acts on whatever discussion is currently selected, using
+                whatever content is in that discussion's composer. Disabled
+                with no discussion selected (matching how the other header
+                buttons gate on their own applicability) or with nothing
+                worth running — execution.content is the same live state
+                the composer's editor is bound to, so this reacts to every
+                keystroke/image-insert and to a discussion switch's
+                restored draft with no separate wiring. This is the sole
+                run trigger — see Composer.tsx for why the composer no
+                longer has one of its own. */}
+            <button
+              type="button"
+              onClick={() => execution.run()}
+              disabled={
+                execution.loading ||
+                !activeDiscussionId ||
+                isEmptyDoc(execution.content)
+              }
+            >
+              {execution.loading ? "Running..." : "Run"}
+            </button>{" "}
+            <button
+              type="button"
+              onClick={() => importFileInputRef.current?.click()}
+            >
+              Import
+            </button>{" "}
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept=".pact"
+              style={{ display: "none" }}
+              onChange={handleImportFileSelected}
+            />{" "}
+            {/* Disabled with no active discussion, matching the other
+                header buttons' own gating -- execution.notebookId is only
+                ever set once a discussion's own load resolves (see
+                useDiscussionExecution.ts), so this can't be enabled ahead
+                of there being a real notebook to edit. */}
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              disabled={!execution.notebookId}
+            >
+              Settings
+            </button>{" "}
+            <button type="button" disabled>
+              Account
+            </button>{" "}
+            <button type="button" disabled>
+              Model
+            </button>{" "}
+            {execution.lastSwitchDurationMs !== null && (
+              <span style={{ color: "#666", fontSize: "0.85em" }}>
+                Switched in{" "}
+                {formatSwitchDuration(execution.lastSwitchDurationMs)}
+              </span>
+            )}
+            {importError && (
+              <span style={{ color: "#a00", fontSize: "0.85em" }}>
+                {" "}
+                {importError}
+              </span>
+            )}
+          </header>
+          {/* The composer and the discussion content are their own
+              vertical Group so the boundary between them is a real
+              draggable divider, replacing the textarea's native corner
+              resize grip (see Composer.tsx). Same library and same
+              session-only, pixel-valued sizing as the sidebar split above
+              — persisting this layout stays behind 3.13 decision 4.
+              minHeight: 0 is what lets this Group actually shrink inside
+              the surrounding flex column rather than being floored at its
+              content height. */}
+          <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+            <Panel defaultSize={140} minSize={64} maxSize={480}>
+              <Composer
+                discussionId={activeDiscussionId}
+                content={execution.content}
+                contentVersion={execution.contentVersion}
+                onContentChange={execution.setContent}
+              />
+            </Panel>
+            <Separator
+              style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
             />
-          </Panel>
-        </Group>
-      </Panel>
-    </Group>
+            <Panel style={{ overflowY: "auto" }}>
+              <DiscussionContent
+                discussionId={activeDiscussionId}
+                discussionName={execution.discussionName}
+                history={execution.history}
+                streamedResponse={execution.streamedResponse}
+                streamedModel={execution.streamedModel}
+                streamedResponseCreatedAt={execution.streamedResponseCreatedAt}
+                isStreaming={execution.isStreaming}
+                executionError={execution.executionError}
+              />
+            </Panel>
+          </Group>
+        </Panel>
+      </Group>
+    </>
   );
 }

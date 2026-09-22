@@ -39,6 +39,7 @@ export interface PastResponse {
 interface DiscussionRow {
   id: string;
   name: string | null;
+  notebook_id: string;
   draft_content: RichContent | null;
   draft_prompt_text: string | null;
 }
@@ -108,6 +109,15 @@ export function useDiscussionExecution(discussionId: string | null) {
   // persisted data fetched by the same effect below, same reasoning as
   // content/history (see the comment above displayedDiscussionId).
   const [discussionName, setDiscussionName] = useState<string | null>(null);
+  // The active discussion's own notebook_id -- loaded the same way, for
+  // the same reason. Exposed so Workspace.tsx can target the Settings
+  // dialog (per-notebook system prompt) at the right notebook without a
+  // second, separately-tracked notion of "which notebook" -- Explorer's
+  // own selectedNotebookId only updates on an explicit click and can be
+  // stale/null on first load when a discussion arrives pre-selected (via
+  // initialDiscussionId), which this can't be: it's set from the same
+  // authoritative discussion fetch content/discussionName already rely on.
+  const [notebookId, setNotebookId] = useState<string | null>(null);
   // Wall-clock time the most recent switch (or initial load) took, from the
   // moment discussionId changed to the moment content + composer draft were
   // both rendered. Set once, at the end of the effect below — not on every
@@ -327,6 +337,7 @@ export function useDiscussionExecution(discussionId: string | null) {
         contentOwnerRef.current = null;
         setHistory([]);
         setDiscussionName(null);
+        setNotebookId(null);
         setLastSwitchDurationMs(performance.now() - switchStartedAt);
         return;
       }
@@ -365,6 +376,7 @@ export function useDiscussionExecution(discussionId: string | null) {
       setContentState(resolvedContent);
       setContentVersion((v) => v + 1);
       setDiscussionName(loadedDiscussion?.name ?? null);
+      setNotebookId(loadedDiscussion?.notebook_id ?? null);
       // This still measures state being set, not paint — React commits the
       // corresponding DOM update in the very next (synchronous, no
       // network/timer in between) render, so it's a close-enough proxy for
@@ -571,5 +583,6 @@ export function useDiscussionExecution(discussionId: string | null) {
     run,
     lastSwitchDurationMs,
     discussionName,
+    notebookId,
   };
 }

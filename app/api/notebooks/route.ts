@@ -162,7 +162,7 @@ async function handleDelete(request: Request) {
   return Response.json(deleted[0]);
 }
 
-async function handleGet() {
+async function handleGet(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -172,13 +172,27 @@ async function handleGet() {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Optional narrowing to a single notebook -- same "still a list response
+  // shape, just filtered server-side" pattern GET /api/discussions already
+  // uses for its own ?id= param. Added for SettingsDialog.tsx, which needs
+  // one notebook's current system_prompt fresh at open time, not the
+  // user's whole notebook list.
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
   // Session-scoped client + RLS: this already returns only the caller's
   // own notebooks, same reliance on RLS as GET /api/discussions — no
   // separate user_id filter needed here either.
-  const { data: notebooks, error } = await supabase
+  let query = supabase
     .from("notebooks")
     .select("*")
     .order("created_at", { ascending: false });
+
+  if (id) {
+    query = query.eq("id", id);
+  }
+
+  const { data: notebooks, error } = await query;
 
   if (error) {
     throw error;
@@ -187,6 +201,68 @@ async function handleGet() {
   return Response.json(notebooks);
 }
 
+interface UpdateNotebookRequestBody {
+  systemPrompt: string | null;
+}
+
+async function handlePatch(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const id = searchParams.get("id");
+
+  if (!id) {
+    return Response.json({ error: "id is required." }, { status: 400 });
+  }
+
+  let systemPrompt: string | null;
+  try {
+    const body = (await request.json()) as UpdateNotebookRequestBody;
+    systemPrompt = body.systemPrompt;
+  } catch {
+    return Response.json({ error: "Malformed request body." }, { status: 400 });
+  }
+
+  if (systemPrompt !== null && typeof systemPrompt !== "string") {
+    return Response.json(
+      { error: "systemPrompt must be a string or null." },
+      { status: 400 },
+    );
+  }
+
+  // Session-scoped client + RLS: this can only ever update a notebook the
+  // caller owns — an empty result covers both "doesn't exist" and "isn't
+  // yours", same non-distinguishing 404 pattern as PATCH /api/discussions.
+  // Whitespace-only input is normalized to null here (the single place
+  // this is ever written), not left for every reader (SettingsDialog on
+  // reopen, /api/execute on run) to separately re-derive "empty" from —
+  // matching draft_content's own isEmptyDoc-at-write-time normalization.
+  const trimmed = systemPrompt?.trim();
+  const { data: updated, error } = await supabase
+    .from("notebooks")
+    .update({ system_prompt: trimmed ? trimmed : null })
+    .eq("id", id)
+    .select();
+
+  if (error) {
+    throw error;
+  }
+
+  if (updated.length === 0) {
+    return Response.json({ error: "Notebook not found." }, { status: 404 });
+  }
+
+  return Response.json(updated[0]);
+}
+
 export const POST = withRouteErrorHandling(handlePost);
 export const DELETE = withRouteErrorHandling(handleDelete);
 export const GET = withRouteErrorHandling(handleGet);
+export const PATCH = withRouteErrorHandling(handlePatch);
