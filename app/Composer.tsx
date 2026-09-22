@@ -215,6 +215,20 @@ export function Composer({
         flexDirection: "column",
         height: "100%",
         padding: 8,
+        // Task 28's own approved design proposal specified this exact
+        // border ("a plain `border: 1px solid #888` wrapper... renders
+        // visually indistinguishable in spirit from today's composer")
+        // as the one piece of visible styling this deliberately-headless
+        // component keeps -- confirmed present in the design doc, but
+        // never actually implemented when task 29 built this component,
+        // leaving an empty composer with no visible affordance at all
+        // (identical in appearance to blank page background). Reported
+        // as "the composer is missing" in production (task 34) --
+        // reproduced directly: the editor is fully present and
+        // functional the whole time (accepts focus, typing, Run enables
+        // correctly), it's simply invisible when there's nothing typed
+        // into it yet.
+        border: "1px solid #888",
         boxSizing: "border-box",
       }}
     >
