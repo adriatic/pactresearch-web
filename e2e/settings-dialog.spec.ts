@@ -140,6 +140,29 @@ test("Settings dialog: disabled with no discussion selected, then edits/saves/ca
   await expect(dialogHeading).toBeVisible();
   const textarea = page.getByRole("textbox", { name: /system prompt/i });
   await expect(textarea).toHaveValue("");
+  await expect(textarea).toHaveAttribute(
+    "placeholder",
+    "Instructions Claude follows for every prompt in this notebook — e.g. " +
+      "'You are reviewing legal contracts for ambiguous liability clauses. " +
+      "Flag anything unusual and cite the specific clause.' Leave blank " +
+      "for no special instructions.",
+  );
+
+  // "Refine with AI" (IPR) is a visible-but-disabled stub only -- no
+  // functionality behind it yet (a separate future task). Confirms it
+  // neither accepts input nor can be submitted, not just that it renders.
+  const refineInput = page.getByRole("textbox", {
+    name: /refine with ai/i,
+  });
+  await expect(refineInput).toBeVisible();
+  await expect(refineInput).toBeDisabled();
+  await expect(refineInput).toHaveAttribute(
+    "placeholder",
+    "Describe your research domain...",
+  );
+  const refineSend = page.getByRole("button", { name: "Send" });
+  await expect(refineSend).toBeVisible();
+  await expect(refineSend).toBeDisabled();
 
   // Cancel discards an edit without persisting it.
   await textarea.fill("This edit should never be saved.");

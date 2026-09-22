@@ -15,9 +15,20 @@ import { useEffect, useState } from "react";
 // pure overhead here, and pact-mac itself only ever saves this field on
 // an explicit click too), Cancel discards in-memory edits without
 // persisting them. A real HTML `placeholder` attribute is used for the
-// empty-state hint text (matching pact-mac's own convention) rather than
-// prefilled dummy content — a placeholder can never be mistaken for a
-// real saved value or accidentally submitted.
+// empty-state hint text rather than prefilled dummy content — a
+// placeholder can never be mistaken for a real saved value or
+// accidentally submitted. Deliberately NOT ported: pact-mac's "changes
+// are saved immediately" subtitle — that text contradicts pact-mac's own
+// actual explicit-Save behavior (a real inconsistency in pact-mac itself,
+// confirmed by reading its code, not by trusting its UI copy); this
+// dialog's explicit Save is the correct, already-tested behavior and
+// nothing here claims otherwise.
+//
+// The "Refine with AI" block above the textarea is a visible, disabled
+// placeholder only -- it previews where pact-mac's IPR (Iterative Prompt
+// Refinement, its own multi-turn drafting chat for this same field) will
+// live once that's built as its own future task. No handlers, no state,
+// nothing it could submit -- the input can't even accept focus.
 //
 // Unlike pact-mac (a VSCode webview has no existing modal convention to
 // match either), this is pact-web's first real dialog component — no
@@ -153,12 +164,33 @@ export function SettingsDialog({
       >
         <h2>Settings</h2>
         <label>
+          Refine with AI:
+          <br />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="text"
+              placeholder="Describe your research domain..."
+              disabled
+              style={{ flex: 1, boxSizing: "border-box" }}
+            />
+            <button type="button" disabled>
+              Send
+            </button>
+          </div>
+        </label>
+        <br />
+        <label>
           System prompt:
           <br />
           <textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="Describe the research domain, role, and analytical stance the model should take..."
+            placeholder={
+              "Instructions Claude follows for every prompt in this notebook — " +
+              "e.g. 'You are reviewing legal contracts for ambiguous liability " +
+              "clauses. Flag anything unusual and cite the specific clause.' " +
+              "Leave blank for no special instructions."
+            }
             rows={8}
             disabled={loading || saving}
             style={{ width: "100%", boxSizing: "border-box" }}
