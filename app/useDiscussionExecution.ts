@@ -401,7 +401,30 @@ export function useDiscussionExecution(discussionId: string | null) {
       // could vanish the moment this load resolves. A real, confirmed
       // race (task 36) -- previously unguarded, unlike the outgoing-save
       // side's own analogous ownership check above.
-      if (contentOwnerRef.current !== discussionId) {
+      // Ownership alone isn't sufficient, though (task 36 follow-up,
+      // confirmed with Nik directly): creating a discussion is itself an
+      // async POST (NotebookCreator -> onDiscussionCreated ->
+      // setActiveDiscussionId), so activeDiscussionIdRef.current can
+      // still be null (or the *previous* discussion's id) for whatever
+      // gets typed in the brief window before that POST resolves. Those
+      // keystrokes get stamped onto the wrong owner, and if this
+      // discussion's own (typically very fast, since a brand-new
+      // discussion has nothing to fetch) load resolves before any
+      // further keystroke corrects it, contentOwnerRef.current still
+      // doesn't match discussionId even though real, visible, unsaved
+      // text is sitting in the composer right now. The second half of
+      // this check closes that gap directly, independent of ownership
+      // timing: never discard non-empty live content in favor of an
+      // empty resolved value -- there is never a discussion for which
+      // showing nothing is better than showing what the user already
+      // typed. A resolvedContent that is itself non-empty (an existing
+      // discussion with real history/draft) still always wins, matching
+      // the existing switch-between-two-real-discussions behavior.
+      const alreadyOwnedByThisDiscussion =
+        contentOwnerRef.current === discussionId;
+      const wouldDiscardRealContentForNothing =
+        !isEmptyDoc(contentRef.current) && isEmptyDoc(resolvedContent);
+      if (!alreadyOwnedByThisDiscussion && !wouldDiscardRealContentForNothing) {
         setContentState(resolvedContent);
         setContentVersion((v) => v + 1);
       }
