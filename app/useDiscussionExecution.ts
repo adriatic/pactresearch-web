@@ -26,6 +26,13 @@ import {
 // (stale-content misattribution, switch-away-then-back) are unchanged in
 // mechanism, now sharing their machinery with autosave rather than only
 // firing on switch/run.
+//
+// Task 37 (Retry, ported from pact-mac's task 32 audit) added retry()
+// alongside run() -- both now share submitPrompt() below rather than
+// duplicating the subscribe/POST/reconcile-into-history logic, since the
+// two differ only in what they submit and in what happens to the
+// composer's own draft afterward (run() clears it; retry() never touches
+// it at all -- see retry()'s own comment for why).
 
 export interface PastResponse {
   id: string;
@@ -78,6 +85,16 @@ function lastCellContent(
   if (lastCell.prompt_content) return lastCell.prompt_content;
   if (lastCell.prompt_text) return plainTextToDoc(lastCell.prompt_text);
   return null;
+}
+
+// Same fallback again, for retrying a single specific past response --
+// its own prompt_content wins, else its plain prompt_text wrapped the
+// same way. A separate, one-row version of lastCellContent above rather
+// than reusing it directly: that one specifically means "the discussion's
+// *last* cell," which isn't what a retry of an arbitrary (not
+// necessarily last) history entry means.
+function pastResponseContent(entry: PastResponse): RichContent {
+  return entry.prompt_content ?? plainTextToDoc(entry.prompt_text);
 }
 
 export function useDiscussionExecution(discussionId: string | null) {
@@ -393,16 +410,16 @@ export function useDiscussionExecution(discussionId: string | null) {
     };
   }, [discussionId]);
 
-  // Takes no event: the Run control lives in the global header
-  // (Workspace.tsx), not inside the composer's form, so there is no
-  // submit event to preventDefault here.
-  async function run() {
-    if (!discussionId) return;
-    // Fixed for this call — read once, up front, distinct from
-    // contentRef.current below, which keeps tracking live edits made
-    // while this run is in flight (the composer isn't disabled during a
-    // run).
-    const submittedContent = content;
+  // Shared by run() and retry() below: subscribes for a live preview,
+  // POSTs promptContent to /api/execute, and reconciles the result into
+  // streamed*/history state. The two callers differ only in what they
+  // submit and in what happens to the composer's own draft afterward,
+  // which stays each caller's own responsibility -- this shared core
+  // never reads or writes content/contentVersion at all. Returns whether
+  // the run succeeded, so run() knows whether its own post-success
+  // composer-clear step applies.
+  async function submitPrompt(promptContent: RichContent): Promise<boolean> {
+    if (!discussionId) return false;
     setLoading(true);
     setExecutionError(null);
     setStreamedResponse(null);
@@ -475,7 +492,7 @@ export function useDiscussionExecution(discussionId: string | null) {
       const response = await fetch("/api/execute", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ discussionId, promptContent: submittedContent }),
+        body: JSON.stringify({ discussionId, promptContent }),
       });
       const body = await response.json();
 
@@ -508,8 +525,8 @@ export function useDiscussionExecution(discussionId: string | null) {
             ...prev,
             {
               id: body.response_row_id,
-              prompt_text: docToPlainText(submittedContent),
-              prompt_content: submittedContent,
+              prompt_text: docToPlainText(promptContent),
+              prompt_content: promptContent,
               response: body.response ?? "",
               resolved_model: body.resolved_model ?? null,
               created_at: body.response_created_at,
@@ -530,43 +547,89 @@ export function useDiscussionExecution(discussionId: string | null) {
           setIsStreaming(false);
         }
 
-        // The draft was just promoted into a real cell — clear both its
-        // persisted copy (below) and the client-side state itself, the
-        // same way, in the same place. Previously only the persisted
-        // copy was cleared; the client-side value survived and looked
-        // cleared only by accident, because the very next discussion
-        // switch's own outgoing-draft save re-persisted that same stale
-        // content right back (see 3a02b68's investigation notes) — a
-        // passing invariant by coincidence, not by design. Only clears
-        // if the composer still holds exactly what was just submitted:
-        // if the user has already started typing something new while
-        // this run was in flight (the composer isn't disabled during a
-        // run), that's real, unsent content and must not be wiped.
-        if (contentRef.current === submittedContent) {
-          clearAutosaveTimer();
-          setContentState(EMPTY_DOC);
-          setContentVersion((v) => v + 1);
-          if (discussionId) {
-            await saveContent(discussionId, EMPTY_DOC).catch(() => {
-              // Best-effort: a failure here shouldn't overwrite the
-              // run's own result with an unrelated cleanup error.
-            });
-          }
-        }
-      } else {
-        setExecutionError(
-          body.errorId
-            ? `${body.error} (error id: ${body.errorId})`
-            : body.error,
-        );
+        return true;
       }
+
+      setExecutionError(
+        body.errorId ? `${body.error} (error id: ${body.errorId})` : body.error,
+      );
+      return false;
     } catch (err) {
       setExecutionError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setLoading(false);
       setIsStreaming(false);
       await supabase.removeChannel(channel);
     }
+  }
+
+  // Takes no event: the Run control lives in the global header
+  // (Workspace.tsx), not inside the composer's form, so there is no
+  // submit event to preventDefault here.
+  async function run() {
+    if (!discussionId) return;
+    // Fixed for this call — read once, up front, distinct from
+    // contentRef.current below, which keeps tracking live edits made
+    // while this run is in flight (the composer isn't disabled during a
+    // run).
+    const submittedContent = content;
+    const succeeded = await submitPrompt(submittedContent);
+    if (!succeeded) return;
+
+    // The draft was just promoted into a real cell — clear both its
+    // persisted copy (below) and the client-side state itself, the
+    // same way, in the same place. Previously only the persisted
+    // copy was cleared; the client-side value survived and looked
+    // cleared only by accident, because the very next discussion
+    // switch's own outgoing-draft save re-persisted that same stale
+    // content right back (see 3a02b68's investigation notes) — a
+    // passing invariant by coincidence, not by design. Only clears
+    // if the composer still holds exactly what was just submitted:
+    // if the user has already started typing something new while
+    // this run was in flight (the composer isn't disabled during a
+    // run), that's real, unsent content and must not be wiped.
+    if (contentRef.current === submittedContent) {
+      clearAutosaveTimer();
+      setContentState(EMPTY_DOC);
+      setContentVersion((v) => v + 1);
+      await saveContent(discussionId, EMPTY_DOC).catch(() => {
+        // Best-effort: a failure here shouldn't overwrite the
+        // run's own result with an unrelated cleanup error.
+      });
+    }
+  }
+
+  // Task 37 (Retry, ported from pact-mac's task 32 audit): re-runs a past
+  // history entry's own original prompt content, verbatim, as a new
+  // response appended to this same discussion -- no edit step, exactly
+  // matching pact-mac's own actual resend behavior (its RETRY_CELL always
+  // replays the originally stored prompt/blocks from its in-memory cell
+  // registry, never whatever the composer happens to show at retry time
+  // -- confirmed by reading ExecutionEngine.retryCell/runPrompt directly).
+  //
+  // Deliberately does NOT touch content/contentVersion/the composer's own
+  // draft in any way -- pact-mac's version also, separately, calls
+  // populateComposer() to cosmetically overwrite the composer with the
+  // retried text, purely for visual feedback (it has no effect on what
+  // actually gets resent, since that's driven by the stored cell, not the
+  // composer). Porting that here would silently discard whatever the
+  // user is currently drafting in this discussion's own composer, for no
+  // functional benefit -- rejected as part of this task's design.
+  //
+  // Only ever called with an entry from this discussion's own `history`
+  // (rendered exclusively for the currently-active discussionId), so it
+  // always targets the discussion this hook is already bound to -- unlike
+  // pact-mac's cellId-keyed, in-memory-only cell registry (which can't
+  // retry anything from a prior session at all, since it's never
+  // rehydrated from persisted storage on reload), every entry here is a
+  // real, already-loaded persisted row, so there's no equivalent
+  // "original discussion no longer exists" case to handle: if the
+  // discussion had been deleted, its History wouldn't be on screen to
+  // retry from in the first place.
+  async function retry(entry: PastResponse) {
+    if (!discussionId) return;
+    await submitPrompt(pastResponseContent(entry));
   }
 
   return {
@@ -581,6 +644,7 @@ export function useDiscussionExecution(discussionId: string | null) {
     isStreaming,
     history,
     run,
+    retry,
     lastSwitchDurationMs,
     discussionName,
     notebookId,

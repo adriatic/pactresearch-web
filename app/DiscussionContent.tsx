@@ -19,6 +19,8 @@ export function DiscussionContent({
   streamedResponseCreatedAt,
   isStreaming,
   executionError,
+  onRetry,
+  retryDisabled,
 }: {
   discussionId: string | null;
   discussionName: string | null;
@@ -28,19 +30,24 @@ export function DiscussionContent({
   streamedResponseCreatedAt: string | null;
   isStreaming: boolean;
   executionError: string | null;
+  // Task 37 (Retry, ported from pact-mac's task 32 audit): re-runs a past
+  // entry's own original prompt content verbatim, as a new response
+  // appended to this same discussion — see useDiscussionExecution.ts's
+  // retry() for why it never touches the composer's own current draft.
+  // pact-web's first per-response control — matches Explorer.tsx's own
+  // plain <button> convention (Delete notebook/discussion), since no
+  // other per-response control exists yet to match instead.
+  onRetry: (entry: PastResponse) => void;
+  // Mirrors whatever disables the header's own Run button (execution.loading)
+  // — pact-mac's own Retry has no equivalent UI-level guard at all (only a
+  // backend-side rejection, whose error event never surfaces anywhere
+  // useful in its UI); pact-web's Retry is disabled here instead, the
+  // same way Run already is.
+  retryDisabled: boolean;
 }) {
   return (
     <main>
       {discussionId ? (
-        // Persistence audit finding E: previously fell back to the raw
-        // id in the brief window before its name loaded (see
-        // useDiscussionExecution's discussionName) -- self-correcting,
-        // never a permanent display value, but still a uuid rendering as
-        // identifying text for a moment. Replaced with a loading label
-        // instead: nothing about this fix requires a raw id to ever
-        // appear on screen, even transiently, and this audit's whole
-        // premise is that identifying state showing something other than
-        // its real value is worth closing even when it's brief.
         <p>Discussion: {discussionName ?? "Loading..."}</p>
       ) : (
         <p>No discussion selected — create or pick one above.</p>
@@ -55,12 +62,15 @@ export function DiscussionContent({
               <p>
                 <strong>Response</strong>
                 {entry.resolved_model ? ` — ${entry.resolved_model}` : ""}
-                {/* Each entry's own created_at, not a single header-level
-                    value -- 7986c92 originally put this on the
-                    "Discussion:" line sourced from the *latest* response,
-                    which stayed wrong for every older entry once you
-                    scrolled past it. */}
-                {` — ${new Date(entry.created_at).toLocaleString()}`}:
+                {` — ${new Date(entry.created_at).toLocaleString()}`}:{" "}
+                <button
+                  type="button"
+                  onClick={() => onRetry(entry)}
+                  disabled={retryDisabled}
+                  title="Run this exact prompt again as a new response"
+                >
+                  Retry
+                </button>
               </p>
               <MarkdownResponse content={entry.response ?? ""} />
             </div>
