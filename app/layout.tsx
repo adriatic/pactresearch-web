@@ -17,7 +17,7 @@ import "./globals.css"; // Tailwind base + global resets.
 // out with real evidence instead of continuing to guess. Remove once the
 // mechanism is confirmed.
 const DIAG_CONSOLE_CAPTURE = `
-  window.__pactDiag = window.__pactDiag || { consoleLog: [], composerMounts: [] };
+  window.__pactDiag = window.__pactDiag || { consoleLog: [], composerMounts: [], clickLog: [] };
   var origError = console.error;
   var origWarn = console.warn;
   console.error = function() {
@@ -44,6 +44,39 @@ const DIAG_CONSOLE_CAPTURE = `
     } catch (e) {}
     return origWarn.apply(console, arguments);
   };
+
+  // Logs every real pointerdown's actual coordinates, target, and
+  // whether the panel library's own capture-phase handler called
+  // preventDefault() on it -- a prior bookmarklet check synthetically
+  // re-tested elementFromPoint at the composer's OWN center after the
+  // fact, which is not the same as where a real click landed. This is a
+  // BUBBLE-phase listener specifically so it runs AFTER any
+  // capture-phase preventDefault from react-resizable-panels' own
+  // document-level pointerdown handler, so defaultPrevented here
+  // reflects the real, final state.
+  function describeEl(el) {
+    if (!el) return null;
+    var label = el.getAttribute && el.getAttribute("aria-label");
+    return el.tagName + (el.id ? "#" + el.id : "") + (label ? '[aria-label="' + label + '"]' : "");
+  }
+  document.addEventListener("pointerdown", function(e) {
+    try {
+      var entry = {
+        t: Math.round(performance.now()),
+        x: e.clientX,
+        y: e.clientY,
+        target: describeEl(e.target),
+        defaultPrevented: e.defaultPrevented,
+      };
+      window.__pactDiag.clickLog.push(entry);
+      if (window.__pactDiag.clickLog.length > 20) window.__pactDiag.clickLog.shift();
+      setTimeout(function() {
+        try {
+          entry.activeElementAfter = describeEl(document.activeElement);
+        } catch (e2) {}
+      }, 50);
+    } catch (e3) {}
+  }, false);
 `;
 
 const geistSans = Geist({
