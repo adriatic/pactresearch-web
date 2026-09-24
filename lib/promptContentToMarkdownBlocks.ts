@@ -1,5 +1,8 @@
-import { Node, Fragment } from "@tiptap/pm/model";
-import { MarkdownSerializer } from "prosemirror-markdown";
+import { Node, Fragment, Mark } from "@tiptap/pm/model";
+import {
+  MarkdownSerializer,
+  MarkdownSerializerState,
+} from "prosemirror-markdown";
 import { getServerSchema } from "./tiptapExtensions";
 import type { RichContent } from "./richContent";
 
@@ -121,8 +124,75 @@ const markdownSerializer = new MarkdownSerializer(
       },
       escape: false,
     },
+    // StarterKit v3.31.3 includes Link by default (confirmed via
+    // node_modules/@tiptap/starter-kit/dist/index.d.ts) -- this map
+    // previously had no entry for it at all, so any prompt content with a
+    // link-marked text node hit MarkdownSerializer's own "Mark type
+    // `link` not supported by Markdown renderer" throw, surfacing to
+    // users as a generic "Execution failed" error (task 36 follow-up,
+    // confirmed via the exact error id in Vercel's logs). Logic copied
+    // verbatim from prosemirror-markdown's own defaultMarkdownSerializer
+    // (node_modules/prosemirror-markdown/dist/index.js) rather than
+    // reinvented, including the bare-URL "<...>" autolink shorthand.
+    link: {
+      open(
+        state: MarkdownSerializerState,
+        mark: Mark,
+        parent: Node,
+        index: number,
+      ) {
+        // inAutolink isn't part of MarkdownSerializerState's public type,
+        // but prosemirror-markdown's own default link serializer stashes
+        // it directly on the (single, per-serialize-call, purely
+        // synchronous) state instance to pass data from open() to
+        // close() -- reusing that exact mechanism rather than inventing a
+        // parallel one.
+        const stateAny = state as MarkdownSerializerState & {
+          inAutolink?: boolean;
+        };
+        stateAny.inAutolink = isPlainURL(mark, parent, index);
+        return stateAny.inAutolink ? "<" : "[";
+      },
+      close(state: MarkdownSerializerState, mark: Mark) {
+        const stateAny = state as MarkdownSerializerState & {
+          inAutolink?: boolean;
+        };
+        const { inAutolink } = stateAny;
+        stateAny.inAutolink = undefined;
+        return inAutolink
+          ? ">"
+          : "](" +
+              String(mark.attrs.href).replace(/[()"]/g, "\\$&") +
+              (mark.attrs.title
+                ? ` "${String(mark.attrs.title).replace(/"/g, '\\"')}"`
+                : "") +
+              ")";
+      },
+      mixable: true,
+    },
   },
 );
+
+// Copied from prosemirror-markdown's own (unexported) helper -- an
+// autolink ("<https://...>") is only correct when the link text is
+// exactly its own href with no title and no other overlapping mark, and
+// only extends to the end of the run or up to whatever follows without
+// this same link mark.
+function isPlainURL(link: Mark, parent: Node, index: number): boolean {
+  if (link.attrs.title || !/^\w+:/.test(link.attrs.href)) return false;
+  const content = parent.child(index);
+  if (
+    !content.isText ||
+    content.text !== link.attrs.href ||
+    content.marks[content.marks.length - 1] !== link
+  ) {
+    return false;
+  }
+  return (
+    index === parent.childCount - 1 ||
+    !link.isInSet(parent.child(index + 1).marks)
+  );
+}
 
 // Copied from prosemirror-markdown's own (unexported) helper -- picks a
 // backtick run one longer than any already inside the code span, so

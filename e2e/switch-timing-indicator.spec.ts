@@ -123,14 +123,18 @@ test("selecting a discussion shows a switch-timing indicator that updates on the
   // findLatestDiscussion picked on initial load, then read the indicator's
   // text so the next switch can be proven to change it.
   await discussionALink.click();
-  await expect(page.getByText(`Discussion: `)).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionAName);
   await expect(switchIndicator).toBeVisible();
   const firstIndicatorText = await switchIndicator.textContent();
 
   // A genuine switch re-measures and re-renders the indicator — not a
   // value frozen from the very first load.
   await discussionBLink.click();
-  await expect(page.getByText(`Discussion: `)).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionBName);
   await expect(switchIndicator).toBeVisible();
   await expect
     .poll(() => switchIndicator.textContent())

@@ -125,7 +125,9 @@ test("the tree view groups notebooks correctly, selecting a discussion loads it,
   // notebook — its row becomes visible without needing a manual click.
   const discussionLink = page.getByRole("treeitem", { name: discussionName });
   await expect(discussionLink).toBeVisible();
-  await expect(page.getByText(`Discussion: `)).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionName);
 
   // Selecting it drives the real state-restore flow — same discussionId
   // now reflected in ExecuteTester's own display.
@@ -145,5 +147,7 @@ test("the tree view groups notebooks correctly, selecting a discussion loads it,
   // discussion — no discussion inside the empty notebook to select, and
   // the one genuinely selected discussion is still shown as such.
   await expect(discussionLink).toHaveCSS("font-weight", "700");
-  await expect(page.getByText(`Discussion: `)).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionName);
 });

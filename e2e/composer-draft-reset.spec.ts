@@ -128,7 +128,9 @@ test("a discussion's draft survives switching away and back, and reloading the p
   // Establish a known active discussion regardless of which one
   // findLatestDiscussion picked on initial load.
   await discussionALink.click();
-  await expect(page.getByText(`Discussion: `)).toBeVisible();
+  await expect(
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionAName);
   await expect(composer).toHaveText("");
 
   await composer.fill(draftText);

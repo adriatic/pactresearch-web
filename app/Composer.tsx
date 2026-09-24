@@ -15,7 +15,11 @@
 //
 // No Tiptap CSS is imported and no toolbar is rendered — confirmed in the
 // task 28 prototype spike that this stays genuinely headless (a plain
-// border + padding box) without a styling fight.
+// border + padding box) without a styling fight. The one exception is
+// the placeholder's own ::before rule (PLACEHOLDER_STYLE below), which
+// has no headless alternative: the Placeholder extension only supplies
+// the `data-placeholder` attribute and `is-editor-empty` class, leaving
+// the actual rendering to CSS by design.
 //
 // The controlled-value pattern from the old plain textarea (value=/
 // onChange=) does NOT carry over directly -- Tiptap's useEditor has no
@@ -31,6 +35,7 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { FileHandler } from "@tiptap/extension-file-handler";
+import { Placeholder } from "@tiptap/extension-placeholder";
 import { useEffect, useRef, useState } from "react";
 import type { RichContent } from "@/lib/richContent";
 import {
@@ -44,6 +49,66 @@ const ALLOWED_IMAGE_MIME_TYPES = [
   "image/gif",
   "image/webp",
 ];
+
+// Task 37 ports pact-mac's own placeholder, which reads "Enter prompt —
+// Cmd+V to paste image, Cmd+Enter to send". The paste half carries over
+// verbatim (image paste is real here -- see FileHandler below, covered by
+// composer-image-paste.spec.ts), but the send half does NOT: pact-web has
+// no keyboard send shortcut at all. pact-mac binds Cmd/Ctrl+Enter to
+// send in its own App.tsx handleKeyDown; pact-web has no keydown handler
+// anywhere in app/, so its only run trigger is the header's Run button.
+// Promising a shortcut that does nothing would be worse than omitting it,
+// so that clause names the control that actually works instead.
+//
+// Evaluated as a function rather than a fixed string so it is only ever
+// computed when the decoration renders -- i.e. client-side, since the
+// editor itself is client-only (immediatelyRender: false). That keeps
+// navigator out of the server render path entirely, so this can never
+// contribute a hydration mismatch.
+function placeholderText(): string {
+  const isApple =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+  return `Enter prompt — ${isApple ? "Cmd" : "Ctrl"}+V to paste image, Run to send`;
+}
+
+// The Placeholder extension renders nothing on its own -- it only adds
+// the `data-placeholder` attribute and the `is-editor-empty` class, and
+// leaves the display to CSS -- so this rule is the entire visible half of
+// the feature, not optional decoration.
+//
+// Colocated here rather than in app/globals.css deliberately. It only
+// ever applies inside this component (the selector is scoped to
+// ProseMirror's own generated classes), so globals.css -- which holds
+// genuinely app-wide theming: body, buttons -- is the wrong home for it.
+// It also keeps the whole feature in one file: the extension, the copy,
+// and its rendering.
+//
+// There is a second, infrastructural reason, recorded because it caused
+// a real incident during this task: the first preview built from this
+// branch shipped the correct JS but a STALE compiled globals.css, with
+// this exact rule silently missing (12,779 deployed bytes vs 12,906
+// built locally -- the difference being precisely this rule). Proven to
+// be Vercel's build cache: a `vercel deploy --force` of byte-identical
+// source, differing only in skipping that cache, emitted 12,934 bytes
+// WITH the rule. Shipping it inside the component's own JS chunk, which
+// rebuilt correctly throughout, keeps this feature off that path. That
+// cache behaviour is a separate problem that still needs attention on
+// its own terms -- see this task's status report.
+//
+// float/height:0 is the documented technique rather than positioning: it
+// keeps the placeholder out of layout flow entirely, so the real caret
+// still sits at the start of the empty line instead of being pushed
+// along by placeholder text occupying the same box.
+const PLACEHOLDER_STYLE = `
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #888;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+`;
 
 function countImageNodes(doc: RichContent): number {
   return (doc.content ?? []).filter((node) => node.type === "image").length;
@@ -122,6 +187,7 @@ export function Composer({
     extensions: [
       StarterKit,
       Image,
+      Placeholder.configure({ placeholder: placeholderText }),
       // onPaste/onDrop are native DOM event listeners ProseMirror's own
       // plugin system wires up once the view mounts; they only ever fire
       // from a real user paste/drop, strictly after render and commit,
@@ -232,9 +298,31 @@ export function Composer({
         boxSizing: "border-box",
       }}
     >
+      <style>{PLACEHOLDER_STYLE}</style>
       {uploadError && <p>{uploadError}</p>}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        <EditorContent editor={editor} />
+        {/* @tiptap/react's EditorContent renders a plain, unstyled div
+            around the actual ProseMirror-managed contenteditable (see
+            PureEditorContent.render() in node_modules/@tiptap/react/dist/
+            index.js -- it just spreads whatever props are passed here
+            onto a bare <div>). With no explicit height of its own, that
+            wrapper naturally shrinks to its content's own height -- a
+            single empty line, ~24px -- rather than filling the space
+            this parent's flex:1 already reserves for it. That breaks the
+            contenteditable's own `min-height: 100%` (set via
+            editorProps.attributes.style above): percentage heights only
+            resolve against a parent with a *definite* height, and an
+            auto-height parent makes that a no-op. The practical effect,
+            confirmed directly (task 36 follow-up): the composer's own
+            visible, bordered box is ~140px tall, but only its top ~24px
+            -- the single empty line -- was ever actually focusable;
+            clicking anywhere else in that visually-identical-looking box
+            hit this plain, non-editable wrapper div instead and never
+            focused anything. height: "100%" here gives that wrapper a
+            real, definite height (resolving cleanly against this
+            flex:1 parent, which already has one), so the contenteditable
+            inside it can now resolve its own 100% in turn. */}
+        <EditorContent editor={editor} style={{ height: "100%" }} />
       </div>
     </div>
   );

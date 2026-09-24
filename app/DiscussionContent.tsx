@@ -4,15 +4,28 @@ import type { PastResponse } from "./useDiscussionExecution";
 import { MarkdownResponse } from "./MarkdownResponse";
 
 // The scrolling middle region of the fixed layout: the active
-// discussion's identifier, its history, the live-streaming response, and
-// the last run's raw result — everything from the old ExecuteTester
-// except the composer, which now lives separately (Composer.tsx) in its
-// own fixed position. Purely a rendering split for layout purposes; none
-// of this content or its underlying state changed.
+// discussion's history, the live-streaming response, and the last run's
+// raw result — everything from the old ExecuteTester except the composer,
+// which now lives separately (Composer.tsx) in its own fixed position.
+// Purely a rendering split for layout purposes; none of this content or
+// its underlying state changed.
+//
+// The active discussion's NAME is deliberately not rendered here (task
+// 38). It used to lead this region as "Discussion: <name>", but task 37
+// added ComposerHeader directly above the composer, which shows the same
+// name — so it appeared twice on screen. ComposerHeader is now the single
+// source of truth for it, and is the better home: it's fixed, whereas
+// this region scrolls, so the name here would scroll out of view anyway.
+// Persistence audit finding E's own reasoning (never show a raw uuid as
+// identifying text, even transiently) moved with it — see ComposerHeader.
+//
+// The "no discussion selected" line below is kept, despite ComposerHeader
+// also covering that state, because this one carries the extra guidance
+// ("create or pick one above") that belongs in the empty content area
+// rather than in a one-line status row.
 
 export function DiscussionContent({
   discussionId,
-  discussionName,
   history,
   streamedResponse,
   streamedModel,
@@ -21,7 +34,6 @@ export function DiscussionContent({
   executionError,
 }: {
   discussionId: string | null;
-  discussionName: string | null;
   history: PastResponse[];
   streamedResponse: string | null;
   streamedModel: string | null;
@@ -31,18 +43,7 @@ export function DiscussionContent({
 }) {
   return (
     <main>
-      {discussionId ? (
-        // Persistence audit finding E: previously fell back to the raw
-        // id in the brief window before its name loaded (see
-        // useDiscussionExecution's discussionName) -- self-correcting,
-        // never a permanent display value, but still a uuid rendering as
-        // identifying text for a moment. Replaced with a loading label
-        // instead: nothing about this fix requires a raw id to ever
-        // appear on screen, even transiently, and this audit's whole
-        // premise is that identifying state showing something other than
-        // its real value is worth closing even when it's brief.
-        <p>Discussion: {discussionName ?? "Loading..."}</p>
-      ) : (
+      {!discussionId && (
         <p>No discussion selected — create or pick one above.</p>
       )}
       {discussionId && history.length > 0 && (

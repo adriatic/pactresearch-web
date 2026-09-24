@@ -5,6 +5,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { NotebookCreator } from "./NotebookCreator";
 import { Explorer } from "./Explorer";
 import { Composer } from "./Composer";
+import { ComposerHeader } from "./ComposerHeader";
 import { DiscussionContent } from "./DiscussionContent";
 import { SettingsDialog } from "./SettingsDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
@@ -271,6 +272,21 @@ export function Workspace({
               </span>
             )}
           </header>
+          {/* Task 37: pact-mac's discussion-name/run-status row, which sits
+              directly above the composer. Deliberately a sibling ABOVE the
+              vertical Group rather than a child of the composer's own
+              Panel: inside that Panel it would eat into the composer's
+              draggable 140px and could be dragged out of existence
+              entirely, and it isn't itself resizable content. flexShrink
+              comes from the component's own root. */}
+          <ComposerHeader
+            discussionId={activeDiscussionId}
+            discussionName={execution.discussionName}
+            // The same `loading` that already gates the Run button above,
+            // so the status dot and the Run button can never disagree
+            // about whether this discussion is running.
+            isRunning={execution.loading}
+          />
           {/* The composer and the discussion content are their own
               vertical Group so the boundary between them is a real
               draggable divider, replacing the textarea's native corner
@@ -295,7 +311,6 @@ export function Workspace({
             <Panel style={{ overflowY: "auto" }}>
               <DiscussionContent
                 discussionId={activeDiscussionId}
-                discussionName={execution.discussionName}
                 history={execution.history}
                 streamedResponse={execution.streamedResponse}
                 streamedModel={execution.streamedModel}

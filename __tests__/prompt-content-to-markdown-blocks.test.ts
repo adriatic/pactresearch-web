@@ -15,7 +15,10 @@ function doc(...content: RichContent[]): RichContent {
 function p(...content: RichContent[]): RichContent {
   return { type: "paragraph", content };
 }
-function text(t: string, marks?: { type: string }[]): RichContent {
+function text(
+  t: string,
+  marks?: { type: string; attrs?: Record<string, unknown> }[],
+): RichContent {
   return marks ? { type: "text", text: t, marks } : { type: "text", text: t };
 }
 
@@ -112,6 +115,64 @@ describe("docToContentSegments", () => {
   test("an empty doc produces zero segments", () => {
     const segments = docToContentSegments(EMPTY_DOC);
     expect(segments).toEqual([]);
+  });
+
+  // Task 36 follow-up: StarterKit v3.31.3 includes Link by default, but
+  // this serializer's marks map had no entry for it at all, so a prompt
+  // containing a link-marked text node hit MarkdownSerializer's own
+  // unhandled-mark throw -- surfaced to real users as "Execution failed",
+  // confirmed via the exact error id in Vercel's production logs.
+  test("a link mark renders as Markdown link syntax", () => {
+    const segments = docToContentSegments(
+      doc(
+        p(
+          text("see "),
+          text("this page", [
+            { type: "link", attrs: { href: "https://example.com/x" } },
+          ]),
+          text(" for details"),
+        ),
+      ),
+    );
+    expect(segments).toEqual([
+      {
+        type: "text",
+        text: "see [this page](https://example.com/x) for details",
+      },
+    ]);
+  });
+
+  test("a bare-URL link (text equals its own href) renders as an autolink", () => {
+    const segments = docToContentSegments(
+      doc(
+        p(
+          text("https://example.com/x", [
+            { type: "link", attrs: { href: "https://example.com/x" } },
+          ]),
+        ),
+      ),
+    );
+    expect(segments).toEqual([
+      { type: "text", text: "<https://example.com/x>" },
+    ]);
+  });
+
+  test("a link with a title attribute renders the title, not an autolink", () => {
+    const segments = docToContentSegments(
+      doc(
+        p(
+          text("link", [
+            {
+              type: "link",
+              attrs: { href: "https://example.com/x", title: "A title" },
+            },
+          ]),
+        ),
+      ),
+    );
+    expect(segments).toEqual([
+      { type: "text", text: '[link](https://example.com/x "A title")' },
+    ]);
   });
 });
 
