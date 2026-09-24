@@ -277,7 +277,28 @@ export function Composer({
     >
       {uploadError && <p>{uploadError}</p>}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-        <EditorContent editor={editor} />
+        {/* @tiptap/react's EditorContent renders a plain, unstyled div
+            around the actual ProseMirror-managed contenteditable (see
+            PureEditorContent.render() in node_modules/@tiptap/react/dist/
+            index.js -- it just spreads whatever props are passed here
+            onto a bare <div>). With no explicit height of its own, that
+            wrapper naturally shrinks to its content's own height -- a
+            single empty line, ~24px -- rather than filling the space
+            this parent's flex:1 already reserves for it. That breaks the
+            contenteditable's own `min-height: 100%` (set via
+            editorProps.attributes.style above): percentage heights only
+            resolve against a parent with a *definite* height, and an
+            auto-height parent makes that a no-op. The practical effect,
+            confirmed directly (task 36 follow-up): the composer's own
+            visible, bordered box is ~140px tall, but only its top ~24px
+            -- the single empty line -- was ever actually focusable;
+            clicking anywhere else in that visually-identical-looking box
+            hit this plain, non-editable wrapper div instead and never
+            focused anything. height: "100%" here gives that wrapper a
+            real, definite height (resolving cleanly against this
+            flex:1 parent, which already has one), so the contenteditable
+            inside it can now resolve its own 100% in turn. */}
+        <EditorContent editor={editor} style={{ height: "100%" }} />
       </div>
     </div>
   );
