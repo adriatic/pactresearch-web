@@ -15,7 +15,11 @@
 //
 // No Tiptap CSS is imported and no toolbar is rendered — confirmed in the
 // task 28 prototype spike that this stays genuinely headless (a plain
-// border + padding box) without a styling fight.
+// border + padding box) without a styling fight. The one exception is
+// the placeholder's own ::before rule (app/globals.css), which has no
+// headless alternative: the Placeholder extension only supplies the
+// `data-placeholder` attribute and `is-editor-empty` class, leaving the
+// actual rendering to CSS by design.
 //
 // The controlled-value pattern from the old plain textarea (value=/
 // onChange=) does NOT carry over directly -- Tiptap's useEditor has no
@@ -31,6 +35,7 @@ import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { FileHandler } from "@tiptap/extension-file-handler";
+import { Placeholder } from "@tiptap/extension-placeholder";
 import { useEffect, useRef, useState } from "react";
 import type { RichContent } from "@/lib/richContent";
 import {
@@ -44,6 +49,28 @@ const ALLOWED_IMAGE_MIME_TYPES = [
   "image/gif",
   "image/webp",
 ];
+
+// Task 37 ports pact-mac's own placeholder, which reads "Enter prompt —
+// Cmd+V to paste image, Cmd+Enter to send". The paste half carries over
+// verbatim (image paste is real here -- see FileHandler below, covered by
+// composer-image-paste.spec.ts), but the send half does NOT: pact-web has
+// no keyboard send shortcut at all. pact-mac binds Cmd/Ctrl+Enter to
+// send in its own App.tsx handleKeyDown; pact-web has no keydown handler
+// anywhere in app/, so its only run trigger is the header's Run button.
+// Promising a shortcut that does nothing would be worse than omitting it,
+// so that clause names the control that actually works instead.
+//
+// Evaluated as a function rather than a fixed string so it is only ever
+// computed when the decoration renders -- i.e. client-side, since the
+// editor itself is client-only (immediatelyRender: false). That keeps
+// navigator out of the server render path entirely, so this can never
+// contribute a hydration mismatch.
+function placeholderText(): string {
+  const isApple =
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+  return `Enter prompt — ${isApple ? "Cmd" : "Ctrl"}+V to paste image, Run to send`;
+}
 
 function countImageNodes(doc: RichContent): number {
   return (doc.content ?? []).filter((node) => node.type === "image").length;
@@ -122,6 +149,7 @@ export function Composer({
     extensions: [
       StarterKit,
       Image,
+      Placeholder.configure({ placeholder: placeholderText }),
       // onPaste/onDrop are native DOM event listeners ProseMirror's own
       // plugin system wires up once the view mounts; they only ever fire
       // from a real user paste/drop, strictly after render and commit,

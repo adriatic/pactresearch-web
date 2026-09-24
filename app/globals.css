@@ -47,3 +47,24 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/* Composer placeholder (task 37, ported from pact-mac's own composer).
+   The Placeholder extension deliberately renders nothing itself -- it
+   only supplies the `data-placeholder` attribute and the
+   `is-editor-empty` class, leaving the actual display to CSS, so this
+   rule is not optional decoration but the whole visible half of the
+   feature. This is the single exception to Composer.tsx staying free of
+   Tiptap stylesheets: it's four declarations against one pseudo-element,
+   not an imported theme.
+
+   float/height:0 is the documented technique rather than positioning:
+   it keeps the placeholder out of layout flow entirely, so the real
+   caret still sits at the start of the empty line instead of being
+   pushed along by placeholder text occupying the same box. */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #888;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
