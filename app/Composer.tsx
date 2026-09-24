@@ -191,49 +191,6 @@ export function Composer({
     },
   });
 
-  // TEMPORARY DIAGNOSTIC (task 36 follow-up) -- registers this specific
-  // Composer mount in window.__pactDiag.composerMounts (mount-only
-  // effect, [] deps, so this fires exactly once per real mount/unmount,
-  // not per re-render), and keeps window.__pactDiag's latest-editor
-  // fields updated on every render so a bookmarklet-driven snapshot can
-  // catch: (a) whether more than one Composer mount is alive at once
-  // (the "double-initialization" theory), and (b) whether the live
-  // editor instance's own isEditable/isFocused state, and its view's DOM
-  // node identity, actually match what's visibly on screen. Remove once
-  // the mechanism is confirmed.
-  useEffect(() => {
-    const diag = (
-      window as unknown as {
-        __pactDiag: {
-          consoleLog: unknown[];
-          composerMounts: { mountedAt: number; unmountedAt: number | null }[];
-        };
-      }
-    ).__pactDiag;
-    if (!diag) return;
-    const record = {
-      mountedAt: performance.now(),
-      unmountedAt: null as number | null,
-    };
-    diag.composerMounts.push(record);
-    return () => {
-      record.unmountedAt = performance.now();
-    };
-  }, []);
-  useEffect(() => {
-    const diag = window as unknown as {
-      __pactDiag?: Record<string, unknown>;
-    };
-    if (!diag.__pactDiag || !editor) return;
-    const visibleNode = document.querySelector('[aria-label="Prompt"]');
-    diag.__pactDiag.latestEditor = {
-      isEditable: editor.isEditable,
-      isFocused: editor.isFocused,
-      viewDomMatchesVisible: editor.view.dom === visibleNode,
-      checkedAt: performance.now(),
-    };
-  });
-
   // Sync content IN only on a genuine external change (contentVersion),
   // never on this component's own onUpdate round-trip -- see the file
   // comment above.
