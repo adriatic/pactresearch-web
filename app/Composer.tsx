@@ -38,6 +38,7 @@ import { FileHandler } from "@tiptap/extension-file-handler";
 import { Placeholder } from "@tiptap/extension-placeholder";
 import { useEffect, useRef, useState } from "react";
 import type { RichContent } from "@/lib/richContent";
+import { registerDiagnosticEditor } from "@/lib/diagnostics";
 import {
   uploadPromptImage,
   UnsupportedImageTypeError,
@@ -256,6 +257,19 @@ export function Composer({
       },
     },
   });
+
+  // Task 39: expose this editor instance to the "Report a problem"
+  // capture. Tiptap's isEditable/isFocused live on the instance, not in
+  // the DOM, so they cannot be read from markup -- and they were exactly
+  // what ruled out the "stuck editable flag" theory in task 36. Purely a
+  // registration: nothing here reads back into render, so it cannot
+  // affect this component's own behaviour, and it clears on unmount so a
+  // capture taken with no composer mounted reports `present: false`
+  // rather than reading a stale instance.
+  useEffect(() => {
+    registerDiagnosticEditor(editor ?? null);
+    return () => registerDiagnosticEditor(null);
+  }, [editor]);
 
   // Sync content IN only on a genuine external change (contentVersion),
   // never on this component's own onUpdate round-trip -- see the file
