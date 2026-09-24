@@ -16,10 +16,10 @@
 // No Tiptap CSS is imported and no toolbar is rendered — confirmed in the
 // task 28 prototype spike that this stays genuinely headless (a plain
 // border + padding box) without a styling fight. The one exception is
-// the placeholder's own ::before rule (app/globals.css), which has no
-// headless alternative: the Placeholder extension only supplies the
-// `data-placeholder` attribute and `is-editor-empty` class, leaving the
-// actual rendering to CSS by design.
+// the placeholder's own ::before rule (PLACEHOLDER_STYLE below), which
+// has no headless alternative: the Placeholder extension only supplies
+// the `data-placeholder` attribute and `is-editor-empty` class, leaving
+// the actual rendering to CSS by design.
 //
 // The controlled-value pattern from the old plain textarea (value=/
 // onChange=) does NOT carry over directly -- Tiptap's useEditor has no
@@ -71,6 +71,44 @@ function placeholderText(): string {
     /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
   return `Enter prompt — ${isApple ? "Cmd" : "Ctrl"}+V to paste image, Run to send`;
 }
+
+// The Placeholder extension renders nothing on its own -- it only adds
+// the `data-placeholder` attribute and the `is-editor-empty` class, and
+// leaves the display to CSS -- so this rule is the entire visible half of
+// the feature, not optional decoration.
+//
+// Colocated here rather than in app/globals.css deliberately. It only
+// ever applies inside this component (the selector is scoped to
+// ProseMirror's own generated classes), so globals.css -- which holds
+// genuinely app-wide theming: body, buttons -- is the wrong home for it.
+// It also keeps the whole feature in one file: the extension, the copy,
+// and its rendering.
+//
+// There is a second, infrastructural reason, recorded because it caused
+// a real incident during this task: the first preview built from this
+// branch shipped the correct JS but a STALE compiled globals.css, with
+// this exact rule silently missing (12,779 deployed bytes vs 12,906
+// built locally -- the difference being precisely this rule). Proven to
+// be Vercel's build cache: a `vercel deploy --force` of byte-identical
+// source, differing only in skipping that cache, emitted 12,934 bytes
+// WITH the rule. Shipping it inside the component's own JS chunk, which
+// rebuilt correctly throughout, keeps this feature off that path. That
+// cache behaviour is a separate problem that still needs attention on
+// its own terms -- see this task's status report.
+//
+// float/height:0 is the documented technique rather than positioning: it
+// keeps the placeholder out of layout flow entirely, so the real caret
+// still sits at the start of the empty line instead of being pushed
+// along by placeholder text occupying the same box.
+const PLACEHOLDER_STYLE = `
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: #888;
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+`;
 
 function countImageNodes(doc: RichContent): number {
   return (doc.content ?? []).filter((node) => node.type === "image").length;
@@ -260,6 +298,7 @@ export function Composer({
         boxSizing: "border-box",
       }}
     >
+      <style>{PLACEHOLDER_STYLE}</style>
       {uploadError && <p>{uploadError}</p>}
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
         {/* @tiptap/react's EditorContent renders a plain, unstyled div
