@@ -154,25 +154,25 @@ test("Execute tester and History headings are gone, and a discussion with a resp
   }).toPass({ timeout: 15_000 });
 
   // 2: the discussion with a response shows that entry's own real, exact
-  // timestamp -- inside the History entry itself, not on the
-  // "Discussion: {name}" line, which must carry no timestamp at all.
+  // timestamp -- inside the History entry itself, not on the discussion's
+  // own name row, which must carry no timestamp at all. That name row
+  // moved from DiscussionContent's "Discussion: {name}" line to
+  // ComposerHeader in task 38; the invariant is unchanged, and the
+  // toHaveCount(1) assertions further down still enforce that the name
+  // row contributes no duplicate timestamp of its own.
   await withHistoryRow.click();
   const expectedTimestamp = knownCreatedAt.toLocaleString();
   await expect(
-    page.getByText(`Discussion: ${discussionWithHistoryName}`, {
-      exact: true,
-    }),
-  ).toBeVisible();
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionWithHistoryName);
   await expect(page.getByText(expectedTimestamp)).toBeVisible();
 
   // The discussion with no response yet shows no timestamp anywhere --
   // nothing crashes on the empty case, and nothing fabricates one.
   await withoutHistoryRow.click();
   await expect(
-    page.getByText(`Discussion: ${discussionWithoutHistoryName}`, {
-      exact: true,
-    }),
-  ).toBeVisible();
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionWithoutHistoryName);
   await expect(page.getByText(expectedTimestamp)).toHaveCount(0);
 });
 
@@ -277,12 +277,13 @@ test("a discussion with multiple responses shows each one's own distinct timesta
   await discussionRow.click();
 
   // Each of the three formatted timestamps appears exactly once -- each
-  // tied to its own entry, none shared or missing. The header line
-  // ("Discussion: {name}") shows none of them.
-  const discussionLine = page.getByText(`Discussion: ${discussionName}`, {
-    exact: true,
-  });
-  await expect(discussionLine).toBeVisible();
+  // tied to its own entry, none shared or missing. The discussion's own
+  // name row (ComposerHeader since task 38, previously DiscussionContent's
+  // "Discussion: {name}" line) shows none of them, which is exactly what
+  // the toHaveCount(1) assertions below enforce.
+  await expect(
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText(discussionName);
 
   for (const ts of timestamps) {
     const formatted = ts.toLocaleString();

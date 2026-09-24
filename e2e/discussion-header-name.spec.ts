@@ -3,9 +3,17 @@ import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
-// Verifies DiscussionContent's header line renders the active discussion's
-// actual name (already loaded, same as the Explorer sidebar) rather than
-// its raw UUID — the header used to always show discussionId directly.
+// Verifies the active discussion's name renders as its actual name
+// (already loaded, same as the Explorer sidebar) rather than its raw
+// UUID — it used to show discussionId directly.
+//
+// Task 38 moved WHERE that name lives, not whether it's covered. It was
+// DiscussionContent's "Discussion: <name>" line; task 37 added
+// ComposerHeader directly above the composer showing the same name, so
+// the two duplicated each other and the DiscussionContent one was
+// removed. This assertion follows the name to ComposerHeader rather than
+// being deleted, so the original regression (a uuid rendering as
+// identifying text) stays guarded.
 
 interface LocalSupabaseStatus {
   API_URL: string;
@@ -103,8 +111,16 @@ test("the discussion header shows the discussion's name, not its raw id", async 
   await expect(discussionRow).toBeVisible();
   await discussionRow.click();
 
-  const header = page.getByText(`Discussion: `);
+  // Scoped to ComposerHeader by its accessible name -- the discussion
+  // name also appears in the Explorer tree, so an unscoped text lookup
+  // would match more than one element.
+  const header = page.getByRole("group", { name: "Active discussion" });
   await expect(header).toBeVisible();
-  await expect(header).toHaveText(`Discussion: ${discussionName}`);
+  await expect(header).toContainText(discussionName);
   await expect(header).not.toHaveText(UUID_PATTERN);
+
+  // The superseded "Discussion: <name>" line must be gone, not merely
+  // moved -- showing the name in both places at once is the redundancy
+  // task 38 removed.
+  await expect(page.getByText("Discussion: ")).toHaveCount(0);
 });

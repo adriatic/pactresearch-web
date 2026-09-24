@@ -100,7 +100,17 @@ export function ComposerHeader({
   const statusColor = isRunning ? RUNNING_COLOR : IDLE_COLOR;
 
   return (
+    // role/aria-label give this row a stable accessible name, which is
+    // also how discussion-header-name.spec.ts targets it. Deliberately
+    // not a second <header> element: Workspace already has one for the
+    // toolbar, and several specs locate that with a bare
+    // page.locator("header"), which a second one would break under
+    // Playwright's strict mode. Deliberately not a data-testid either --
+    // this repo has no such convention (zero occurrences in app/ or
+    // e2e/), and an accessible name is the better hook regardless.
     <div
+      role="group"
+      aria-label="Active discussion"
       style={{
         flexShrink: 0,
         display: "flex",
@@ -119,6 +129,12 @@ export function ComposerHeader({
           whiteSpace: "nowrap",
         }}
       >
+        {/* "Loading..." rather than falling back to the raw discussionId
+            -- persistence audit finding E, whose rationale moved here
+            with the name itself (task 38) when DiscussionContent's own
+            duplicate "Discussion: ..." line was removed: nothing requires
+            a uuid to appear on screen as identifying text, even
+            transiently while the name resolves. */}
         {discussionId
           ? (discussionName ?? "Loading...")
           : "No discussion selected"}

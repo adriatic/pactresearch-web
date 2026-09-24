@@ -311,7 +311,6 @@ export function Workspace({
             <Panel style={{ overflowY: "auto" }}>
               <DiscussionContent
                 discussionId={activeDiscussionId}
-                discussionName={execution.discussionName}
                 history={execution.history}
                 streamedResponse={execution.streamedResponse}
                 streamedModel={execution.streamedModel}
