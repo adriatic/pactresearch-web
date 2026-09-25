@@ -3,6 +3,7 @@ import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { promptContentToAnthropicBlocks } from "@/lib/promptContentToAnthropicBlocks";
 import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
+import { after } from "next/server";
 import { trace, context } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("pact-api");
@@ -584,67 +585,107 @@ async function handlePost(request: Request) {
     // before either of the two normal end points (the error check right
     // after anthropic-connect, or the first text_delta) was reached.
     endTtft();
-    const lockReleaseStart = Date.now();
-    await tracer.startActiveSpan("lock-release", async (span) => {
+
+    // total_ms is captured HERE, before anything below is deferred, and
+    // that is a deliberate change of meaning as of task 42: it now means
+    // "how long the user actually waited", not "how long the handler
+    // stayed alive". Neither the lock release nor the execution_timings
+    // insert is on the user's critical path any more, so neither belongs
+    // in the number that answers "why is pact-web slow". NOTE for anyone
+    // comparing rows across this deploy: pre-task-42 total_ms included
+    // the lock release (282ms average), post-task-42 total_ms does not.
+    // Those two populations are not directly comparable.
+    const totalMs = Date.now() - requestStartDate;
+
+    // Task 42 Part A: the lock release no longer blocks the response.
+    //
+    // This is next/server's after(), NOT a bare floating promise. The
+    // task specified "fire-and-forget", and on a long-lived server those
+    // are the same thing -- on Vercel they are emphatically not. Once a
+    // serverless function returns its response the runtime is free to
+    // freeze or terminate the instance, so a detached promise can simply
+    // never run. That failure mode is strictly worse than the 282ms this
+    // change is trying to save: an un-deleted lock blocks that user from
+    // running anything at all until the 5-minute staleness cutoff
+    // reclaims it. after() is backed by the platform's waitUntil, which
+    // is the supported way to keep post-response work alive.
+    //
+    // The execution_timings insert moves in here too. It has to: it
+    // records lock_release_ms, which cannot be measured without awaiting
+    // the release. Deferring both together keeps that diagnostic intact
+    // (task 42 Part B depends on these rows) and, as a bonus, takes the
+    // insert off the response path as well -- it was never work the user
+    // should have been waiting on either.
+    after(async () => {
+      const lockReleaseStart = Date.now();
+      await tracer.startActiveSpan("lock-release", async (span) => {
+        try {
+          await supabase
+            .from("execution_locks")
+            .delete()
+            .eq("user_id", user.id);
+        } finally {
+          span.end();
+        }
+      });
+      const lockReleaseMs = Date.now() - lockReleaseStart;
+
+      // Durable counterpart to the spans above (ported from the clone's
+      // task 15, decision and reasoning unchanged): one row per genuine
+      // execution attempt -- everything from here down only ever runs once
+      // the lock was actually acquired, so a failed auth, malformed
+      // request, missing API key, or lost lock race never produces a row;
+      // those aren't executions. Deliberately unconditional beyond that
+      // boundary, though -- this block runs whether the try above returned
+      // successfully or threw, so a run that fails partway through (a bad
+      // Anthropic response, a DB error mid-stream) still gets a row, with
+      // whichever ms columns never got assigned left null. A "only insert
+      // on full success" rule would silently exclude exactly the
+      // slow-then-failed runs a latency report most needs to see.
+      //
+      // Wrapped in its own try/catch, never rethrown: this is diagnostic
+      // data, not core functionality. Before task 42 the reason was that
+      // a throw here would escape the finally block and replace the real
+      // response with withRouteErrorHandling's generic 500 -- turning a
+      // successful execution into an apparent failure over a broken
+      // diagnostic insert. That specific route is now closed (the
+      // response is already sent by the time after() runs), but the
+      // catch stays, for a second reason that still applies: an
+      // unhandled rejection inside after() is a platform-level error on
+      // a request the user already considers finished, and it would bury
+      // the actual insert failure in runtime noise instead of logging it
+      // where the next person looking at execution_timings will find it.
       try {
-        await supabase.from("execution_locks").delete().eq("user_id", user.id);
-      } finally {
-        span.end();
+        const { error: timingInsertError } = await supabase
+          .from("execution_timings")
+          .insert({
+            user_id: user.id,
+            discussion_id: discussionId,
+            resolved_model: resolvedModel,
+            max_tokens: maxTokens,
+            auth_ms: authMs,
+            lock_acquire_ms: lockAcquireMs,
+            settings_read_ms: settingsReadMs,
+            anthropic_connect_ms: anthropicConnectMs,
+            message_start_insert_ms: messageStartInsertMs,
+            time_to_first_token_ms: timeToFirstTokenMs,
+            generation_ms: generationMs,
+            throttled_write_count: streamingWriteCount,
+            throttled_write_total_ms: Math.round(streamingWriteTotalMs),
+            final_write_ms: finalWriteMs,
+            lock_release_ms: lockReleaseMs,
+            total_ms: totalMs,
+          });
+        if (timingInsertError) {
+          console.error("[execution-timings-insert-failed]", timingInsertError);
+        }
+      } catch (timingInsertException) {
+        console.error(
+          "[execution-timings-insert-failed]",
+          timingInsertException,
+        );
       }
     });
-    const lockReleaseMs = Date.now() - lockReleaseStart;
-
-    // Durable counterpart to the spans above (ported from the clone's
-    // task 15, decision and reasoning unchanged): one row per genuine
-    // execution attempt -- everything from here down only ever runs once
-    // the lock was actually acquired, so a failed auth, malformed
-    // request, missing API key, or lost lock race never produces a row;
-    // those aren't executions. Deliberately unconditional beyond that
-    // boundary, though -- this block runs whether the try above returned
-    // successfully or threw, so a run that fails partway through (a bad
-    // Anthropic response, a DB error mid-stream) still gets a row, with
-    // whichever ms columns never got assigned left null. A "only insert
-    // on full success" rule would silently exclude exactly the
-    // slow-then-failed runs a latency report most needs to see.
-    //
-    // Wrapped in its own try/catch, never rethrown: this is diagnostic
-    // data, not core functionality, and it runs after the try/catch
-    // above has already produced (or is about to produce, on the way
-    // back up through this finally) the real response. A throw reaching
-    // the top of this finally block would replace that response with
-    // withRouteErrorHandling's generic 500 -- turning a successful
-    // execution into an apparent failure for the client over a broken
-    // diagnostic insert. That must never happen, so every failure mode
-    // here (a returned `error`, or an actual thrown exception from the
-    // call itself) is caught and only logged.
-    try {
-      const totalMs = Date.now() - requestStartDate;
-      const { error: timingInsertError } = await supabase
-        .from("execution_timings")
-        .insert({
-          user_id: user.id,
-          discussion_id: discussionId,
-          resolved_model: resolvedModel,
-          max_tokens: maxTokens,
-          auth_ms: authMs,
-          lock_acquire_ms: lockAcquireMs,
-          settings_read_ms: settingsReadMs,
-          anthropic_connect_ms: anthropicConnectMs,
-          message_start_insert_ms: messageStartInsertMs,
-          time_to_first_token_ms: timeToFirstTokenMs,
-          generation_ms: generationMs,
-          throttled_write_count: streamingWriteCount,
-          throttled_write_total_ms: Math.round(streamingWriteTotalMs),
-          final_write_ms: finalWriteMs,
-          lock_release_ms: lockReleaseMs,
-          total_ms: totalMs,
-        });
-      if (timingInsertError) {
-        console.error("[execution-timings-insert-failed]", timingInsertError);
-      }
-    } catch (timingInsertException) {
-      console.error("[execution-timings-insert-failed]", timingInsertException);
-    }
   }
 }
 
