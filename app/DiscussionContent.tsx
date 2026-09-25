@@ -96,11 +96,18 @@ function ThinkingIndicator() {
   );
 }
 
+// Task 43 item 3 removed the model name from both response header lines
+// -- the live one ("Response — <model> — <date>") and each history
+// entry's equivalent. Only the DISPLAY is gone: useDiscussionExecution
+// still tracks streamedModel, /api/execute still resolves and persists
+// responses.resolved_model, .pact export/import still carries it, and
+// /admin/timings still shows it. Nothing downstream reads it from here,
+// so this is a display-layer change only.
+
 export function DiscussionContent({
   discussionId,
   history,
   streamedResponse,
-  streamedModel,
   streamedResponseCreatedAt,
   isStreaming,
   isRunning,
@@ -109,7 +116,6 @@ export function DiscussionContent({
   discussionId: string | null;
   history: PastResponse[];
   streamedResponse: string | null;
-  streamedModel: string | null;
   streamedResponseCreatedAt: string | null;
   isStreaming: boolean;
   isRunning: boolean;
@@ -129,7 +135,6 @@ export function DiscussionContent({
               </p>
               <p>
                 <strong>Response</strong>
-                {entry.resolved_model ? ` — ${entry.resolved_model}` : ""}
                 {/* Each entry's own created_at, not a single header-level
                     value -- 7986c92 originally put this on the
                     "Discussion:" line sourced from the *latest* response,
@@ -159,7 +164,6 @@ export function DiscussionContent({
         <div>
           <h2>
             {isStreaming ? "Live response (streaming...)" : "Response"}
-            {streamedModel ? ` — ${streamedModel}` : ""}
             {streamedResponseCreatedAt &&
               ` — ${new Date(streamedResponseCreatedAt).toLocaleString()}`}
           </h2>

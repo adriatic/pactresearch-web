@@ -162,6 +162,16 @@ export function Workspace({
     setDiscussionListRefetchToken((t) => t + 1);
   }
 
+  // Task 43 item 1: one gate, two triggers. The header Run button and the
+  // composer's Cmd+Enter keymap both read this, so they cannot disagree
+  // about whether a run is allowed -- the shortcut is inert in exactly
+  // the cases the button is disabled, rather than being a second, subtly
+  // different rule that drifts.
+  const canRun =
+    !execution.loading &&
+    !!activeDiscussionId &&
+    !isEmptyDoc(execution.content);
+
   return (
     <>
       <SettingsDialog
@@ -170,27 +180,50 @@ export function Workspace({
         onClose={() => setShowSettings(false)}
       />
       <Group orientation="horizontal" style={{ height: "100vh" }}>
-        <Panel
-          defaultSize={280}
-          minSize={180}
-          maxSize={560}
-          style={{ overflowY: "auto" }}
-        >
-          <Explorer
-            activeDiscussionId={activeDiscussionId}
-            selectedNotebookId={selectedNotebookId}
-            onSelect={handleDiscussionSelected}
-            onNotebookSelected={setSelectedNotebookId}
-            onNotebookDeleted={handleNotebookDeleted}
-            onDiscussionDeleted={handleDiscussionDeleted}
-            refetchToken={discussionListRefetchToken}
-          />
-          <hr />
-          <NotebookCreator
-            selectedNotebookId={selectedNotebookId}
-            onNotebookCreated={handleNotebookCreated}
-            onDiscussionCreated={handleDiscussionCreated}
-          />
+        <Panel defaultSize={280} minSize={180} maxSize={560}>
+          {/* Task 43 item 2. The Explorer/NotebookCreator boundary was a
+              plain <hr />: the two shared the sidebar with no way to trade
+              space between them, so a notebook list of any real length
+              pushed the creator form off the bottom, and the tree still
+              could not be grown to use the room it needed.
+
+              Nested INSIDE the sidebar panel rather than added to the
+              outer horizontal Group -- as siblings of the main panel these
+              two would have become a third and fourth column, not a
+              vertical split of the sidebar. The outer panel therefore
+              drops its own overflowY; each inner panel scrolls itself, so
+              the separator stays put instead of scrolling away with the
+              tree. minHeight: 0 for the same reason the composer/content
+              Group below needs it -- without it a flex child is floored at
+              its content height and the Group cannot shrink. */}
+          <Group
+            orientation="vertical"
+            style={{ height: "100%", minHeight: 0 }}
+          >
+            <Panel minSize={96} style={{ overflowY: "auto" }}>
+              <Explorer
+                activeDiscussionId={activeDiscussionId}
+                selectedNotebookId={selectedNotebookId}
+                onSelect={handleDiscussionSelected}
+                onNotebookSelected={setSelectedNotebookId}
+                onNotebookDeleted={handleNotebookDeleted}
+                onDiscussionDeleted={handleDiscussionDeleted}
+                refetchToken={discussionListRefetchToken}
+              />
+            </Panel>
+            {/* Same 4px/#ccc treatment as the other two separators;
+                row-resize because this Group stacks vertically. */}
+            <Separator
+              style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
+            />
+            <Panel defaultSize={220} minSize={96} style={{ overflowY: "auto" }}>
+              <NotebookCreator
+                selectedNotebookId={selectedNotebookId}
+                onNotebookCreated={handleNotebookCreated}
+                onDiscussionCreated={handleDiscussionCreated}
+              />
+            </Panel>
+          </Group>
         </Panel>
         <Separator
           style={{ width: 4, cursor: "col-resize", background: "#ccc" }}
@@ -220,11 +253,7 @@ export function Workspace({
             <button
               type="button"
               onClick={() => execution.run()}
-              disabled={
-                execution.loading ||
-                !activeDiscussionId ||
-                isEmptyDoc(execution.content)
-              }
+              disabled={!canRun}
             >
               {execution.loading ? "Running..." : "Run"}
             </button>{" "}
@@ -303,6 +332,13 @@ export function Workspace({
                 content={execution.content}
                 contentVersion={execution.contentVersion}
                 onContentChange={execution.setContent}
+                // Guarded by the same `canRun` as the Run button, so a
+                // Cmd+Enter with an empty composer, no discussion, or a
+                // run already in flight does nothing -- it does not queue
+                // a second run or fight the execution lock.
+                onSubmit={() => {
+                  if (canRun) execution.run();
+                }}
               />
             </Panel>
             <Separator
@@ -313,7 +349,6 @@ export function Workspace({
                 discussionId={activeDiscussionId}
                 history={execution.history}
                 streamedResponse={execution.streamedResponse}
-                streamedModel={execution.streamedModel}
                 streamedResponseCreatedAt={execution.streamedResponseCreatedAt}
                 isStreaming={execution.isStreaming}
                 // Same `loading` as the Run button and ComposerHeader's

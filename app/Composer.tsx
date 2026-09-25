@@ -32,11 +32,12 @@
 // keystroke).
 
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
+import { Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { FileHandler } from "@tiptap/extension-file-handler";
 import { Placeholder } from "@tiptap/extension-placeholder";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RichContent } from "@/lib/richContent";
 import { registerDiagnosticEditor } from "@/lib/diagnostics";
 import {
@@ -51,15 +52,15 @@ const ALLOWED_IMAGE_MIME_TYPES = [
   "image/webp",
 ];
 
-// Task 37 ports pact-mac's own placeholder, which reads "Enter prompt —
-// Cmd+V to paste image, Cmd+Enter to send". The paste half carries over
-// verbatim (image paste is real here -- see FileHandler below, covered by
-// composer-image-paste.spec.ts), but the send half does NOT: pact-web has
-// no keyboard send shortcut at all. pact-mac binds Cmd/Ctrl+Enter to
-// send in its own App.tsx handleKeyDown; pact-web has no keydown handler
-// anywhere in app/, so its only run trigger is the header's Run button.
-// Promising a shortcut that does nothing would be worse than omitting it,
-// so that clause names the control that actually works instead.
+// Task 37 ported pact-mac's own placeholder, which reads "Enter prompt —
+// Cmd+V to paste image, Cmd+Enter to send", but had to replace the send
+// half with "Run to send": pact-web had no keyboard send shortcut, and
+// promising one that does nothing is worse than omitting it.
+//
+// Task 43 item 1 adds the shortcut, so the original clause is restored --
+// it now describes something that actually works. Verified against
+// pact-mac's own binding (App.tsx handleKeyDown: Enter + metaKey/ctrlKey
+// -> send), so the two apps agree on the combo.
 //
 // Evaluated as a function rather than a fixed string so it is only ever
 // computed when the decoration renders -- i.e. client-side, since the
@@ -70,7 +71,8 @@ function placeholderText(): string {
   const isApple =
     typeof navigator !== "undefined" &&
     /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
-  return `Enter prompt — ${isApple ? "Cmd" : "Ctrl"}+V to paste image, Run to send`;
+  const mod = isApple ? "Cmd" : "Ctrl";
+  return `Enter prompt — ${mod}+V to paste image, ${mod}+Enter to send`;
 }
 
 // The Placeholder extension renders nothing on its own -- it only adds
@@ -120,6 +122,7 @@ export function Composer({
   content,
   contentVersion,
   onContentChange,
+  onSubmit,
 }: {
   discussionId: string | null;
   content: RichContent;
@@ -132,6 +135,12 @@ export function Composer({
     content: RichContent,
     options?: { saveImmediately?: boolean },
   ) => void;
+  // Task 43 item 1. Invoked by the Cmd/Ctrl+Enter keymap below. The
+  // composer deliberately does NOT decide whether a run is allowed --
+  // Workspace owns that gate, so the shortcut and the Run button can
+  // never disagree about it (the same single-source-of-truth argument
+  // task 42 part C made for the thinking indicator).
+  onSubmit: () => void;
 }) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Tracks the doc's own image-node count across updates so onUpdate can
@@ -150,6 +159,52 @@ export function Composer({
   useEffect(() => {
     discussionIdRef.current = discussionId;
   }, [discussionId]);
+
+  // Same ref-indirection reason as discussionIdRef above: useEditor builds
+  // its extensions array once, so an extension that closed over `onSubmit`
+  // directly would keep calling the first render's copy forever.
+  const onSubmitRef = useRef(onSubmit);
+  useEffect(() => {
+    onSubmitRef.current = onSubmit;
+  }, [onSubmit]);
+
+  // Task 43 item 1 -- Cmd+Enter (Ctrl+Enter off Apple) to send.
+  //
+  // A ProseMirror keymap via Tiptap's addKeyboardShortcuts, deliberately
+  // NOT a document- or window-level keydown listener. Task 39's report
+  // makes this case explicitly, and it is grounded in a real bug from
+  // task 36: an ancestor-level handler intercepting keystrokes before
+  // ProseMirror saw them was a genuine, hard-to-diagnose failure in this
+  // very composer (a browser extension swallowing Enter -- see the
+  // editorProps comment below, which exists because of it). A keymap
+  // registered on the editor fires only when the editor has focus and
+  // only for the one combo it binds, which is the narrowest scope this
+  // can have.
+  //
+  // "Mod-" is ProseMirror's own platform token: Cmd on Apple, Ctrl
+  // elsewhere. Matching pact-mac's `e.metaKey || e.ctrlKey` without
+  // hand-rolling the platform check or duplicating the navigator sniff
+  // that placeholderText() above needs for display purposes.
+  //
+  // Returns true unconditionally, so the combo is swallowed even when
+  // Workspace's gate declines to run. Letting it fall through would hand
+  // Mod-Enter back to ProseMirror's default Enter handling and insert a
+  // paragraph break, which is not what someone pressing "send" meant.
+  const submitShortcut = useMemo(
+    () =>
+      Extension.create({
+        name: "submitShortcut",
+        addKeyboardShortcuts() {
+          return {
+            "Mod-Enter": () => {
+              onSubmitRef.current();
+              return true;
+            },
+          };
+        },
+      }),
+    [],
+  );
 
   async function handleFiles(editor: Editor, files: File[], pos?: number) {
     const targetDiscussionId = discussionIdRef.current;
@@ -187,6 +242,7 @@ export function Composer({
     immediatelyRender: false,
     extensions: [
       StarterKit,
+      submitShortcut,
       Image,
       Placeholder.configure({ placeholder: placeholderText }),
       // onPaste/onDrop are native DOM event listeners ProseMirror's own
