@@ -12,7 +12,6 @@ const base = {
   discussionId: "d1",
   history: [],
   streamedResponse: null,
-  streamedModel: null,
   streamedResponseCreatedAt: null,
   isStreaming: false,
   isRunning: false,

@@ -82,10 +82,27 @@ test("dragging the sidebar's resize handle changes its width within the configur
   await page.goto("/");
 
   // Scoped to react-resizable-panels' own [data-separator] attribute, not
-  // a plain role query — the sidebar also has a genuine <hr> (between
-  // Explorer and NotebookCreator), which carries an implicit
-  // role="separator" too and would otherwise collide.
-  const separator = page.locator("[data-separator]");
+  // a plain role query. The original reason was the sidebar's <hr>
+  // between Explorer and NotebookCreator, which carries an implicit
+  // role="separator"; task 43 item 2 replaced that <hr> with a real
+  // resizable Separator, so that particular collision is gone.
+  //
+  // [data-separator] alone is no longer specific enough either: there are
+  // now three of them (sidebar | main, Explorer | NotebookCreator, and
+  // composer | response), and an unscoped locator is a strict-mode
+  // violation. This spec had in fact been failing on exactly that since
+  // the composer/response divider was added -- it resolved to 2 elements
+  // before item 2 made it 3.
+  //
+  // aria-orientation="vertical" identifies the sidebar | main separator
+  // uniquely: it is the only one belonging to a horizontal Group, and
+  // react-resizable-panels reports a separator's orientation as the axis
+  // of the divider line itself, not of the Group. Its aria-value* confirm
+  // the identification -- valuemin/now/max track Panel's own
+  // minSize={180} / defaultSize={280} / maxSize={560}.
+  const separator = page.locator(
+    '[data-separator][aria-orientation="vertical"]',
+  );
   const sidebarPanel = page.locator("[data-panel]").first();
 
   await expect(separator).toBeVisible();

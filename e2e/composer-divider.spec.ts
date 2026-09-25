@@ -85,13 +85,29 @@ test("the composer is sized by a real draggable divider, not a native textarea r
     "none",
   );
 
-  // The composer's own divider: the vertical Group is the nested one, so
-  // its separator is the one that is *not* a direct child of the
-  // outermost (horizontal) group. The library emits no orientation
-  // attribute, so structure is what discriminates them.
+  // The composer's own divider.
+  //
+  // This used to be `[data-group] [data-group] > [data-separator]`
+  // .first(), on the reasoning that the composer's vertical Group was the
+  // only nested one. Task 43 item 2 made that false: the sidebar now has
+  // a nested vertical Group of its own (Explorer | NotebookCreator), and
+  // it comes first in document order, so .first() silently selected the
+  // wrong divider and the drag below resized the sidebar instead -- the
+  // composer stayed at exactly its 140px default.
+  //
+  // Discriminated by content instead of position: the nested group that
+  // actually contains the composer textarea. That stays correct however
+  // many other nested groups get added later.
+  //
+  // (The old comment claimed the library emits no orientation attribute.
+  // It does -- aria-orientation -- but it cannot discriminate here: both
+  // nested groups are vertical, so both separators report the same value.
+  // explorer-resize.spec.ts can use it only because it wants the sole
+  // separator belonging to a *horizontal* group.)
   const composerDivider = page
-    .locator("[data-group] [data-group] > [data-separator]")
-    .first();
+    .locator("[data-group] [data-group]")
+    .filter({ has: textarea })
+    .locator("> [data-separator]");
   await expect(composerDivider).toBeVisible();
 
   // .last(): the outer main Panel also *contains* the textarea (it's an
