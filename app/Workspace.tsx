@@ -316,6 +316,10 @@ export function Workspace({
                 streamedModel={execution.streamedModel}
                 streamedResponseCreatedAt={execution.streamedResponseCreatedAt}
                 isStreaming={execution.isStreaming}
+                // Same `loading` as the Run button and ComposerHeader's
+                // status dot -- task 42 Part C reuses it rather than
+                // introducing a third source of truth for "is it running".
+                isRunning={execution.loading}
                 executionError={execution.executionError}
               />
             </Panel>

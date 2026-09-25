@@ -24,6 +24,78 @@ import { MarkdownResponse } from "./MarkdownResponse";
 // ("create or pick one above") that belongs in the empty content area
 // rather than in a one-line status row.
 
+// Task 42 Part C. Colocated in this component's own JS chunk rather than
+// app/globals.css, for the reason Composer.tsx records at length: a
+// preview build on the task 37 branch once shipped correct JS alongside a
+// STALE compiled globals.css, silently dropping that component's only
+// visible rule. This indicator has the same property -- the animation IS
+// the feature, so a dropped stylesheet would leave a static glyph and no
+// signal that anything is happening. Keeping it here keeps it off the
+// build-cache path entirely.
+//
+// prefers-reduced-motion is honoured: the star stops rotating and the
+// whole thing degrades to a static glyph plus its label, which still
+// answers "is it alive?" without animating anything.
+const THINKING_STYLE = `
+@keyframes pw-thinking-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes pw-thinking-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+.pw-thinking {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #888;
+  font-size: 0.9rem;
+  padding: 0.75rem 0;
+}
+.pw-thinking-star {
+  display: inline-block;
+  font-size: 1rem;
+  line-height: 1;
+  animation:
+    pw-thinking-spin 1.6s linear infinite,
+    pw-thinking-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pw-thinking-star { animation: none; }
+}
+`;
+
+// Purely an "the app is alive" signal -- deliberately no percentage, no
+// ETA, nothing implying knowledge of how much longer the run will take,
+// because nothing here has that knowledge.
+function ThinkingIndicator() {
+  return (
+    // aria-hidden, and deliberately NOT role="status".
+    //
+    // This is a visual affordance, not new information: ComposerHeader
+    // (task 37) already exposes run state as a live region announcing
+    // "Running, Ns elapsed", which is strictly more informative than
+    // "Thinking...". A second polite live region saying the same thing
+    // would make a screen reader announce the run twice, and the elapsed
+    // timer means the header's version is the one worth hearing. What
+    // this element adds is purely positional -- the signal in the place a
+    // sighted user is actually looking (the empty response panel), which
+    // the header cannot do.
+    //
+    // It also has to not be role="status" for a concrete reason: task
+    // 39's report-a-problem spec asserts on page.getByRole("status") to
+    // confirm it is mid-run, and a second status node makes that a
+    // strict-mode violation. Discovered by that spec failing, which is
+    // the check working as intended.
+    <div className="pw-thinking" aria-hidden="true">
+      <style>{THINKING_STYLE}</style>
+      <span className="pw-thinking-star">✦</span>
+      Thinking…
+    </div>
+  );
+}
+
 export function DiscussionContent({
   discussionId,
   history,
@@ -31,6 +103,7 @@ export function DiscussionContent({
   streamedModel,
   streamedResponseCreatedAt,
   isStreaming,
+  isRunning,
   executionError,
 }: {
   discussionId: string | null;
@@ -39,6 +112,7 @@ export function DiscussionContent({
   streamedModel: string | null;
   streamedResponseCreatedAt: string | null;
   isStreaming: boolean;
+  isRunning: boolean;
   executionError: string | null;
 }) {
   return (
@@ -68,6 +142,19 @@ export function DiscussionContent({
           ))}
         </div>
       )}
+      {/* Sits exactly where the response is about to land -- below any
+          history, above the streamed response -- rather than relying on
+          ComposerHeader's status dot (tasks 37/38), which is correct but
+          easy to miss and nowhere near where the user is looking.
+          `isRunning` is useDiscussionExecution's existing `loading`, the
+          same value already driving the Run button and that status dot,
+          so all three can never disagree. The streamedResponse === null
+          half is what makes this "still working" rather than "still
+          running": the moment the first throttled write arrives this
+          disappears and the real content takes its place, whatever the
+          write throttle interval happens to be (Part B changes nothing
+          here). */}
+      {isRunning && streamedResponse === null && <ThinkingIndicator />}
       {streamedResponse !== null && (
         <div>
           <h2>
