@@ -422,8 +422,46 @@ export function useDiscussionExecution(discussionId: string | null) {
       // the existing switch-between-two-real-discussions behavior.
       const alreadyOwnedByThisDiscussion =
         contentOwnerRef.current === discussionId;
+      // Task 44 item A. The non-empty-content half of this guard used to
+      // have no ownership condition at all, which made it fire for a case
+      // it was never meant to cover: switching to a brand-new discussion
+      // from one whose own content was on screen. There, contentRef holds
+      // the OUTGOING discussion's content (loaded from its last cell, or
+      // typed into it and just saved to it by the outgoing-save above),
+      // resolvedContent is correctly EMPTY_DOC, and the guard concluded
+      // "don't discard real content for nothing" -- so the new
+      // discussion opened showing the previous one's prompt, clearable
+      // only by hand. Reported by Nik; reproduced in
+      // composer-new-discussion-stale-content.spec.ts.
+      //
+      // `contentOwnerRef.current === null` is what separates the two, and
+      // it was verified by instrumenting this exact branch and running
+      // all three specs, not reasoned about in the abstract:
+      //
+      //   composer-new-discussion-typing-race  owner === discussionId
+      //   composer-typing-during-discussion-create  owner === null
+      //   composer-new-discussion-stale-content (44A)  owner === the
+      //     OTHER discussion's id
+      //
+      // The first is already covered by alreadyOwnedByThisDiscussion, so
+      // the second is the only case this half genuinely protects: content
+      // typed before ANY discussion had been claimed as active (the
+      // creation POST still in flight), which belongs to no discussion at
+      // all and would otherwise be lost outright. Task 36's guarantee is
+      // therefore preserved exactly -- non-empty content is still never
+      // discarded in favour of an empty resolved value when that content
+      // is orphaned.
+      //
+      // When the owner IS another real discussion, the content is not at
+      // risk: the outgoing-save above has already written it to that
+      // discussion (outgoingContentIsValid is precisely the same
+      // ownership test), so clearing the composer here loses nothing and
+      // is the correct behaviour for a genuine switch.
+      const contentIsOrphaned = contentOwnerRef.current === null;
       const wouldDiscardRealContentForNothing =
-        !isEmptyDoc(contentRef.current) && isEmptyDoc(resolvedContent);
+        contentIsOrphaned &&
+        !isEmptyDoc(contentRef.current) &&
+        isEmptyDoc(resolvedContent);
       if (!alreadyOwnedByThisDiscussion && !wouldDiscardRealContentForNothing) {
         setContentState(resolvedContent);
         setContentVersion((v) => v + 1);

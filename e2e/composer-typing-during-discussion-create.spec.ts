@@ -103,7 +103,7 @@ test("typing during the discussion-creation request itself survives the new disc
   });
 
   await page.goto("/");
-  await page.getByText(/Switched in/).waitFor({ timeout: 15_000 });
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
 
   await page.getByLabel("Name:").first().fill(notebookName);
   await page.getByRole("button", { name: "Create notebook" }).click();

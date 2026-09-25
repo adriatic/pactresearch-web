@@ -370,7 +370,24 @@ export function Composer({
     >
       <style>{PLACEHOLDER_STYLE}</style>
       {uploadError && <p>{uploadError}</p>}
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      {/* Task 44 item B: 12px of horizontal breathing room so prompt text
+          isn't flush against the composer's border. Applied to this
+          scroll wrapper rather than to the contenteditable itself, and
+          deliberately horizontal-only: the wrapper's height: 100% below
+          is load-bearing (see the comment there -- it is what makes the
+          whole box focusable rather than just its top line), and adding
+          vertical padding here would eat into the definite height that
+          chain resolves against. */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          paddingLeft: 12,
+          paddingRight: 12,
+          boxSizing: "border-box",
+        }}
+      >
         {/* @tiptap/react's EditorContent renders a plain, unstyled div
             around the actual ProseMirror-managed contenteditable (see
             PureEditorContent.render() in node_modules/@tiptap/react/dist/
