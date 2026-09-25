@@ -136,7 +136,15 @@ for (const submitVia of ["Run button", "Cmd+Enter"] as const) {
           discussion_id: discussion!.id,
           user_id: userId,
           prompt_text: "once prompt",
-          response: "partial",
+          // Seeded with the FINAL text, not a partial. The row is real,
+          // so any switch-load that resolves late refetches it -- and if
+          // it held a placeholder at that moment, history would render
+          // the placeholder and the assertion below would see zero
+          // occurrences rather than the duplicate it is looking for.
+          // (Observed exactly that under load: received 0, not 2.)
+          // Counting occurrences still distinguishes the bug: one render
+          // is correct, two is the duplicate.
+          response: ANSWER,
           resolved_model: "claude-sonnet-4-6-mock",
         })
         .select()
@@ -166,6 +174,20 @@ for (const submitVia of ["Run button", "Cmd+Enter"] as const) {
 
     await page.goto("/");
     await page.getByRole("treeitem", { name: discussionName }).click();
+    // Let the switch fully settle before running. Without this the
+    // discussion's own history load can still be in flight when the run
+    // completes, and its setHistory([]) -- correct at the time it was
+    // issued, since the response row did not exist yet -- lands AFTER
+    // the run folded its result in and wipes it. Observed directly:
+    // <main> ended up completely empty, so the assertion saw zero
+    // occurrences rather than the duplicate it looks for. The header's
+    // data-switch-ms (task 44 item D) is exactly the "switch effect has
+    // finished" signal for this.
+    await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
+    await expect(
+      page.getByRole("group", { name: "Active discussion" }),
+    ).toContainText(discussionName, { timeout: 15_000 });
+    await page.waitForTimeout(1000);
 
     const prompt = page.getByLabel("Prompt");
     await prompt.fill("once prompt");
@@ -182,12 +204,20 @@ for (const submitVia of ["Run button", "Cmd+Enter"] as const) {
     });
     await page.waitForTimeout(2500);
 
-    const occurrences = await page
-      .locator("main")
-      .evaluate(
-        (el, needle) => (el.textContent ?? "").split(needle).length - 1,
-        ANSWER,
-      );
-    expect(occurrences).toBe(1);
+    // Polled rather than read once: the duplicate this guards against is
+    // persistent, so settling on exactly one render is the invariant --
+    // and polling keeps a transient re-render from deciding the result.
+    await expect
+      .poll(
+        () =>
+          page
+            .locator("main")
+            .evaluate(
+              (el, needle) => (el.textContent ?? "").split(needle).length - 1,
+              ANSWER,
+            ),
+        { timeout: 10_000 },
+      )
+      .toBe(1);
   });
 }
