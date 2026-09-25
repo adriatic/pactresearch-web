@@ -511,6 +511,28 @@ export function useDiscussionExecution(discussionId: string | null) {
     // event, a subscription that never delivers) can only cost the user
     // the in-progress preview, never the completed response itself.
     let watchedRowId: string | null = null;
+    // Task 44 item A. Set once this run's response has been folded into
+    // history; after that point the live-preview state has been cleared
+    // on purpose and must stay cleared.
+    //
+    // Without this, a Realtime event delivered after the fold re-opened
+    // the live preview and the same response rendered twice -- a history
+    // entry AND a second block below it. The duplicate carried no
+    // timestamp, which is the fingerprint that identifies this path
+    // exactly: the UPDATE handler below sets streamedResponse but not
+    // streamedResponseCreatedAt, so after the fold cleared it, the live
+    // heading rendered as a bare "Response" with no date, while the
+    // history entry above it kept its own. That is precisely what was
+    // reported from production.
+    //
+    // The window is real and not narrow: run()'s completion path folds,
+    // clears, and then awaits a draft save before its finally block
+    // removes the channel -- a full network round trip during which any
+    // in-flight event is still delivered. Production emits exactly such
+    // an event, because /api/execute's own final write to the row
+    // happens immediately before it returns, so that write's Realtime
+    // notification routinely lands after the POST has already resolved.
+    let foldedIntoHistory = false;
 
     const channel = supabase
       .channel(`responses-${discussionId}-${Date.now()}`)
@@ -523,6 +545,7 @@ export function useDiscussionExecution(discussionId: string | null) {
           filter: `discussion_id=eq.${discussionId}`,
         },
         (payload) => {
+          if (foldedIntoHistory) return;
           if (watchedRowId) return;
           watchedRowId = payload.new.id;
           setStreamedModel(payload.new.resolved_model ?? null);
@@ -540,8 +563,16 @@ export function useDiscussionExecution(discussionId: string | null) {
           filter: `discussion_id=eq.${discussionId}`,
         },
         (payload) => {
+          if (foldedIntoHistory) return;
           if (!watchedRowId || payload.new.id !== watchedRowId) return;
           setStreamedResponse(payload.new.response ?? "");
+          // Kept in step with the INSERT handler above. Not load-bearing
+          // now that foldedIntoHistory closes the duplicate-render path,
+          // but leaving it unset was what turned a late event into a
+          // *malformed* block (no date) rather than merely a redundant
+          // one, and there is no reason for the two handlers to disagree
+          // about which fields a live preview carries.
+          setStreamedResponseCreatedAt(payload.new.created_at ?? null);
         },
       );
 
@@ -615,34 +646,44 @@ export function useDiscussionExecution(discussionId: string | null) {
           // displayedDiscussionId's render-time reset above) -- on the
           // very first run in a fresh discussion, neither of those had
           // happened yet, so the duplicate was visible indefinitely.
+          foldedIntoHistory = true;
           setStreamedResponse(null);
           setStreamedModel(null);
           setStreamedResponseCreatedAt(null);
           setIsStreaming(false);
         }
 
-        // The draft was just promoted into a real cell — clear both its
-        // persisted copy (below) and the client-side state itself, the
-        // same way, in the same place. Previously only the persisted
-        // copy was cleared; the client-side value survived and looked
-        // cleared only by accident, because the very next discussion
-        // switch's own outgoing-draft save re-persisted that same stale
-        // content right back (see 3a02b68's investigation notes) — a
-        // passing invariant by coincidence, not by design. Only clears
-        // if the composer still holds exactly what was just submitted:
-        // if the user has already started typing something new while
-        // this run was in flight (the composer isn't disabled during a
-        // run), that's real, unsent content and must not be wiped.
-        if (contentRef.current === submittedContent) {
+        // Task 44 item B, second half. A completed run no longer clears
+        // the composer.
+        //
+        // It used to: the draft had been "promoted into a real cell", so
+        // both the persisted copy and the client-side value were wiped.
+        // That is the wrong rule. Nik's intent, and pact-mac's behaviour,
+        // is that the prompt stays put after a run so it can be revised
+        // and resent; the composer clears on switching to a DIFFERENT
+        // discussion, and on nothing else.
+        //
+        // The submitted content is persisted as this discussion's draft
+        // rather than simply left in component state. Without that, the
+        // retained prompt would be a purely in-memory illusion: a reload,
+        // or a switch away and back, would resolve the draft from the
+        // server, find none, and fall back to lastCellContent -- which
+        // happens to be the same text today, but only by coincidence, and
+        // not at all once the user edits the retained prompt without
+        // re-running it. Saving here makes "the composer keeps what you
+        // ran" true across a reload, not just until one.
+        //
+        // Still conditional on the composer holding exactly what was
+        // submitted, for the original reason: the composer is not
+        // disabled during a run, so if the user has already started
+        // typing something new, that newer text is what belongs in the
+        // draft and must not be overwritten by the older submitted copy.
+        if (contentRef.current === submittedContent && discussionId) {
           clearAutosaveTimer();
-          setContentState(EMPTY_DOC);
-          setContentVersion((v) => v + 1);
-          if (discussionId) {
-            await saveContent(discussionId, EMPTY_DOC).catch(() => {
-              // Best-effort: a failure here shouldn't overwrite the
-              // run's own result with an unrelated cleanup error.
-            });
-          }
+          await saveContent(discussionId, submittedContent).catch(() => {
+            // Best-effort: a failure here shouldn't overwrite the run's
+            // own result with an unrelated cleanup error.
+          });
         }
       } else {
         setExecutionError(

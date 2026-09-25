@@ -162,13 +162,21 @@ test("a successful run never shows the raw JSON result block", async ({
     page.waitForResponse((r) => r.url().includes("/api/execute")),
     runButton.click(),
   ]);
-  // Not toBeEnabled(): a successful run clears the composer (see the
-  // persistence-audit fix to run()), so Run correctly goes back to
-  // disabled -- an empty composer, not a stuck loading state. Loading
-  // itself finishing is confirmed by the "Running..." label being gone.
+  // Retargeted by task 44 item B, not weakened. This used to assert the
+  // composer was EMPTY and Run therefore DISABLED after a successful run,
+  // because run() cleared the draft once it had been promoted into a
+  // cell. That rule is now reversed: the prompt stays put after a run so
+  // it can be revised and resent, and the composer clears only on
+  // switching to a different discussion.
+  //
+  // What this block is actually here to pin is unchanged -- that loading
+  // finished cleanly rather than sticking. So it still checks the
+  // "Running..." label is gone, and now checks Run is enabled again,
+  // which under the new rule is the same "not stuck" signal an empty
+  // composer used to give.
   await expect(runButton).not.toHaveText("Running...");
-  await expect(runButton).toBeDisabled();
-  await expect(composer).toHaveText("");
+  await expect(runButton).toBeEnabled();
+  await expect(composer).toHaveText("Trigger a mocked successful run");
 
   // The real fix: the response must actually render as markdown, sourced
   // from /api/execute's own body -- not merely "no raw JSON block".
