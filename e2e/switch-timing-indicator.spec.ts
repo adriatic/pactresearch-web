@@ -3,10 +3,18 @@ import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
-// Verifies the header's client-visible switch-timing indicator: selecting a
-// discussion in the tree eventually shows "Switched in <duration>" once its
-// content and composer draft have finished loading, and a further switch
-// updates it again (not a value frozen from the very first load).
+// Verifies the header's switch-timing signal: selecting a discussion in the
+// tree records a duration once that discussion's content and composer draft
+// have finished loading, and a further switch updates it again (not a value
+// frozen from the very first load).
+//
+// Task 44 item C removed the user-visible "Switched in <duration>" text --
+// dev-era instrumentation with no value to a user. The measurement itself
+// remains as the header's data-switch-ms attribute, so this spec is
+// retargeted onto that rather than deleted: the invariant it guards (the
+// switch effect completes, and re-measures on each subsequent switch) is
+// still real and still worth pinning, and nine other specs depend on that
+// same signal to know when a switch has settled.
 
 interface LocalSupabaseStatus {
   API_URL: string;
@@ -21,11 +29,9 @@ function getLocalSupabaseStatus(): LocalSupabaseStatus {
   return JSON.parse(output) as LocalSupabaseStatus;
 }
 
-const SWITCH_DURATION_PATTERN = /Switched in (\d+ms|\d+\.\d+s)/;
-
 test.setTimeout(60_000);
 
-test("selecting a discussion shows a switch-timing indicator that updates on the next switch", async ({
+test("selecting a discussion records a switch duration that updates on the next switch", async ({
   page,
   context,
 }) => {
@@ -114,7 +120,8 @@ test("selecting a discussion shows a switch-timing indicator that updates on the
   const discussionBLink = page.getByRole("treeitem", {
     name: discussionBName,
   });
-  const switchIndicator = page.getByText(SWITCH_DURATION_PATTERN);
+  const header = page.locator("header[data-switch-ms]");
+  const switchMs = () => header.getAttribute("data-switch-ms");
 
   await expect(discussionALink).toBeVisible();
   await expect(discussionBLink).toBeVisible();
@@ -126,8 +133,13 @@ test("selecting a discussion shows a switch-timing indicator that updates on the
   await expect(
     page.getByRole("group", { name: "Active discussion" }),
   ).toContainText(discussionAName);
-  await expect(switchIndicator).toBeVisible();
-  const firstIndicatorText = await switchIndicator.textContent();
+  await expect(header).toBeVisible();
+  const firstSwitchMs = await switchMs();
+  // A real measurement, not merely a present attribute.
+  expect(Number(firstSwitchMs)).toBeGreaterThanOrEqual(0);
+
+  // The removed text must be gone for users, not merely restyled.
+  await expect(page.getByText(/Switched in/)).toHaveCount(0);
 
   // A genuine switch re-measures and re-renders the indicator — not a
   // value frozen from the very first load.
@@ -135,8 +147,6 @@ test("selecting a discussion shows a switch-timing indicator that updates on the
   await expect(
     page.getByRole("group", { name: "Active discussion" }),
   ).toContainText(discussionBName);
-  await expect(switchIndicator).toBeVisible();
-  await expect
-    .poll(() => switchIndicator.textContent())
-    .not.toBe(firstIndicatorText);
+  await expect(header).toBeVisible();
+  await expect.poll(() => switchMs()).not.toBe(firstSwitchMs);
 });

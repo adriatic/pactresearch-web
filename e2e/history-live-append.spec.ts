@@ -144,7 +144,7 @@ test("running two prompts in the same discussion without switching away shows bo
   });
 
   await page.goto("/");
-  await page.getByText(/Switched in/).waitFor({ timeout: 15_000 });
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
 
   const notebookRow = page.getByRole("treeitem", { name: notebookName });
   const discussionRow = page.getByRole("treeitem", { name: discussionName });
@@ -197,7 +197,7 @@ test("running two prompts in the same discussion without switching away shows bo
   // gap this fix closes. A reload afterward should still show both,
   // proving this isn't a client-only illusion diverging from the DB.
   await page.reload();
-  await page.getByText(/Switched in/).waitFor({ timeout: 15_000 });
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
   await expect(page.locator("main").getByText(firstPrompt)).toBeVisible();
   await expect(page.locator("main").getByText(secondPrompt)).toBeVisible();
 });

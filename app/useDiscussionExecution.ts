@@ -422,8 +422,46 @@ export function useDiscussionExecution(discussionId: string | null) {
       // the existing switch-between-two-real-discussions behavior.
       const alreadyOwnedByThisDiscussion =
         contentOwnerRef.current === discussionId;
+      // Task 44 item A. The non-empty-content half of this guard used to
+      // have no ownership condition at all, which made it fire for a case
+      // it was never meant to cover: switching to a brand-new discussion
+      // from one whose own content was on screen. There, contentRef holds
+      // the OUTGOING discussion's content (loaded from its last cell, or
+      // typed into it and just saved to it by the outgoing-save above),
+      // resolvedContent is correctly EMPTY_DOC, and the guard concluded
+      // "don't discard real content for nothing" -- so the new
+      // discussion opened showing the previous one's prompt, clearable
+      // only by hand. Reported by Nik; reproduced in
+      // composer-new-discussion-stale-content.spec.ts.
+      //
+      // `contentOwnerRef.current === null` is what separates the two, and
+      // it was verified by instrumenting this exact branch and running
+      // all three specs, not reasoned about in the abstract:
+      //
+      //   composer-new-discussion-typing-race  owner === discussionId
+      //   composer-typing-during-discussion-create  owner === null
+      //   composer-new-discussion-stale-content (44A)  owner === the
+      //     OTHER discussion's id
+      //
+      // The first is already covered by alreadyOwnedByThisDiscussion, so
+      // the second is the only case this half genuinely protects: content
+      // typed before ANY discussion had been claimed as active (the
+      // creation POST still in flight), which belongs to no discussion at
+      // all and would otherwise be lost outright. Task 36's guarantee is
+      // therefore preserved exactly -- non-empty content is still never
+      // discarded in favour of an empty resolved value when that content
+      // is orphaned.
+      //
+      // When the owner IS another real discussion, the content is not at
+      // risk: the outgoing-save above has already written it to that
+      // discussion (outgoingContentIsValid is precisely the same
+      // ownership test), so clearing the composer here loses nothing and
+      // is the correct behaviour for a genuine switch.
+      const contentIsOrphaned = contentOwnerRef.current === null;
       const wouldDiscardRealContentForNothing =
-        !isEmptyDoc(contentRef.current) && isEmptyDoc(resolvedContent);
+        contentIsOrphaned &&
+        !isEmptyDoc(contentRef.current) &&
+        isEmptyDoc(resolvedContent);
       if (!alreadyOwnedByThisDiscussion && !wouldDiscardRealContentForNothing) {
         setContentState(resolvedContent);
         setContentVersion((v) => v + 1);
@@ -473,6 +511,28 @@ export function useDiscussionExecution(discussionId: string | null) {
     // event, a subscription that never delivers) can only cost the user
     // the in-progress preview, never the completed response itself.
     let watchedRowId: string | null = null;
+    // Task 44 item A. Set once this run's response has been folded into
+    // history; after that point the live-preview state has been cleared
+    // on purpose and must stay cleared.
+    //
+    // Without this, a Realtime event delivered after the fold re-opened
+    // the live preview and the same response rendered twice -- a history
+    // entry AND a second block below it. The duplicate carried no
+    // timestamp, which is the fingerprint that identifies this path
+    // exactly: the UPDATE handler below sets streamedResponse but not
+    // streamedResponseCreatedAt, so after the fold cleared it, the live
+    // heading rendered as a bare "Response" with no date, while the
+    // history entry above it kept its own. That is precisely what was
+    // reported from production.
+    //
+    // The window is real and not narrow: run()'s completion path folds,
+    // clears, and then awaits a draft save before its finally block
+    // removes the channel -- a full network round trip during which any
+    // in-flight event is still delivered. Production emits exactly such
+    // an event, because /api/execute's own final write to the row
+    // happens immediately before it returns, so that write's Realtime
+    // notification routinely lands after the POST has already resolved.
+    let foldedIntoHistory = false;
 
     const channel = supabase
       .channel(`responses-${discussionId}-${Date.now()}`)
@@ -485,6 +545,7 @@ export function useDiscussionExecution(discussionId: string | null) {
           filter: `discussion_id=eq.${discussionId}`,
         },
         (payload) => {
+          if (foldedIntoHistory) return;
           if (watchedRowId) return;
           watchedRowId = payload.new.id;
           setStreamedModel(payload.new.resolved_model ?? null);
@@ -502,8 +563,16 @@ export function useDiscussionExecution(discussionId: string | null) {
           filter: `discussion_id=eq.${discussionId}`,
         },
         (payload) => {
+          if (foldedIntoHistory) return;
           if (!watchedRowId || payload.new.id !== watchedRowId) return;
           setStreamedResponse(payload.new.response ?? "");
+          // Kept in step with the INSERT handler above. Not load-bearing
+          // now that foldedIntoHistory closes the duplicate-render path,
+          // but leaving it unset was what turned a late event into a
+          // *malformed* block (no date) rather than merely a redundant
+          // one, and there is no reason for the two handlers to disagree
+          // about which fields a live preview carries.
+          setStreamedResponseCreatedAt(payload.new.created_at ?? null);
         },
       );
 
@@ -577,34 +646,44 @@ export function useDiscussionExecution(discussionId: string | null) {
           // displayedDiscussionId's render-time reset above) -- on the
           // very first run in a fresh discussion, neither of those had
           // happened yet, so the duplicate was visible indefinitely.
+          foldedIntoHistory = true;
           setStreamedResponse(null);
           setStreamedModel(null);
           setStreamedResponseCreatedAt(null);
           setIsStreaming(false);
         }
 
-        // The draft was just promoted into a real cell — clear both its
-        // persisted copy (below) and the client-side state itself, the
-        // same way, in the same place. Previously only the persisted
-        // copy was cleared; the client-side value survived and looked
-        // cleared only by accident, because the very next discussion
-        // switch's own outgoing-draft save re-persisted that same stale
-        // content right back (see 3a02b68's investigation notes) — a
-        // passing invariant by coincidence, not by design. Only clears
-        // if the composer still holds exactly what was just submitted:
-        // if the user has already started typing something new while
-        // this run was in flight (the composer isn't disabled during a
-        // run), that's real, unsent content and must not be wiped.
-        if (contentRef.current === submittedContent) {
+        // Task 44 item B, second half. A completed run no longer clears
+        // the composer.
+        //
+        // It used to: the draft had been "promoted into a real cell", so
+        // both the persisted copy and the client-side value were wiped.
+        // That is the wrong rule. Nik's intent, and pact-mac's behaviour,
+        // is that the prompt stays put after a run so it can be revised
+        // and resent; the composer clears on switching to a DIFFERENT
+        // discussion, and on nothing else.
+        //
+        // The submitted content is persisted as this discussion's draft
+        // rather than simply left in component state. Without that, the
+        // retained prompt would be a purely in-memory illusion: a reload,
+        // or a switch away and back, would resolve the draft from the
+        // server, find none, and fall back to lastCellContent -- which
+        // happens to be the same text today, but only by coincidence, and
+        // not at all once the user edits the retained prompt without
+        // re-running it. Saving here makes "the composer keeps what you
+        // ran" true across a reload, not just until one.
+        //
+        // Still conditional on the composer holding exactly what was
+        // submitted, for the original reason: the composer is not
+        // disabled during a run, so if the user has already started
+        // typing something new, that newer text is what belongs in the
+        // draft and must not be overwritten by the older submitted copy.
+        if (contentRef.current === submittedContent && discussionId) {
           clearAutosaveTimer();
-          setContentState(EMPTY_DOC);
-          setContentVersion((v) => v + 1);
-          if (discussionId) {
-            await saveContent(discussionId, EMPTY_DOC).catch(() => {
-              // Best-effort: a failure here shouldn't overwrite the
-              // run's own result with an unrelated cleanup error.
-            });
-          }
+          await saveContent(discussionId, submittedContent).catch(() => {
+            // Best-effort: a failure here shouldn't overwrite the run's
+            // own result with an unrelated cleanup error.
+          });
         }
       } else {
         setExecutionError(

@@ -11,10 +11,6 @@ import { SettingsDialog } from "./SettingsDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 import { isEmptyDoc } from "@/lib/richContent";
 
-function formatSwitchDuration(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
-}
-
 // Fixed-layout shell — opens the structural half of Phase D's port,
 // alongside Explorer's tree view: a left sidebar (Explorer, its own
 // independent scroll), a fixed header toolbar, a fixed composer, and a
@@ -235,7 +231,31 @@ export function Workspace({
             overflow: "hidden",
           }}
         >
-          <header style={{ flexShrink: 0 }}>
+          {/* Task 44 item C removed the visible "Switched in X.Xs" text --
+              dev-era instrumentation that a user has no use for. The
+              measurement itself stays, as a data attribute, because it
+              was never only a display: nine E2E specs waited on that text
+              as their "the discussion-switch effect has finished" signal
+              (it is set at the very end of saveThenLoad, which is exactly
+              what makes it a reliable one), and deleting it outright
+              would have removed real synchronisation from those specs
+              rather than the debug text they incidentally used.
+
+              An attribute rather than visually-hidden text: hidden text
+              would still be announced by a screen reader, which is the
+              same problem in a less visible form. It carries the rounded
+              duration rather than a bare boolean so
+              switch-timing-indicator.spec.ts can still assert its actual
+              invariant -- that the value updates on each subsequent
+              switch -- instead of having that coverage deleted. */}
+          <header
+            style={{ flexShrink: 0 }}
+            data-switch-ms={
+              execution.lastSwitchDurationMs === null
+                ? undefined
+                : Math.round(execution.lastSwitchDurationMs)
+            }
+          >
             <strong>PACT</strong>{" "}
             <button type="button" disabled>
               New Notebook
@@ -288,12 +308,6 @@ export function Workspace({
             <button type="button" disabled>
               Model
             </button>{" "}
-            {execution.lastSwitchDurationMs !== null && (
-              <span style={{ color: "#666", fontSize: "0.85em" }}>
-                Switched in{" "}
-                {formatSwitchDuration(execution.lastSwitchDurationMs)}
-              </span>
-            )}
             {importError && (
               <span style={{ color: "#a00", fontSize: "0.85em" }}>
                 {" "}

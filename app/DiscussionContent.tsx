@@ -122,7 +122,11 @@ export function DiscussionContent({
   executionError: string | null;
 }) {
   return (
-    <main>
+    // Task 44 item B: same 12px horizontal inset as the composer and
+    // ComposerHeader, so the prompt a user types and the response they
+    // read line up in one column rather than each starting at a
+    // different edge.
+    <main style={{ paddingLeft: 12, paddingRight: 12 }}>
       {!discussionId && (
         <p>No discussion selected — create or pick one above.</p>
       )}

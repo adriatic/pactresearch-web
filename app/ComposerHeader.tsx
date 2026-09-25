@@ -117,7 +117,12 @@ export function ComposerHeader({
         alignItems: "center",
         justifyContent: "space-between",
         gap: 12,
-        padding: "4px 8px",
+        // 12px horizontal, not the original 8px: task 44 item B gave the
+        // composer directly below and the response panel a 12px inset,
+        // and this row sits immediately above the composer -- leaving it
+        // at 8px would have put the discussion name a few pixels left of
+        // the prompt text it labels.
+        padding: "4px 12px",
         fontSize: "0.9em",
       }}
     >

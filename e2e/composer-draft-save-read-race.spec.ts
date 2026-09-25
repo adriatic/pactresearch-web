@@ -133,7 +133,7 @@ test("switching away then immediately back shows the just-typed draft, even befo
   });
 
   await page.goto("/");
-  await page.getByText(/Switched in/).waitFor({ timeout: 20_000 });
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 20_000 });
 
   const notebookRow = page.getByRole("treeitem", { name: notebookName });
   const discussionARow = page.getByRole("treeitem", { name: discussionAName });

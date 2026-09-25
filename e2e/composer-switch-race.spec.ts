@@ -157,7 +157,7 @@ test("switching through a discussion before its own load completes doesn't corru
   });
 
   await page.goto("/");
-  await page.getByText(/Switched in/).waitFor({ timeout: 20_000 });
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 20_000 });
 
   const notebookRow = page.getByRole("treeitem", { name: notebookName });
   const aRow = page.getByRole("treeitem", { name: discussionAName });

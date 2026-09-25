@@ -383,7 +383,7 @@ test("the Live response section shows its own response's created_at, sourced fro
   );
 
   await page.goto("/");
-  await page.getByText(/Switched in/).waitFor({ timeout: 15_000 });
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
 
   const notebookRow = page.getByRole("treeitem", { name: notebookName });
   const discussionRow = page.getByRole("treeitem", { name: discussionName });
