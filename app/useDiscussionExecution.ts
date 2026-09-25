@@ -534,6 +534,34 @@ export function useDiscussionExecution(discussionId: string | null) {
     // notification routinely lands after the POST has already resolved.
     let foldedIntoHistory = false;
 
+    // Task 45. Push the current session's JWT to the Realtime socket
+    // BEFORE subscribing. Without this the live preview silently does not
+    // work on the first run after a page load.
+    //
+    // Evidence, from capturing the socket's own frames: the phx_join was
+    // going out carrying only `?apikey=<anon>` and no `access_token` at
+    // all. The join still succeeds -- Realtime happily authorizes the
+    // subscription as `anon` -- but RLS on `responses` then matches no
+    // rows for an anonymous reader, so not a single INSERT or UPDATE is
+    // ever delivered. A failure that looks exactly like "Realtime is
+    // broken" while reporting a healthy SUBSCRIBED status.
+    //
+    // The cause is a race, not a missing session. supabase-js only pushes
+    // a token to the socket in response to an auth event, and
+    // @supabase/ssr's browser client reads its session from cookies
+    // asynchronously. createBrowserClient is a singleton, so this is a
+    // once-per-page-load window -- but run() can and does open the
+    // channel inside it. Confirmed both ways: the session is present
+    // (getSession returns a real user and a 788-char token), and merely
+    // forcing it to resolve before subscribing made access_token appear
+    // in the join frame.
+    //
+    // setAuth() with no argument is the documented way to do this: it
+    // resolves the token from the client's own accessToken callback
+    // rather than a copy we would have to keep fresh ourselves, so token
+    // refresh keeps working normally afterwards.
+    await supabase.realtime.setAuth();
+
     const channel = supabase
       .channel(`responses-${discussionId}-${Date.now()}`)
       .on(
