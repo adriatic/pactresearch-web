@@ -75,10 +75,18 @@ export function isEmptyDoc(doc: RichContent | null | undefined): boolean {
   return doc.content.every((node) => {
     if (node.type !== "paragraph") return false;
     if (!node.content || node.content.length === 0) return true;
-    return node.content.every(
-      (child) =>
-        child.type === "text" &&
-        (!child.text || child.text.trim().length === 0),
-    );
+    return node.content.every((child) => {
+      // A hard break is whitespace, not content. Task 49 found Run
+      // enabling for a composer holding only spaces and a newline:
+      // Tiptap turns the newline into a hardBreak node, which is not
+      // type "text", so the paragraph counted as non-empty and the
+      // whitespace-only rule below never got to apply. Intermittent in
+      // practice, because whether the input became a hardBreak or a
+      // second empty paragraph depended on how the editor applied it.
+      if (child.type === "hardBreak") return true;
+      return (
+        child.type === "text" && (!child.text || child.text.trim().length === 0)
+      );
+    });
   });
 }

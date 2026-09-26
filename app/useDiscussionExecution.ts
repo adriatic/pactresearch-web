@@ -288,6 +288,27 @@ export function useDiscussionExecution(discussionId: string | null) {
     }
   }
 
+  // Task 49. Empties the composer for a fresh follow-up reply, without
+  // touching the persisted draft.
+  //
+  // Transient on purpose. Task 44 item B2 made a completed run LEAVE its
+  // prompt in the composer and persist it, so it can be revised and
+  // resent; this is the alternative path for the other common case,
+  // replying to a question the response ended on. Clearing what is on
+  // screen is the whole ask -- it is not a decision to throw the saved
+  // draft away, so the draft row is deliberately left alone and the
+  // autosave timer is not touched. Switching away and back still brings
+  // the retained prompt back, which is task 44's behaviour intact.
+  //
+  // Bumps contentVersion because this is an EXTERNAL change: Composer
+  // only pushes content into the live editor when that version moves
+  // (see its sync effect), so without the bump the state would change
+  // and the visible editor would not.
+  function clearComposerForFollowUp() {
+    setContentState(EMPTY_DOC);
+    setContentVersion((v) => v + 1);
+  }
+
   // Single source of truth for both history and the persisted draft:
   // switching discussions saves the outgoing discussion's draft first —
   // awaited, so switching back can't observe a lost save racing against
@@ -741,6 +762,7 @@ export function useDiscussionExecution(discussionId: string | null) {
     isStreaming,
     history,
     run,
+    clearComposerForFollowUp,
     lastSwitchDurationMs,
     discussionName,
     notebookId,

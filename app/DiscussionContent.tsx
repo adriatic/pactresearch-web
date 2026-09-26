@@ -112,6 +112,7 @@ export function DiscussionContent({
   streamedResponseCreatedAt,
   isStreaming,
   isRunning,
+  onContinue,
   executionError,
 }: {
   discussionId: string | null;
@@ -120,6 +121,9 @@ export function DiscussionContent({
   streamedResponseCreatedAt: string | null;
   isStreaming: boolean;
   isRunning: boolean;
+  // Task 49. Called with that response's own text when its Continue
+  // button is used.
+  onContinue: (responseText: string) => void;
   executionError: string | null;
 }) {
   return (
@@ -171,6 +175,19 @@ export function DiscussionContent({
                   {` — ${new Date(entry.created_at).toLocaleString()}`}:
                 </p>
                 <MarkdownResponse content={entry.response ?? ""} />
+                {/* Task 49. marginTop is roughly two blank lines: a
+                    response that ends on a question would otherwise put
+                    the button directly under the question mark, which is
+                    exactly the case this button exists for and the one
+                    where it reads worst. */}
+                <div style={{ marginTop: "2.5em", marginBottom: "0.5em" }}>
+                  <button
+                    type="button"
+                    onClick={() => onContinue(entry.response ?? "")}
+                  >
+                    Continue
+                  </button>
+                </div>
               </div>
             );
           })}

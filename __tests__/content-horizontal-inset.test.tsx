@@ -23,6 +23,7 @@ describe("horizontal content inset", () => {
         streamedResponseCreatedAt={null}
         isStreaming={false}
         isRunning={false}
+        onContinue={() => {}}
         executionError={null}
       />,
     );

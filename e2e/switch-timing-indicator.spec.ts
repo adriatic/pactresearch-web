@@ -141,12 +141,33 @@ test("selecting a discussion records a switch duration that updates on the next 
   // The removed text must be gone for users, not merely restyled.
   await expect(page.getByText(/Switched in/)).toHaveCount(0);
 
-  // A genuine switch re-measures and re-renders the indicator — not a
-  // value frozen from the very first load.
+  // A genuine switch re-measures — not a value frozen from the first load.
+  //
+  // Proven by making the next switch measurably SLOWER rather than by
+  // asserting the number merely differs. Against the production build
+  // (task 48) a switch takes ~40ms, so two consecutive ones round to the
+  // same integer often enough to make "not equal" a coin flip -- it
+  // failed on exactly that, both switches reporting 43. Delaying this
+  // switch's own fetches makes the re-measurement unambiguous, and
+  // asserts something stronger: that the number tracks how long the
+  // switch actually took.
+  // Matched by predicate, not a glob: in a Playwright URL glob "?" is a
+  // single-character wildcard, so "**/api/responses?discussionId=*" does
+  // not match the real query string.
+  await page.route(
+    (url) => url.pathname === "/api/responses",
+    async (route) => {
+      await new Promise((r) => setTimeout(r, 600));
+      await route.fallback();
+    },
+  );
+
   await discussionBLink.click();
   await expect(
     page.getByRole("group", { name: "Active discussion" }),
   ).toContainText(discussionBName);
   await expect(header).toBeVisible();
-  await expect.poll(() => switchMs()).not.toBe(firstSwitchMs);
+  await expect
+    .poll(async () => Number(await switchMs()), { timeout: 15_000 })
+    .toBeGreaterThan(Number(firstSwitchMs) + 400);
 });
