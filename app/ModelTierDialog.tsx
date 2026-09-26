@@ -31,6 +31,32 @@ export function ModelTierDialog({
   const [applying, setApplying] = useState<ModelTier | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Reset transient state every time the dialog opens.
+  //
+  // Without this the dialog is unusable after its first successful use.
+  // `applying` is set when a tier is chosen and the success path then
+  // calls onClose() -- but closing only makes this component render
+  // null; it stays mounted, so `applying` survives. On the next open
+  // every tier button AND Cancel are still disabled (all of them are
+  // gated on `applying !== null`) and the chosen tier still reads
+  // "— applying...", so the modal appears frozen mid-apply with no way
+  // out. Reported from production after the claude-sonnet-5 change,
+  // though the swap was coincidental: any successful selection leaves
+  // it in this state.
+  //
+  // Reset on open rather than before onClose() so it is correct for
+  // every exit path -- success, failure, and Cancel -- rather than the
+  // one that happened to be reported. Render-time, keyed on a derived
+  // value, matching AccountDialog and SettingsDialog (this repo's lint
+  // config rejects setState inside an effect body).
+  const openKey = open ? "open" : null;
+  const [lastOpenKey, setLastOpenKey] = useState<string | null>(null);
+  if (openKey !== lastOpenKey) {
+    setLastOpenKey(openKey);
+    setApplying(null);
+    setError(null);
+  }
+
   if (!open) return null;
 
   async function choose(tier: ModelTier) {
