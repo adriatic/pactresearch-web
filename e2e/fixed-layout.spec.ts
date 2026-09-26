@@ -154,12 +154,20 @@ test("the composer and Explorer sidebar stay fixed and visible when discussion c
   // and discussion link remained visible throughout without the test
   // ever needing to scroll the page itself to re-find them.
   const contentScrolls = await page.evaluate(() => {
-    const heading = Array.from(document.querySelectorAll("h1")).find(
-      (el) => el.textContent === "Execute tester",
-    );
-    // h1 -> <main> -> the scrollable wrapper div (overflowY: auto) in
-    // Workspace.tsx.
-    const region = heading?.closest("main")?.parentElement;
+    // Retargeted (task 48). This used to find the region by locating an
+    // <h1> reading "Execute tester" and walking up from it. That heading
+    // was deliberately removed in 37eda52 as meaningless placeholder
+    // text -- discussion-content-display-cleanup.spec.ts asserts it is
+    // gone -- so the lookup had been returning undefined ever since, and
+    // this assertion was evaluating `false` unconditionally rather than
+    // testing anything. It was not catching a layout bug; it could not
+    // pass at all.
+    //
+    // <main> is the content area itself and its parent is the scrollable
+    // wrapper (the Panel with overflowY: auto in Workspace.tsx), which is
+    // the same element the old walk was reaching -- just found directly
+    // instead of via text that no longer exists.
+    const region = document.querySelector("main")?.parentElement;
     return region ? region.scrollHeight > region.clientHeight : false;
   });
   expect(contentScrolls).toBe(true);
