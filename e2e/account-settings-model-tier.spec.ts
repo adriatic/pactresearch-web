@@ -250,3 +250,65 @@ test("Item C: choosing a tier applies immediately; Cancel changes nothing", asyn
 
   await expect.poll(tierOf, { timeout: 15_000 }).toBe("economy");
 });
+
+test("Item C regression: the dialog is still usable after a successful selection", async ({
+  page,
+  context,
+}) => {
+  // Reported from production: the modal showed "Standard — applying..."
+  // and froze, with no way to dismiss it.
+  //
+  // The cause was state surviving a close. Choosing a tier set
+  // `applying` and the success path called onClose(), but closing only
+  // makes the component render null -- it stays mounted, so `applying`
+  // was still set on the next open. Every tier button and Cancel are
+  // gated on it, so the whole dialog was inert and stuck mid-apply.
+  //
+  // Not specific to re-selecting the same tier, though that is how it
+  // was hit: ANY successful selection left it that way. Task 50's spec
+  // missed it because it only ever selected once. This exercises all
+  // three follow-on paths.
+  const { admin, userId } = await seed(page, context);
+
+  const tierOf = async () => {
+    const { data } = await admin.auth.admin.getUserById(userId);
+    return data.user?.user_metadata?.model_tier ?? null;
+  };
+  const dialog = page.getByRole("dialog", { name: "Model tier" });
+  const openDialog = async () => {
+    await page.locator("header").getByRole("button", { name: "Model" }).click();
+    await expect(dialog).toBeVisible();
+  };
+
+  // First selection -- the one that used to poison the state.
+  await openDialog();
+  await dialog.getByRole("button", { name: /Standard/ }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await expect.poll(tierOf, { timeout: 15_000 }).toBe("standard");
+
+  // Reopening must not show a stale "applying" state, and everything
+  // must be interactive again.
+  await openDialog();
+  await expect(dialog).not.toContainText("applying");
+  await expect(dialog.getByRole("button", { name: /Standard/ })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: /Economy/ })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeEnabled();
+
+  // Cancel still works -- it was disabled too, which is why the modal
+  // could not be dismissed at all.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  expect(await tierOf()).toBe("standard");
+
+  // Re-selecting the tier that is ALREADY active applies and closes.
+  await openDialog();
+  await dialog.getByRole("button", { name: /Standard/ }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  expect(await tierOf()).toBe("standard");
+
+  // And switching to the other tier afterwards still works.
+  await openDialog();
+  await dialog.getByRole("button", { name: /Economy/ }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await expect.poll(tierOf, { timeout: 15_000 }).toBe("economy");
+});

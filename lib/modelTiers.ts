@@ -15,7 +15,8 @@ export const MODEL_TIERS = {
   standard: {
     label: "Standard",
     model: "claude-sonnet-5",
-    description: "Highest quality. The model pact-web has always used.",
+    description:
+      "Highest quality. Best for detailed analysis and long documents.",
   },
   economy: {
     label: "Economy",
