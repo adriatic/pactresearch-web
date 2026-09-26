@@ -106,8 +106,11 @@ test("Item A: profile saves and is still there when the dialog is reopened", asy
   const dialog = page.getByRole("dialog", { name: "Account" });
   await expect(dialog).toBeVisible();
 
-  // The Keys tab is present but disabled -- task 51's slot.
-  await expect(dialog.getByRole("tab", { name: "Keys" })).toBeDisabled();
+  // The Keys tab was a disabled placeholder in task 50; task 51 filled
+  // it in, so it is now a real, enabled tab. Retargeted rather than
+  // deleted -- the thing worth pinning is still that the tab strip
+  // exists and has both sections, which is what made task 51 a drop-in.
+  await expect(dialog.getByRole("tab", { name: "Keys" })).toBeEnabled();
   // The inaccurate pact-mac subtitle must not appear.
   await expect(page.getByText(/saved immediately/i)).toHaveCount(0);
 

@@ -96,6 +96,87 @@ export function AccountDialog({
     };
   }, [open]);
 
+  // ---- Task 51: Keys tab ----
+  const [keyInput, setKeyInput] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [hasKey, setHasKey] = useState(false);
+  const [keyHintText, setKeyHintText] = useState<string | null>(null);
+  const [keyBusy, setKeyBusy] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keySaved, setKeySaved] = useState(false);
+
+  // Status only -- never the key itself. Re-read each time the tab is
+  // opened so a key saved in another tab is reflected here.
+  useEffect(() => {
+    if (!open || tab !== "keys") return;
+    let cancelled = false;
+    async function loadStatus() {
+      try {
+        const response = await fetch("/api/account/anthropic-key");
+        const body = await response.json();
+        if (cancelled) return;
+        setHasKey(Boolean(body.hasKey));
+        setKeyHintText(body.hint ?? null);
+      } catch {
+        if (!cancelled) setKeyError("Couldn't check your saved key.");
+      }
+    }
+    void loadStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, tab]);
+
+  // The "show" toggle. Revealing a key already on the server needs a
+  // round trip -- the plaintext is deliberately not sent with the status
+  // above, so it only leaves the server when the user explicitly asks.
+  async function toggleShowKey() {
+    if (showKey) {
+      setShowKey(false);
+      return;
+    }
+    if (!keyInput && hasKey) {
+      setKeyBusy(true);
+      setKeyError(null);
+      try {
+        const response = await fetch("/api/account/anthropic-key?reveal=1");
+        const body = await response.json();
+        if (response.ok) setKeyInput(body.key ?? "");
+        else setKeyError(body.error || "Couldn't reveal your key.");
+      } catch {
+        setKeyError("Couldn't reveal your key.");
+      } finally {
+        setKeyBusy(false);
+      }
+    }
+    setShowKey(true);
+  }
+
+  async function handleSaveKey() {
+    setKeyBusy(true);
+    setKeyError(null);
+    setKeySaved(false);
+    try {
+      const response = await fetch("/api/account/anthropic-key", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: keyInput }),
+      });
+      const body = await response.json();
+      if (response.ok) {
+        setHasKey(true);
+        setKeyHintText(body.hint ?? null);
+        setKeySaved(true);
+      } else {
+        setKeyError(body.error || "Couldn't save your key.");
+      }
+    } catch {
+      setKeyError("Couldn't save your key — please try again.");
+    } finally {
+      setKeyBusy(false);
+    }
+  }
+
   if (!open) return null;
 
   async function handleSave() {
@@ -167,8 +248,8 @@ export function AccountDialog({
             type="button"
             role="tab"
             aria-selected={tab === "keys"}
-            disabled
-            title="Coming soon"
+            onClick={() => setTab("keys")}
+            style={{ fontWeight: tab === "keys" ? "bold" : "normal" }}
           >
             Keys
           </button>
@@ -225,6 +306,74 @@ export function AccountDialog({
                 disabled={loading || saving}
               >
                 {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === "keys" && (
+          <div role="tabpanel" aria-label="Keys">
+            {/* Task 51. Anthropic only -- OpenAI is explicitly out of
+                scope here, same as the Model tier selector. */}
+            <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
+              Your runs use your own Anthropic key. Get one at{" "}
+              <a
+                href="https://console.anthropic.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                console.anthropic.com
+              </a>
+              .
+            </p>
+
+            <label>
+              Anthropic API key:
+              <br />
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  // Masked by default. type="password" rather than a
+                  // hand-rolled mask so browsers and password managers
+                  // treat it as a secret.
+                  type={showKey ? "text" : "password"}
+                  value={keyInput}
+                  onChange={(e) => {
+                    setKeyInput(e.target.value);
+                    setKeySaved(false);
+                  }}
+                  placeholder={
+                    hasKey ? `Saved (${keyHintText ?? "…"})` : "sk-ant-..."
+                  }
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={keyBusy}
+                  style={{ flex: 1, boxSizing: "border-box" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => void toggleShowKey()}
+                  disabled={keyBusy || (!keyInput && !hasKey)}
+                >
+                  {showKey ? "Hide" : "Show"}
+                </button>
+              </div>
+            </label>
+
+            {keyError && <p style={{ color: "#a00" }}>{keyError}</p>}
+            {keySaved && !keyError && (
+              <p style={{ color: "#060" }}>API key saved.</p>
+            )}
+
+            <div>
+              <button type="button" onClick={onClose} disabled={keyBusy}>
+                Close
+              </button>{" "}
+              <button
+                type="button"
+                onClick={() => void handleSaveKey()}
+                disabled={keyBusy || !keyInput.trim()}
+              >
+                {keyBusy ? "Saving..." : "Save"}
               </button>
             </div>
           </div>

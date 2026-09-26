@@ -1,6 +1,11 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { modelForTier } from "@/lib/modelTiers";
+import {
+  MISSING_KEY_CODE,
+  MISSING_KEY_MESSAGE,
+  getUserAnthropicKey,
+} from "@/lib/userAnthropicKey";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
@@ -38,11 +43,16 @@ async function handlePost(request: Request): Promise<Response> {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Task 51: the user's own key here too. Refining is a real, billed
+  // Anthropic call, so leaving it on the shared environment key would
+  // have left one feature quietly spending someone else's credit after
+  // execution stopped doing so -- and would break outright once that
+  // shared key is removed from the deployment.
+  const apiKey = await getUserAnthropicKey(supabase, user.id);
   if (!apiKey) {
     return Response.json(
-      { error: "ANTHROPIC_API_KEY is not configured" },
-      { status: 500 },
+      { error: MISSING_KEY_MESSAGE, code: MISSING_KEY_CODE },
+      { status: 400 },
     );
   }
 

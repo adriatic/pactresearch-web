@@ -5,6 +5,11 @@ import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
 import { modelForTier } from "@/lib/modelTiers";
+import {
+  MISSING_KEY_CODE,
+  MISSING_KEY_MESSAGE,
+  getUserAnthropicKey,
+} from "@/lib/userAnthropicKey";
 import { trace, context } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("pact-api");
@@ -71,11 +76,19 @@ async function handlePost(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  // Task 51: the run uses the CALLING USER'S own Anthropic key. The
+  // shared ANTHROPIC_API_KEY from the environment is no longer consulted
+  // here -- that was one key paying for everyone's usage, which is the
+  // thing this task removes.
+  //
+  // Checked here, before the execution lock is acquired and before any
+  // execution_timings row could be written: a run blocked for want of a
+  // key never happened, so it should leave no trace and hold nothing.
+  const apiKey = await getUserAnthropicKey(supabase, user.id);
   if (!apiKey) {
     return Response.json(
-      { error: "ANTHROPIC_API_KEY is not configured" },
-      { status: 500 },
+      { error: MISSING_KEY_MESSAGE, code: MISSING_KEY_CODE },
+      { status: 400 },
     );
   }
 
