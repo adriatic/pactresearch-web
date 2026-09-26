@@ -216,7 +216,26 @@ export function DiscussionContent({
           <MarkdownResponse content={streamedResponse} />
         </div>
       )}
-      {executionError && <p>{executionError}</p>}
+      {/* Task 51. An execution error is now often a setup instruction --
+          "add your Anthropic API key in Account -> Keys" -- rather than a
+          failure, so it needs to be unmissable rather than a bare
+          paragraph indistinguishable from response text. role="alert"
+          also makes a screen reader announce it, which matters most for
+          exactly that message. */}
+      {executionError && (
+        <p
+          role="alert"
+          style={{
+            border: "1px solid #a00",
+            background: "#fff5f5",
+            color: "#a00",
+            padding: "8px 12px",
+            margin: "12px 0",
+          }}
+        >
+          {executionError}
+        </p>
+      )}
     </main>
   );
 }
