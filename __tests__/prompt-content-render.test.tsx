@@ -19,6 +19,7 @@ const base = {
   streamedResponseCreatedAt: null,
   isStreaming: false,
   isRunning: false,
+  onContinue: () => {},
   executionError: null,
 };
 

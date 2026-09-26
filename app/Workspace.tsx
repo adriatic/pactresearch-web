@@ -10,6 +10,10 @@ import { DiscussionContent } from "./DiscussionContent";
 import { SettingsDialog } from "./SettingsDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 import { isEmptyDoc } from "@/lib/richContent";
+import {
+  extractFollowUpQuestion,
+  followUpPlaceholder,
+} from "@/lib/followUpQuestion";
 
 // Fixed-layout shell — opens the structural half of Phase D's port,
 // alongside Explorer's tree view: a left sidebar (Explorer, its own
@@ -156,6 +160,35 @@ export function Workspace({
       setActiveDiscussionId(null);
     }
     setDiscussionListRefetchToken((t) => t + 1);
+  }
+
+  // Task 49. The composer hint while replying to a specific response's
+  // trailing question, and a counter used to ask the composer for focus.
+  // Neither is persisted -- this only affects what is on screen.
+  const [followUpHint, setFollowUpHint] = useState<string | null>(null);
+  const [composerFocusToken, setComposerFocusToken] = useState(0);
+
+  // A hint belongs to the discussion it was raised from. Reset during
+  // render when the active discussion changes, the same pattern
+  // useDiscussionExecution uses for its own per-discussion display state
+  // (an effect calling setState in its body trips
+  // react-hooks/set-state-in-effect).
+  const [hintDiscussionId, setHintDiscussionId] = useState(activeDiscussionId);
+  if (activeDiscussionId !== hintDiscussionId) {
+    setHintDiscussionId(activeDiscussionId);
+    setFollowUpHint(null);
+  }
+
+  // Task 49. Clear the composer and point it at this response's own
+  // follow-up question. Per response cell, so an older entry's Continue
+  // surfaces that entry's question rather than the newest one.
+  function handleContinue(responseText: string) {
+    const question = extractFollowUpQuestion(responseText);
+    // Null when nothing question-like was found, which restores the
+    // standard hint rather than inventing one.
+    setFollowUpHint(question ? followUpPlaceholder(question) : null);
+    execution.clearComposerForFollowUp();
+    setComposerFocusToken((t) => t + 1);
   }
 
   // Task 43 item 1: one gate, two triggers. The header Run button and the
@@ -353,6 +386,8 @@ export function Workspace({
                 onSubmit={() => {
                   if (canRun) execution.run();
                 }}
+                placeholderOverride={followUpHint}
+                focusToken={composerFocusToken}
               />
             </Panel>
             <Separator
@@ -369,6 +404,7 @@ export function Workspace({
                 // status dot -- task 42 Part C reuses it rather than
                 // introducing a third source of truth for "is it running".
                 isRunning={execution.loading}
+                onContinue={handleContinue}
                 executionError={execution.executionError}
               />
             </Panel>

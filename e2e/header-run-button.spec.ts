@@ -184,7 +184,23 @@ test("Run lives in the header, is the page's only Run control, and runs the sele
     page.waitForResponse((r) => r.url().includes("/api/execute")),
     headerRun.click(),
   ]);
-  await expect(headerRun).toBeDisabled();
+
+  // Retargeted (task 49). This asserted Run went back to DISABLED after
+  // the run, which was right when a completed run cleared the composer.
+  // Task 44 item B2 reversed that -- the prompt is retained so it can be
+  // revised and resent -- so Run is correctly enabled again once the run
+  // finishes. execute-result-no-raw-json.spec.ts was retargeted for the
+  // same reason at the time; this one was missed because the suite was
+  // too noisy then to notice, and it only failed intermittently: the old
+  // assertion still passed whenever it happened to be evaluated while
+  // `loading` was briefly true.
+  //
+  // The invariant worth keeping is that the run finished cleanly rather
+  // than sticking, which is what the label check and the enabled state
+  // now say together.
+  await expect(headerRun).not.toHaveText("Running...");
+  await expect(headerRun).toBeEnabled();
+  await expect(prompt).toHaveText(promptText);
 
   expect(executedPromptText).toBe(promptText);
   await expect(

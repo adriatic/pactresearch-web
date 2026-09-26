@@ -123,6 +123,8 @@ export function Composer({
   contentVersion,
   onContentChange,
   onSubmit,
+  placeholderOverride,
+  focusToken,
 }: {
   discussionId: string | null;
   content: RichContent;
@@ -141,6 +143,14 @@ export function Composer({
   // never disagree about it (the same single-source-of-truth argument
   // task 42 part C made for the thinking indicator).
   onSubmit: () => void;
+  // Task 49. When set, replaces the standard hint with the follow-up
+  // question the user is replying to. Null restores the normal hint.
+  placeholderOverride: string | null;
+  // Bumped by Workspace to request focus. A counter rather than a
+  // boolean so two Continue clicks in a row both focus, and an
+  // imperative ref handle is avoided for what is really just "this
+  // happened again".
+  focusToken: number;
 }) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Tracks the doc's own image-node count across updates so onUpdate can
@@ -163,6 +173,14 @@ export function Composer({
   // Same ref-indirection reason as discussionIdRef above: useEditor builds
   // its extensions array once, so an extension that closed over `onSubmit`
   // directly would keep calling the first render's copy forever.
+  // Read by the Placeholder extension's own callback, which Tiptap
+  // holds from the first render -- so the current value has to come
+  // from a ref rather than the closed-over prop.
+  const placeholderOverrideRef = useRef(placeholderOverride);
+  useEffect(() => {
+    placeholderOverrideRef.current = placeholderOverride;
+  }, [placeholderOverride]);
+
   const onSubmitRef = useRef(onSubmit);
   useEffect(() => {
     onSubmitRef.current = onSubmit;
@@ -244,7 +262,17 @@ export function Composer({
       StarterKit,
       submitShortcut,
       Image,
-      Placeholder.configure({ placeholder: placeholderText }),
+      // Same deferred-callback situation as FileHandler below, and the
+      // same suppression: this function is called by the Placeholder
+      // decoration when the editor renders its empty state, never while
+      // this component is rendering, so reading the ref here is reading
+      // it at callback time. useEditor also builds this extensions array
+      // once, so closing over the prop directly would pin the first
+      // render's value forever.
+      // eslint-disable-next-line react-hooks/refs
+      Placeholder.configure({
+        placeholder: () => placeholderOverrideRef.current ?? placeholderText(),
+      }),
       // onPaste/onDrop are native DOM event listeners ProseMirror's own
       // plugin system wires up once the view mounts; they only ever fire
       // from a real user paste/drop, strictly after render and commit,
@@ -326,6 +354,25 @@ export function Composer({
     registerDiagnosticEditor(editor ?? null);
     return () => registerDiagnosticEditor(null);
   }, [editor]);
+
+  // The placeholder decoration is only recomputed when the editor's own
+  // state changes. Continue clears the composer and sets the hint in the
+  // same tick, and an empty editor is otherwise idle, so nudge it with
+  // an empty transaction to repaint the new hint.
+  useEffect(() => {
+    if (!editor) return;
+    editor.view.dispatch(editor.view.state.tr);
+  }, [editor, placeholderOverride]);
+
+  // Task 49: focus on request. Skips the initial render (focusToken
+  // starts at 0) so merely opening a discussion does not steal focus.
+  const lastFocusTokenRef = useRef(focusToken);
+  useEffect(() => {
+    if (!editor) return;
+    if (lastFocusTokenRef.current === focusToken) return;
+    lastFocusTokenRef.current = focusToken;
+    editor.commands.focus("end");
+  }, [editor, focusToken]);
 
   // Sync content IN only on a genuine external change (contentVersion),
   // never on this component's own onUpdate round-trip -- see the file
