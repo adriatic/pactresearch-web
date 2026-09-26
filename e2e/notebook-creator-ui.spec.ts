@@ -84,7 +84,21 @@ async function signInFreshUser(
 
 test.setTimeout(60_000);
 
-test("creating a notebook and a discussion shows a human-readable confirmation, never the raw API response", async ({
+// Retargeted (task 48). This used to assert a textual confirmation --
+// `Notebook "X" created.` and its discussion equivalent. Those were
+// deliberately removed afterwards; NotebookCreator.tsx says so in its own
+// comment: "Success confirmations used to live here too ... but the
+// notebook/discussion appearing in the Explorer tree is already the
+// confirmation -- a second textual one said nothing the tree didn't."
+//
+// So the spec had drifted, not caught a bug: it was asserting the
+// presence of text the app no longer has by design. The half that still
+// matters -- that the raw API response never appears on screen, which is
+// what this file exists for -- is unchanged and still asserted at every
+// step. The Explorer-tree assertions, which were already here, now carry
+// the "it was created" half, matching what the component treats as the
+// confirmation.
+test("creating a notebook and a discussion never shows the raw API response, and the Explorer tree is the confirmation", async ({
   page,
   context,
 }) => {
@@ -100,30 +114,26 @@ test("creating a notebook and a discussion shows a human-readable confirmation, 
   await page.getByLabel("Name:").first().fill(notebookName);
   await page.getByRole("button", { name: "Create notebook" }).click();
 
-  const notebookConfirmation = page.getByText(
-    `Notebook "${notebookName}" created.`,
-  );
-  await expect(notebookConfirmation).toBeVisible();
-  await expect(jsonShapedText).toHaveCount(0);
-
-  // The new notebook still shows up in the Explorer, same as before this
-  // fix — only the raw-JSON confirmation display is what changed.
+  // The Explorer tree IS the confirmation -- the notebook appearing there
+  // is how the app reports success.
   await expect(
     page.getByRole("treeitem", { name: notebookName }),
   ).toBeVisible();
+  await expect(jsonShapedText).toHaveCount(0);
+
+  // And no textual confirmation came back: asserted explicitly so a
+  // future change reintroducing one is a deliberate decision rather than
+  // something that silently drifts back in.
+  await expect(page.getByText(/" created\./)).toHaveCount(0);
 
   await page.getByLabel("Name:").last().fill(discussionName);
   await page.getByRole("button", { name: "Create discussion" }).click();
 
-  const discussionConfirmation = page.getByText(
-    `Discussion "${discussionName}" created.`,
-  );
-  await expect(discussionConfirmation).toBeVisible();
-  await expect(jsonShapedText).toHaveCount(0);
-
   await expect(
     page.getByRole("treeitem", { name: discussionName }),
   ).toBeVisible();
+  await expect(jsonShapedText).toHaveCount(0);
+  await expect(page.getByText(/" created\./)).toHaveCount(0);
 });
 
 test("buttons render with real visual treatment, distinct from static text and from a disabled state", async ({
