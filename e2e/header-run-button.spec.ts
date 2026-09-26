@@ -162,6 +162,16 @@ test("Run lives in the header, is the page's only Run control, and runs the sele
   await expect(prompt).toHaveText("");
   await expect(headerRun).toBeDisabled();
 
+  // Let the discussion's own load fully settle before driving the
+  // composer. The fills below trip the 2s autosave, and under
+  // full-suite load a load still in flight can resolve afterwards and
+  // restore that just-saved draft -- re-enabling Run in the middle of
+  // the whitespace assertion. Passes 6/6 in isolation and failed only
+  // in full-suite runs, which is the signature of that race rather
+  // than of anything in the button's own logic.
+  await page.waitForTimeout(1000);
+  await expect(prompt).toHaveText("");
+
   // Enables live as the user types -- no separate save/submit step.
   const promptText = `header run prompt ${suffix}`;
   await prompt.fill(promptText);

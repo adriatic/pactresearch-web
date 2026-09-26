@@ -24,11 +24,11 @@ import { useEffect, useState } from "react";
 // dialog's explicit Save is the correct, already-tested behavior and
 // nothing here claims otherwise.
 //
-// The "Refine with AI" block above the textarea is a visible, disabled
-// placeholder only -- it previews where pact-mac's IPR (Iterative Prompt
-// Refinement, its own multi-turn drafting chat for this same field) will
-// live once that's built as its own future task. No handlers, no state,
-// nothing it could submit -- the input can't even accept focus.
+// "Refine with AI" is real as of task 50: the description goes to
+// /api/refine-system-prompt, Claude drafts a system prompt for that
+// domain, and the result fills the textarea below for the user to edit
+// and Save. It is a single-shot draft, not pact-mac's multi-turn IPR
+// (Iterative Prompt Refinement) chat -- that remains a future task.
 //
 // Unlike pact-mac (a VSCode webview has no existing modal convention to
 // match either), this is pact-web's first real dialog component — no
@@ -72,6 +72,39 @@ export function SettingsDialog({
   // displayedDiscussionId reset already uses for the identical reason.
   const openKey = open ? notebookId : null;
   const [loadedForKey, setLoadedForKey] = useState<string | null>(null);
+  // Task 50 item B: the "Refine with AI" description and its in-flight
+  // state. Deliberately separate from `error` so a failed draft does not
+  // look like a failed save.
+  const [refineDescription, setRefineDescription] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+
+  async function handleRefine() {
+    const description = refineDescription.trim();
+    if (!description || refining) return;
+    setRefining(true);
+    setRefineError(null);
+    try {
+      const response = await fetch("/api/refine-system-prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ description }),
+      });
+      const body = await response.json();
+      if (response.ok) {
+        // Fills the field rather than saving: the draft is a starting
+        // point the user edits and then Saves explicitly, which is the
+        // same contract as typing it by hand.
+        setSystemPrompt(body.systemPrompt);
+      } else {
+        setRefineError(body.error || "Couldn't draft a system prompt.");
+      }
+    } catch {
+      setRefineError("Couldn't draft a system prompt — please try again.");
+    } finally {
+      setRefining(false);
+    }
+  }
   if (openKey !== loadedForKey) {
     setLoadedForKey(openKey);
     if (openKey !== null) {
@@ -162,7 +195,15 @@ export function SettingsDialog({
           boxSizing: "border-box",
         }}
       >
-        <h2>Settings</h2>
+        <h2>Notebook settings</h2>
+        {/* Task 50 item B. pact-mac's subtitle here reads "changes are
+            saved immediately", which is false in pact-mac too -- it has
+            an explicit Save button, exactly like this dialog. Rather
+            than reproduce the inaccuracy, this says what the dialog
+            actually is. */}
+        <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
+          The system prompt below applies to every prompt run in this notebook.
+        </p>
         <label>
           Refine with AI:
           <br />
@@ -170,14 +211,32 @@ export function SettingsDialog({
             <input
               type="text"
               placeholder="Describe your research domain..."
-              disabled
+              value={refineDescription}
+              onChange={(e) => setRefineDescription(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  // This input sits inside a dialog, not a form, so
+                  // Enter has nothing to submit -- wire it to the action
+                  // the user obviously means.
+                  e.preventDefault();
+                  void handleRefine();
+                }
+              }}
+              disabled={loading || saving || refining}
               style={{ flex: 1, boxSizing: "border-box" }}
             />
-            <button type="button" disabled>
-              Send
+            <button
+              type="button"
+              onClick={() => void handleRefine()}
+              disabled={
+                loading || saving || refining || !refineDescription.trim()
+              }
+            >
+              {refining ? "Drafting..." : "Send"}
             </button>
           </div>
         </label>
+        {refineError && <p style={{ color: "#a00" }}>{refineError}</p>}
         <br />
         <label>
           System prompt:

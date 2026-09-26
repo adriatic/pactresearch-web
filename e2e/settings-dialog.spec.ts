@@ -133,8 +133,13 @@ test("Settings dialog: disabled with no discussion selected, then edits/saves/ca
   // must show a genuinely empty field, not placeholder text mistaken for
   // real content.
   await headerSettings.click();
+  // "Notebook settings", not "Settings", since task 50: the dialog's
+  // heading now matches pact-mac's own ("Notebook settings"), while
+  // dropping the subtitle pact-mac pairs it with -- "changes are saved
+  // immediately" -- which is false in both apps, each having an explicit
+  // Save button.
   const dialogHeading = page.getByRole("heading", {
-    name: "Settings",
+    name: "Notebook settings",
     exact: true,
   });
   await expect(dialogHeading).toBeVisible();
