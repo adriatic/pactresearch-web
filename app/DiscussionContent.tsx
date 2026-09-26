@@ -2,6 +2,7 @@
 
 import type { PastResponse } from "./useDiscussionExecution";
 import { MarkdownResponse } from "./MarkdownResponse";
+import { PromptContent, simpleTextOf } from "./PromptContent";
 
 // The scrolling middle region of the fixed layout: the active
 // discussion's history, the live-streaming response, and the last run's
@@ -132,23 +133,47 @@ export function DiscussionContent({
       )}
       {discussionId && history.length > 0 && (
         <div>
-          {history.map((entry) => (
-            <div key={entry.id}>
-              <p>
-                <strong>Prompt:</strong> {entry.prompt_text}
-              </p>
-              <p>
-                <strong>Response</strong>
-                {/* Each entry's own created_at, not a single header-level
+          {history.map((entry) => {
+            // Task 46 item B: render the stored rich prompt, not the
+            // flattened prompt_text -- the latter turns a pasted image
+            // into the literal string "[image]".
+            //
+            // Two deliberate fallbacks. A doc that is a single run of
+            // unformatted text (the common case) still renders INLINE
+            // after the label, exactly as before, so ordinary entries are
+            // visually unchanged. And a row with no prompt_content at all
+            // still uses prompt_text: most existing production rows
+            // predate that column (11 of 13 at last count), so this is
+            // the normal path for history, not an edge case.
+            const simple = simpleTextOf(entry.prompt_content);
+            const rich = entry.prompt_content !== null && simple === null;
+            return (
+              <div key={entry.id}>
+                {rich ? (
+                  <>
+                    <p>
+                      <strong>Prompt:</strong>
+                    </p>
+                    <PromptContent content={entry.prompt_content!} />
+                  </>
+                ) : (
+                  <p>
+                    <strong>Prompt:</strong> {simple ?? entry.prompt_text}
+                  </p>
+                )}
+                <p>
+                  <strong>Response</strong>
+                  {/* Each entry's own created_at, not a single header-level
                     value -- 7986c92 originally put this on the
                     "Discussion:" line sourced from the *latest* response,
                     which stayed wrong for every older entry once you
                     scrolled past it. */}
-                {` — ${new Date(entry.created_at).toLocaleString()}`}:
-              </p>
-              <MarkdownResponse content={entry.response ?? ""} />
-            </div>
-          ))}
+                  {` — ${new Date(entry.created_at).toLocaleString()}`}:
+                </p>
+                <MarkdownResponse content={entry.response ?? ""} />
+              </div>
+            );
+          })}
         </div>
       )}
       {/* Sits exactly where the response is about to land -- below any
