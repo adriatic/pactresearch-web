@@ -4,19 +4,17 @@
 // text (its strings come from its own config and do not match what this
 // app runs).
 //
-// Standard is deliberately the model pact-web ALREADY used before this
-// task (claude-sonnet-4-6), so choosing Standard changes nothing for
-// anyone. Economy adds a cheaper, faster option below it.
-//
-// Note for review: claude-sonnet-5 also exists and is both newer and
-// cheaper than claude-sonnet-4-6 ($2/$10 per MTok against $3/$15).
-// Promoting Standard to it is a reasonable call, but it would change the
-// model behind every existing run, so it is Nik's decision rather than
-// something to slip in under a UI task.
+// Standard is claude-sonnet-5. Task 50 shipped it as claude-sonnet-4-6
+// -- the model pact-web had always used -- and flagged that
+// claude-sonnet-5 is both newer and cheaper ($2/$10 per MTok against
+// $3/$15); Nik chose to move to it. This is the model behind EVERY run
+// for anyone who has not picked Economy, including users who never open
+// the picker, so it is a deliberate product change rather than a
+// default nobody chose.
 export const MODEL_TIERS = {
   standard: {
     label: "Standard",
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
     description: "Highest quality. The model pact-web has always used.",
   },
   economy: {

@@ -7,7 +7,7 @@ import { MODEL_TIERS, modelForTier, isModelTier } from "@/lib/modelTiers";
 
 describe("modelForTier", () => {
   test("maps the two tiers to their models", () => {
-    expect(modelForTier("standard")).toBe("claude-sonnet-4-6");
+    expect(modelForTier("standard")).toBe("claude-sonnet-5");
     expect(modelForTier("economy")).toBe("claude-haiku-4-5");
   });
 
@@ -20,10 +20,13 @@ describe("modelForTier", () => {
     }
   });
 
-  test("Standard remains the model pact-web used before tiers existed", () => {
-    // Guards the intent: adding the picker must not silently change the
-    // model for anyone who never opens it.
-    expect(MODEL_TIERS.standard.model).toBe("claude-sonnet-4-6");
+  test("Standard is claude-sonnet-5", () => {
+    // Task 50 shipped Standard as claude-sonnet-4-6 specifically so the
+    // picker changed nothing for existing users. Nik then chose to move
+    // Standard to claude-sonnet-5, which is newer and cheaper. Pinned
+    // because this is the model behind every run that has not opted into
+    // Economy -- it should only ever change on purpose.
+    expect(MODEL_TIERS.standard.model).toBe("claude-sonnet-5");
   });
 
   test("isModelTier accepts only the two real tiers", () => {

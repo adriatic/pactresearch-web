@@ -12,8 +12,7 @@ const tracer = trace.getTracer("pact-api");
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 // Task 50 item C: the model is chosen per user from their selected tier
 // rather than fixed here. modelForTier falls back to Standard --
-// claude-sonnet-4-6, what this constant used to be -- for a user who has
-// never picked one, so behaviour is unchanged until someone opts in.
+// claude-sonnet-5 -- for a user who has never picked one.
 
 // Used only if app_settings can't be read for some reason (empty table,
 // query error) -- the previous hardcoded value, so a settings-table
