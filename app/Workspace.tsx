@@ -8,6 +8,8 @@ import { Composer } from "./Composer";
 import { ComposerHeader } from "./ComposerHeader";
 import { DiscussionContent } from "./DiscussionContent";
 import { SettingsDialog } from "./SettingsDialog";
+import { AccountDialog } from "./AccountDialog";
+import { ModelTierDialog } from "./ModelTierDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 import { isEmptyDoc } from "@/lib/richContent";
 import {
@@ -165,6 +167,10 @@ export function Workspace({
   // Task 49. The composer hint while replying to a specific response's
   // trailing question, and a counter used to ask the composer for focus.
   // Neither is persisted -- this only affects what is on screen.
+  // Task 50: the Account and Model tier dialogs, both opened from the
+  // header buttons that were placeholders until now.
+  const [showAccount, setShowAccount] = useState(false);
+  const [showModelTier, setShowModelTier] = useState(false);
   const [followUpHint, setFollowUpHint] = useState<string | null>(null);
   const [composerFocusToken, setComposerFocusToken] = useState(0);
 
@@ -207,6 +213,11 @@ export function Workspace({
         notebookId={execution.notebookId}
         open={showSettings}
         onClose={() => setShowSettings(false)}
+      />
+      <AccountDialog open={showAccount} onClose={() => setShowAccount(false)} />
+      <ModelTierDialog
+        open={showModelTier}
+        onClose={() => setShowModelTier(false)}
       />
       <Group orientation="horizontal" style={{ height: "100vh" }}>
         <Panel defaultSize={280} minSize={180} maxSize={560}>
@@ -335,10 +346,10 @@ export function Workspace({
             >
               Settings
             </button>{" "}
-            <button type="button" disabled>
+            <button type="button" onClick={() => setShowAccount(true)}>
               Account
             </button>{" "}
-            <button type="button" disabled>
+            <button type="button" onClick={() => setShowModelTier(true)}>
               Model
             </button>{" "}
             {importError && (

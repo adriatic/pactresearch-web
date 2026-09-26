@@ -4,12 +4,16 @@ import { promptContentToAnthropicBlocks } from "@/lib/promptContentToAnthropicBl
 import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
+import { modelForTier } from "@/lib/modelTiers";
 import { trace, context } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("pact-api");
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_MODEL = "claude-sonnet-4-6";
+// Task 50 item C: the model is chosen per user from their selected tier
+// rather than fixed here. modelForTier falls back to Standard --
+// claude-sonnet-4-6, what this constant used to be -- for a user who has
+// never picked one, so behaviour is unchanged until someone opts in.
 
 // Used only if app_settings can't be read for some reason (empty table,
 // query error) -- the previous hardcoded value, so a settings-table
@@ -105,6 +109,11 @@ async function handlePost(request: Request) {
   // for why this is deliberately not the same Markdown-formatted text
   // sent to Anthropic below.
   const promptPlainText = docToPlainText(promptContent);
+
+  // Resolved once per request, after auth: the tier lives in the user's
+  // own metadata, which the auth call above already fetched, so this
+  // costs no extra query.
+  const requestedModel = modelForTier(user.user_metadata?.model_tier);
 
   const lockAcquireStart = Date.now();
   const { acquired, lockError } = await tracer.startActiveSpan(
@@ -278,7 +287,7 @@ async function handlePost(request: Request) {
               "anthropic-version": "2023-06-01",
             },
             body: JSON.stringify({
-              model: ANTHROPIC_MODEL,
+              model: requestedModel,
               max_tokens: maxTokens,
               stream: true,
               ...(systemPrompt ? { system: systemPrompt } : {}),
@@ -379,7 +388,7 @@ async function handlePost(request: Request) {
                       prompt_text: promptPlainText,
                       prompt_content: promptContent,
                       response: null,
-                      model: ANTHROPIC_MODEL,
+                      model: requestedModel,
                       resolved_model: resolvedModel,
                       cell_type: "assistant",
                     })
@@ -500,7 +509,7 @@ async function handlePost(request: Request) {
                       prompt_text: promptPlainText,
                       prompt_content: promptContent,
                       response: accumulatedText,
-                      model: ANTHROPIC_MODEL,
+                      model: requestedModel,
                       resolved_model: resolvedModel,
                       cell_type: "assistant",
                     })
