@@ -235,7 +235,7 @@ test("Item C: choosing a tier applies immediately; Cancel changes nothing", asyn
   // reflection of current state.
   await expect(dialog.getByRole("button", { name: /Standard/ })).toBeVisible();
   await expect(dialog.getByRole("button", { name: /Economy/ })).toBeVisible();
-  await expect(dialog).toContainText("claude-sonnet-4-6");
+  await expect(dialog).toContainText("claude-sonnet-5");
   await expect(dialog).toContainText("claude-haiku-4-5");
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
