@@ -28,7 +28,7 @@
 -- path that turns it back into plaintext is a server route that checks
 -- they are the owner first.
 
-create table public.user_api_keys (
+create table if not exists public.user_api_keys (
   user_id                uuid primary key references auth.users(id) on delete cascade,
   anthropic_key_encrypted text,
   updated_at             timestamptz not null default now()
@@ -39,22 +39,26 @@ alter table public.user_api_keys enable row level security;
 -- Owner-only, all four verbs. Unlike user_roles (where granting a role
 -- is an operator action), managing your own API key IS a user action --
 -- it is the entire point of the Keys tab.
+drop policy if exists "Users can read their own api keys" on public.user_api_keys;
 create policy "Users can read their own api keys"
   on public.user_api_keys
   for select
   using (user_id = auth.uid());
 
+drop policy if exists "Users can insert their own api keys" on public.user_api_keys;
 create policy "Users can insert their own api keys"
   on public.user_api_keys
   for insert
   with check (user_id = auth.uid());
 
+drop policy if exists "Users can update their own api keys" on public.user_api_keys;
 create policy "Users can update their own api keys"
   on public.user_api_keys
   for update
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
+drop policy if exists "Users can delete their own api keys" on public.user_api_keys;
 create policy "Users can delete their own api keys"
   on public.user_api_keys
   for delete
@@ -67,5 +71,9 @@ create policy "Users can delete their own api keys"
 -- new table without these lines works on nobody's machine, and RLS
 -- above is what actually restricts access; the grant only lets the
 -- query reach the point where RLS is evaluated.
+--
+-- Written to be safely re-runnable (if not exists / drop policy if
+-- exists), because this is pasted into the Supabase SQL editor by hand
+-- and running it twice should be a no-op rather than an error.
 grant select, insert, update, delete on public.user_api_keys
   to anon, authenticated, service_role;
