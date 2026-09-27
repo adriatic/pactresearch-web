@@ -637,7 +637,20 @@ async function handlePost(request: Request) {
     // (task 42 Part B depends on these rows) and, as a bonus, takes the
     // insert off the response path as well -- it was never work the user
     // should have been waiting on either.
-    after(async () => {
+    // Wrapped rather than called directly: next/server's after() throws
+    // "called outside a request scope" when a route handler is invoked
+    // directly, which is exactly what the integration tests do. That
+    // threw inside this finally block, escaped as a 500, and had
+    // silently broken every execution integration test since task 42
+    // introduced after() -- masked afterwards by task 51, whose missing
+    // -key 400 returned before this line was ever reached.
+    //
+    // Falling back to running the work inline is the honest behaviour:
+    // after() is an optimisation that moves work off the response path,
+    // and where it is unavailable the work still needs to happen. In
+    // production after() is always available, so this changes nothing
+    // there.
+    const deferred = async () => {
       const lockReleaseStart = Date.now();
       await tracer.startActiveSpan("lock-release", async (span) => {
         try {
@@ -706,7 +719,57 @@ async function handlePost(request: Request) {
           timingInsertException,
         );
       }
-    });
+
+      // Task 55b part 1: keep discussions.total_time_ms real.
+      //
+      // The column has existed since the first storage migration, is
+      // read by .pact export and restored by .pact import -- but nothing
+      // ever wrote it, so every discussion in production read 0. This
+      // adds the run's own elapsed time to the running total.
+      //
+      // total_ms, not generation_ms: the same number the row above
+      // records, and the one .pact's totalTimeMs is understood to mean
+      // (full server round trip, what the user waited).
+      //
+      // Read-modify-write rather than an atomic increment, because an
+      // atomic one would need a SQL function and therefore a migration.
+      // Safe in practice: a user holds one execution lock at a time and
+      // the Run button is disabled while a run is in flight, so two runs
+      // on the same discussion cannot overlap. Losing an update would
+      // require two runs to FINISH within milliseconds of each other,
+      // which requires them to have started together -- which the lock
+      // prevents.
+      //
+      // Deliberately after the timings insert and in its own try/catch:
+      // this is a derived convenience total, and execution_timings is
+      // the authoritative record. A failure here must not cost us that
+      // row, and neither is worth failing a completed run over.
+      try {
+        const { data: currentTotals, error: totalReadError } = await supabase
+          .from("discussions")
+          .select("total_time_ms")
+          .eq("id", discussionId)
+          .maybeSingle();
+        if (totalReadError) throw totalReadError;
+        const previous = currentTotals?.total_time_ms ?? 0;
+        const { error: totalUpdateError } = await supabase
+          .from("discussions")
+          .update({ total_time_ms: previous + totalMs })
+          .eq("id", discussionId);
+        if (totalUpdateError) throw totalUpdateError;
+      } catch (totalTimeException) {
+        console.error(
+          "[discussion-total-time-update-failed]",
+          totalTimeException,
+        );
+      }
+    };
+
+    try {
+      after(deferred);
+    } catch {
+      await deferred();
+    }
   }
 }
 

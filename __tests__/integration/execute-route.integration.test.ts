@@ -14,6 +14,7 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { encryptSecret } from "@/lib/apiKeyCrypto";
 import { http, HttpResponse } from "msw";
 import { server } from "../mocks/server";
 import {
@@ -58,6 +59,10 @@ vi.mock("next/headers", () => ({
     set: () => {},
   }),
 }));
+
+// The per-user key these tests store and expect the route to use. Fake;
+// the Anthropic call itself is intercepted by MSW.
+const STORED_USER_KEY = "sk-ant-test-stored-user-key-do-not-use";
 
 const { POST } = await import("@/app/api/execute/route");
 
@@ -160,8 +165,15 @@ describe("POST /api/execute", () => {
 
     process.env.NEXT_PUBLIC_SUPABASE_URL = API_URL;
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = ANON_KEY;
-    // Fake, local-only placeholder — the real call is intercepted by MSW.
+    // Task 51 made /api/execute use the CALLING USER'S stored key rather
+    // than this environment variable, so the route no longer reads it.
+    // Kept only because assertions below check it never leaks.
     process.env.ANTHROPIC_API_KEY = "sk-ant-test-fake-key-do-not-use";
+    // Local-only, and only has to be a valid 32-byte base64 value --
+    // nothing here decrypts against a real deployment.
+    process.env.API_KEY_ENCRYPTION_SECRET = Buffer.alloc(32, 7).toString(
+      "base64",
+    );
 
     admin = createServiceClient(API_URL, status.SERVICE_ROLE_KEY);
 
@@ -175,6 +187,17 @@ describe("POST /api/execute", () => {
       throw createError ?? new Error("failed to create test user");
     }
     userId = created.user.id;
+
+    // Task 51: every run now requires the user's OWN stored Anthropic
+    // key. Seeded encrypted, exactly as the Keys tab would write it, so
+    // these tests exercise the real decrypt path rather than bypassing
+    // it. Without this every test here gets a 400 asking the user to add
+    // a key -- which is how this file silently broke.
+    const { error: keyError } = await admin.from("user_api_keys").upsert({
+      user_id: userId,
+      anthropic_key_encrypted: encryptSecret(STORED_USER_KEY),
+    });
+    if (keyError) throw keyError;
 
     // No discussion-creation endpoint exists yet, so seed directly.
     const { data: notebook, error: notebookError } = await admin
@@ -321,16 +344,31 @@ describe("POST /api/execute", () => {
     expect(lockRows).toHaveLength(0);
   });
 
-  test("returns 500 and touches no lock when ANTHROPIC_API_KEY is not configured", async () => {
+  // Retargeted (task 55b). This used to delete ANTHROPIC_API_KEY and
+  // expect a 500, which was correct while one shared environment key
+  // served every run. Task 51 replaced that with per-user stored keys,
+  // so the equivalent failure is now "this user has not saved one" --
+  // and the right answer is an actionable 400, not a server error.
+  //
+  // The invariant worth keeping is unchanged and still asserted: a run
+  // that cannot proceed must not touch the execution lock.
+  test("returns 400 with the blocking message, and touches no lock, when the user has no stored key", async () => {
     currentCookies = await signInAsTestUser();
-    const previousKey = process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+
+    const { error: deleteError } = await admin
+      .from("user_api_keys")
+      .delete()
+      .eq("user_id", userId);
+    expect(deleteError).toBeNull();
 
     try {
       const response = await POST(
         makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
       );
-      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(response.status).toBe(400);
+      expect(body.code).toBe("missing_anthropic_key");
+      expect(body.error).toMatch(/Account/);
 
       const { data: lockRows, error: lockCheckError } = await admin
         .from("execution_locks")
@@ -339,8 +377,67 @@ describe("POST /api/execute", () => {
       expect(lockCheckError).toBeNull();
       expect(lockRows).toHaveLength(0);
     } finally {
-      process.env.ANTHROPIC_API_KEY = previousKey;
+      const { error: restoreError } = await admin.from("user_api_keys").upsert({
+        user_id: userId,
+        anthropic_key_encrypted: encryptSecret(STORED_USER_KEY),
+      });
+      expect(restoreError).toBeNull();
     }
+  });
+
+  // Task 55b part 1.
+  test("accumulates each run's total_ms into discussions.total_time_ms", async () => {
+    currentCookies = await signInAsTestUser();
+
+    const readTotal = async () => {
+      const { data, error } = await admin
+        .from("discussions")
+        .select("total_time_ms")
+        .eq("id", discussionId)
+        .single();
+      expect(error).toBeNull();
+      return data!.total_time_ms as number;
+    };
+
+    // Starts at the column's default. Before this task nothing ever
+    // wrote it, so it stayed here forever.
+    const before = await readTotal();
+
+    const first = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("run one") }),
+    );
+    expect(first.status).toBe(200);
+    const afterFirst = await readTotal();
+    expect(afterFirst).toBeGreaterThan(before);
+
+    // ACCUMULATES rather than overwrites -- the column is a running
+    // total for the discussion, not the last run's duration.
+    const second = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("run two") }),
+    );
+    expect(second.status).toBe(200);
+    const afterSecond = await readTotal();
+    expect(afterSecond).toBeGreaterThan(afterFirst);
+
+    // And it equals what execution_timings recorded, rather than
+    // drifting off on its own.
+    //
+    // Compared as absolute totals, not as a delta across these two
+    // runs: earlier tests in this file execute against the same
+    // discussion, so `before` already includes their time while the
+    // timing rows include it too. Both accumulate from zero, so the
+    // totals must match exactly -- a stronger check than the delta, and
+    // one that does not depend on test order.
+    const { data: timingRows, error: timingError } = await admin
+      .from("execution_timings")
+      .select("total_ms")
+      .eq("discussion_id", discussionId);
+    expect(timingError).toBeNull();
+    const timingSum = (timingRows ?? []).reduce(
+      (sum, r) => sum + (r.total_ms ?? 0),
+      0,
+    );
+    expect(afterSecond).toBe(timingSum);
   });
 
   test("returns 400 for a malformed request body", async () => {
@@ -392,6 +489,9 @@ describe("POST /api/execute", () => {
     expect(parsed.resolved_model).toBe(mockAnthropicStreamedModel);
     expect(parsed.response).toBe(mockAnthropicStreamedText);
     expect(rawText).not.toContain(process.env.ANTHROPIC_API_KEY);
+    // Task 51: the key actually used is the user's stored one, so that
+    // is the value that must not leak.
+    expect(rawText).not.toContain(STORED_USER_KEY);
 
     const { data: responseRows, error: responseError } = await admin
       .from("responses")
