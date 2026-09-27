@@ -115,6 +115,23 @@ export function AccountDialog({
         const response = await fetch("/api/account/anthropic-key");
         const body = await response.json();
         if (cancelled) return;
+        if (!response.ok) {
+          // Without this check a failed status fell through to
+          // Boolean(undefined) below, so "your stored key cannot be
+          // read" rendered as an ordinary empty field -- visually
+          // identical to having never saved one, and silent.
+          //
+          // That is not a cosmetic difference. On 2026-09-27 it sent a
+          // production investigation after a key that had not gone
+          // anywhere: the row was intact, the server could not decrypt
+          // it, and this tab reported it missing.
+          setKeyError(body.error || "Couldn't check your saved key.");
+          // Deliberately leaves hasKey alone rather than forcing it
+          // false: the honest state here is "unknown", and claiming
+          // there is no key is the very mistake being fixed.
+          return;
+        }
+        setKeyError(null);
         setHasKey(Boolean(body.hasKey));
         setKeyHintText(body.hint ?? null);
       } catch {
