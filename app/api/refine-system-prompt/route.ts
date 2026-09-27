@@ -1,11 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { modelForTier } from "@/lib/modelTiers";
-import {
-  MISSING_KEY_CODE,
-  MISSING_KEY_MESSAGE,
-  getUserAnthropicKey,
-} from "@/lib/userAnthropicKey";
+import { resolveUserAnthropicKey } from "@/lib/userAnthropicKey";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
@@ -48,13 +44,15 @@ async function handlePost(request: Request): Promise<Response> {
   // have left one feature quietly spending someone else's credit after
   // execution stopped doing so -- and would break outright once that
   // shared key is removed from the deployment.
-  const apiKey = await getUserAnthropicKey(supabase, user.id);
-  if (!apiKey) {
-    return Response.json(
-      { error: MISSING_KEY_MESSAGE, code: MISSING_KEY_CODE },
-      { status: 400 },
-    );
+  // Shares /api/execute's handling for the same reason it shares the
+  // message: two routes on one key path must not tell the user two
+  // different things about the same problem.
+  const keyResult = await resolveUserAnthropicKey(supabase, user.id);
+  if ("failure" in keyResult) {
+    const { error, code, status } = keyResult.failure;
+    return Response.json({ error, code }, { status });
   }
+  const apiKey = keyResult.key;
 
   const body = (await request.json()) as { description?: unknown };
   const description =

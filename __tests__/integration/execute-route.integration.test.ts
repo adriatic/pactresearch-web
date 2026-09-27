@@ -385,6 +385,73 @@ describe("POST /api/execute", () => {
     }
   });
 
+  // The production outage of 2026-09-27. A stored key that cannot be
+  // decrypted made /api/execute throw from getUserAnthropicKey, which
+  // sits BEFORE the handler's own try/catch, so withRouteErrorHandling
+  // turned it into a bare "Internal server error." -- no error id, no
+  // remedy, and indistinguishable from a crash. The trigger in
+  // production was API_KEY_ENCRYPTION_SECRET never having been set in
+  // Vercel, but any secret rotation reproduces it.
+  //
+  // Both halves are asserted, because they need different messages: the
+  // server having no usable secret is nobody-but-the-operator's problem,
+  // while a row encrypted under a different secret is fixed by the user
+  // re-saving their key.
+  test("returns an actionable 503, not a bare 500, when the server has no usable encryption secret", async () => {
+    currentCookies = await signInAsTestUser();
+    const secret = process.env.API_KEY_ENCRYPTION_SECRET;
+    delete process.env.API_KEY_ENCRYPTION_SECRET;
+    try {
+      const response = await POST(
+        makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
+      );
+      const body = await response.json();
+      expect(response.status).toBe(503);
+      expect(body.code).toBe("key_encryption_unconfigured");
+      expect(body.error).not.toMatch(/internal server error/i);
+      // It must say the run never reached Anthropic -- the first thing
+      // anyone wonders about a failed run is whether it was billed.
+      expect(body.error).toMatch(/nothing was sent to anthropic/i);
+      // And it must never name the secret's value, only the situation.
+      expect(body.error).not.toMatch(/API_KEY_ENCRYPTION_SECRET/);
+
+      const { data: lockRows } = await admin
+        .from("execution_locks")
+        .select("*")
+        .eq("user_id", userId);
+      expect(lockRows).toHaveLength(0);
+    } finally {
+      process.env.API_KEY_ENCRYPTION_SECRET = secret;
+    }
+  });
+
+  test("returns an actionable 400, not a bare 500, when the stored key was encrypted under a different secret", async () => {
+    currentCookies = await signInAsTestUser();
+    const secret = process.env.API_KEY_ENCRYPTION_SECRET;
+    // A different, valid secret: the row is intact, just unreadable.
+    process.env.API_KEY_ENCRYPTION_SECRET = Buffer.alloc(32, 4).toString(
+      "base64",
+    );
+    try {
+      const response = await POST(
+        makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
+      );
+      const body = await response.json();
+      expect(response.status).toBe(400);
+      expect(body.code).toBe("unreadable_anthropic_key");
+      expect(body.error).not.toMatch(/internal server error/i);
+      expect(body.error).toMatch(/Account/);
+
+      const { data: lockRows } = await admin
+        .from("execution_locks")
+        .select("*")
+        .eq("user_id", userId);
+      expect(lockRows).toHaveLength(0);
+    } finally {
+      process.env.API_KEY_ENCRYPTION_SECRET = secret;
+    }
+  });
+
   // Task 55b part 1.
   test("accumulates each run's total_ms into discussions.total_time_ms", async () => {
     currentCookies = await signInAsTestUser();

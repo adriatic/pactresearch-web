@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { decryptSecret, encryptSecret, keyHint } from "@/lib/apiKeyCrypto";
+import { KEY_ENCRYPTION_UNCONFIGURED_CODE } from "@/lib/userAnthropicKey";
 
 // Task 51. The user's own Anthropic API key: save, check, and the
 // deliberate reveal behind the Keys tab's "show" toggle.
@@ -98,7 +99,29 @@ async function handlePost(request: Request): Promise<Response> {
     );
   }
 
-  const encrypted = encryptSecret(key);
+  // Saving hit the same unhandled-throw problem as running: with no
+  // usable API_KEY_ENCRYPTION_SECRET, encryptSecret threw and the user
+  // got "Internal server error." while trying to fix the very thing
+  // that was broken. Nothing is stored in that case, so saying so
+  // plainly is both accurate and the only useful thing to say.
+  let encrypted: string;
+  try {
+    encrypted = encryptSecret(key);
+  } catch (encryptError) {
+    console.error(
+      "[anthropic-key] could not encrypt: API_KEY_ENCRYPTION_SECRET is unusable",
+      encryptError instanceof Error ? encryptError.message : "unknown",
+    );
+    return Response.json(
+      {
+        error:
+          "This server is not configured to store API keys yet, so your " +
+          "key was not saved. Please contact support.",
+        code: KEY_ENCRYPTION_UNCONFIGURED_CODE,
+      },
+      { status: 503 },
+    );
+  }
 
   const { error } = await supabase.from("user_api_keys").upsert(
     {

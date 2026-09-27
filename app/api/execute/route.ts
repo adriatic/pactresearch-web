@@ -5,11 +5,7 @@ import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
 import { modelForTier } from "@/lib/modelTiers";
-import {
-  MISSING_KEY_CODE,
-  MISSING_KEY_MESSAGE,
-  getUserAnthropicKey,
-} from "@/lib/userAnthropicKey";
+import { resolveUserAnthropicKey } from "@/lib/userAnthropicKey";
 import { trace, context } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("pact-api");
@@ -84,13 +80,19 @@ async function handlePost(request: Request) {
   // Checked here, before the execution lock is acquired and before any
   // execution_timings row could be written: a run blocked for want of a
   // key never happened, so it should leave no trace and hold nothing.
-  const apiKey = await getUserAnthropicKey(supabase, user.id);
-  if (!apiKey) {
-    return Response.json(
-      { error: MISSING_KEY_MESSAGE, code: MISSING_KEY_CODE },
-      { status: 400 },
-    );
+  const keyResult = await resolveUserAnthropicKey(supabase, user.id);
+  if ("failure" in keyResult) {
+    // Covers "no key saved", "saved key can't be decrypted", and "this
+    // server has no usable encryption secret" -- each with its own
+    // actionable message and status. Previously only the first was
+    // handled here and the other two escaped as throws, which
+    // withRouteErrorHandling turned into a bare "Internal server
+    // error." with no error id: the exact symptom reported on
+    // production, and unactionable for user and operator alike.
+    const { error, code, status } = keyResult.failure;
+    return Response.json({ error, code }, { status });
   }
+  const apiKey = keyResult.key;
 
   let discussionId: string;
   let promptContent: RichContent;
