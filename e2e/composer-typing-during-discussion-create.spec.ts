@@ -136,7 +136,14 @@ test("typing during the discussion-creation request itself survives the new disc
   // (tried earlier) let the two interleave unpredictably over the same
   // CDP connection and silently dropped the click's own POST entirely
   // (confirmed via network logging -- zero POSTs to /api/discussions).
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // exact: true for the same reason as above: this spec's discussion is
+  // named "E2E typing-during-create discussion ...", which contains
+  // "create discussion", so once that row exists its "⋮" trigger
+  // ("Actions for <row name>") also matches the loose locator. It does
+  // not exist yet at this line -- this is pre-emptive, not a fix.
+  await page
+    .getByRole("button", { name: "Create discussion", exact: true })
+    .click();
 
   const prompt = page.getByLabel("Prompt");
   await prompt.click();

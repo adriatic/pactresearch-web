@@ -133,7 +133,19 @@ test("Run lives in the header, is the page's only Run control, and runs the sele
   // Run control living somewhere else on the page.
   const headerRun = page.locator("header").getByRole("button", { name: "Run" });
   await expect(headerRun).toBeVisible();
-  await expect(page.getByRole("button", { name: "Run" })).toHaveCount(1);
+  // exact: true. Accessible-name matching is a case-insensitive SUBSTRING
+  // match, and task 54 labels each tree row's "⋮" trigger "Actions for
+  // <row name>" -- this spec's own rows are named "E2E header-run ...",
+  // so the loose matcher counted those triggers as Run controls. It did
+  // so only when the tree had finished rendering before this line ran,
+  // which made it an intermittent failure rather than an obvious one.
+  //
+  // The assertion is unchanged in strength: a duplicate Run control (the
+  // composer-level one this spec exists to keep out) would be named
+  // exactly "Run" too, so it would still be caught.
+  await expect(
+    page.getByRole("button", { name: "Run", exact: true }),
+  ).toHaveCount(1);
 
   // This account has a discussion, and the app auto-selects the most
   // recent one on load (page.tsx's findLatestDiscussion) — so Run is
