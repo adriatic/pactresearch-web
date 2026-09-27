@@ -139,9 +139,21 @@ test("a research question creates the first discussion and pre-populates the com
 
   // The notebook is in the tree, and so is the discussion the question
   // created.
-  await expect(page.getByRole("treeitem", { name: notebookName })).toBeVisible({
-    timeout: 15_000,
-  });
+  //
+  // exact: true throughout, because the auto-created discussion's name
+  // now CONTAINS the notebook's -- "<notebook>-d-1" -- so the default
+  // substring match would resolve to both rows.
+  await expect(
+    page.getByRole("treeitem", { name: notebookName, exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // The auto-created first discussion is named after its notebook, not
+  // after a truncated copy of the question. The question is long enough
+  // here that the old behaviour would have been plainly visible.
+  await expect(
+    page.getByRole("treeitem", { name: `${notebookName}-d-1`, exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("treeitem", { name: question })).toHaveCount(0);
 
   // The composer holds the question, ready to run or edit. Persisted as
   // the discussion's draft, so it survives a reload rather than being an

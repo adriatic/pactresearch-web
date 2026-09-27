@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { chooseRowAction } from "./rowMenuActions";
 
 // Verifies the real UI round trip: export a notebook to a real downloaded
 // .pact file, feed that exact file back into the Import flow, and confirm
@@ -125,7 +126,7 @@ test("exporting a notebook and importing it back creates a second, content-ident
   // Real download, via the real Export button -- not a fabricated file.
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    notebookRows.getByRole("button", { name: "Export" }).click(),
+    chooseRowAction(notebookRows, notebookName, "Export"),
   ]);
   expect(download.suggestedFilename()).toMatch(/\.pact$/);
   const downloadedPath = await download.path();
@@ -238,7 +239,7 @@ test("importing the same .pact file twice auto-renames each collision instead of
 
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    originalRow.getByRole("button", { name: "Export" }).click(),
+    chooseRowAction(originalRow, notebookName, "Export"),
   ]);
   const downloadedPath = await download.path();
   expect(downloadedPath).toBeTruthy();
@@ -389,7 +390,7 @@ test("after export, delete, and re-import, each discussion's composer shows its 
   // 1. Export via the real Export button.
   const [download] = await Promise.all([
     page.waitForEvent("download"),
-    notebookRow.getByRole("button", { name: "Export" }).click(),
+    chooseRowAction(notebookRow, notebookName, "Export"),
   ]);
   const downloadedPath = await download.path();
   expect(downloadedPath).toBeTruthy();
@@ -401,7 +402,7 @@ test("after export, delete, and re-import, each discussion's composer shows its 
       response.url().includes("/api/notebooks") &&
       response.request().method() === "DELETE",
   );
-  await notebookRow.getByRole("button", { name: "Delete notebook" }).click();
+  await chooseRowAction(notebookRow, notebookName, "Delete notebook");
   expect((await deleteResponsePromise).status()).toBe(200);
   await expect(notebookRow).toHaveCount(0, { timeout: 15_000 });
 

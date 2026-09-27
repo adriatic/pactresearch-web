@@ -501,6 +501,137 @@ describe("/api/notebooks", () => {
     expect(row?.system_prompt).toBeNull();
   });
 
+  // Task 54. Rename, from the Explorer row menu.
+  test("PATCH renames a notebook, trimming the new name", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Before" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const response = await PATCH(
+      makePatchRequest(notebook!.id, { name: "  After  " }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.name).toBe("After");
+
+    const { data: row, error } = await admin
+      .from("notebooks")
+      .select("name")
+      .eq("id", notebook!.id)
+      .single();
+    expect(error).toBeNull();
+    expect(row?.name).toBe("After");
+  });
+
+  // The regression this route's field-presence handling exists for. When
+  // systemPrompt was PATCH's only field it was written unconditionally,
+  // so a rename -- which sends only `name` -- would have silently wiped
+  // the notebook's system prompt, and nothing in the UI would have said
+  // so until the next run came back behaving differently.
+  test("PATCH renaming a notebook leaves its system_prompt untouched", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({
+        user_id: userId,
+        name: "Has a prompt",
+        system_prompt: "You are reviewing legal contracts.",
+      })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const response = await PATCH(
+      makePatchRequest(notebook!.id, { name: "Renamed" }),
+    );
+    expect(response.status).toBe(200);
+
+    const { data: row, error } = await admin
+      .from("notebooks")
+      .select("name, system_prompt")
+      .eq("id", notebook!.id)
+      .single();
+    expect(error).toBeNull();
+    expect(row?.name).toBe("Renamed");
+    expect(row?.system_prompt).toBe("You are reviewing legal contracts.");
+  });
+
+  // The mirror of the above: setting the system prompt must not disturb
+  // the name either.
+  test("PATCH setting a system_prompt leaves the notebook's name untouched", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook, error: notebookError } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Keep this name" })
+      .select()
+      .single();
+    expect(notebookError).toBeNull();
+
+    const response = await PATCH(
+      makePatchRequest(notebook!.id, { systemPrompt: "Be terse." }),
+    );
+    expect(response.status).toBe(200);
+
+    const { data: row } = await admin
+      .from("notebooks")
+      .select("name, system_prompt")
+      .eq("id", notebook!.id)
+      .single();
+    expect(row?.name).toBe("Keep this name");
+    expect(row?.system_prompt).toBe("Be terse.");
+  });
+
+  test("PATCH rejects an empty or whitespace-only name, and changes nothing", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Still called this" })
+      .select()
+      .single();
+
+    for (const name of ["", "   "]) {
+      const response = await PATCH(makePatchRequest(notebook!.id, { name }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toMatch(/non-empty/i);
+    }
+
+    const { data: row } = await admin
+      .from("notebooks")
+      .select("name")
+      .eq("id", notebook!.id)
+      .single();
+    expect(row?.name).toBe("Still called this");
+  });
+
+  test("PATCH with no recognized field returns 400 rather than silently doing nothing", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Untouched" })
+      .select()
+      .single();
+
+    const response = await PATCH(makePatchRequest(notebook!.id, {}));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/nothing to update/i);
+  });
+
   test("PATCH returns 404 for a notebook the caller doesn't own", async () => {
     const userA = await createSignedInUser();
     const userB = await createSignedInUser();
@@ -621,5 +752,31 @@ describe("/api/notebooks", () => {
       .eq("id", notebook!.id);
     expect(notebookCheckError).toBeNull();
     expect(notebookRows).toHaveLength(0);
+  });
+  // The 500 that the two-optional-fields rewrite briefly introduced:
+  // request.json() returns null for a body of "null", and `"name" in
+  // null` throws. A malformed body has to stay a 400.
+  test("PATCH returns 400, not 500, for a non-object request body", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Malformed body host" })
+      .select()
+      .single();
+
+    for (const raw of ["null", '"a string"', "42"]) {
+      const response = await PATCH(
+        new Request(`http://localhost/api/notebooks?id=${notebook!.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: raw,
+        }),
+      );
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toMatch(/malformed/i);
+    }
   });
 });

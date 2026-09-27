@@ -7,6 +7,8 @@ import {
   type TreeState,
 } from "@headless-tree/core";
 import { useTree } from "@headless-tree/react";
+import { RowMenu } from "./RowMenu";
+import { RenameDialog, type RenameTarget } from "./RenameDialog";
 
 // Phase D's real notebook tree — ports the core behavior of pact-mac's
 // Explorer.tsx (reviewed in full per 3.13 development-plan §3.13; the
@@ -108,6 +110,7 @@ export function Explorer({
   onNotebookSelected,
   onNotebookDeleted,
   onDiscussionDeleted,
+  onDiscussionRenamed,
   refetchToken,
 }: {
   activeDiscussionId: string | null;
@@ -128,12 +131,17 @@ export function Explorer({
     deletedDiscussionIds: string[],
   ) => void;
   onDiscussionDeleted: (discussionId: string) => void;
+  // Task 54. Only discussions need this: the header shows the active
+  // discussion's name, and nothing outside this tree renders a
+  // notebook's name, so a notebook rename is purely local state here.
+  onDiscussionRenamed: (discussionId: string, name: string) => void;
   refetchToken: number;
 }) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
   // Which discussion (at most one -- execution_locks is keyed by user_id,
   // one lock per user, not per discussion) the signed-in user currently
   // has running, regardless of which discussion is active in Workspace --
@@ -221,6 +229,62 @@ export function Explorer({
   // instance. The file itself is fetched and blobbed client-side rather
   // than navigated to directly, matching every other action in this
   // component being a fetch() call.
+  // Task 54. Returns an error message for the dialog to show, or null
+  // on success -- the dialog stays open and keeps what was typed when
+  // the server rejects it, rather than closing and losing the edit.
+  //
+  // On success the row is updated in local state rather than by
+  // refetching the whole tree: a refetch would rebuild every item and
+  // collapse nothing visibly but cost a round trip to change one
+  // string. The name is taken from the server's response, not from
+  // what was typed, so the tree shows what was actually stored (the
+  // route trims).
+  async function handleRename(
+    target: RenameTarget,
+    newName: string,
+  ): Promise<string | null> {
+    const endpoint =
+      target.kind === "notebook" ? "/api/notebooks" : "/api/discussions";
+    let body: { name?: string | null; error?: string };
+    try {
+      const response = await fetch(`${endpoint}?id=${target.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      });
+      body = await response.json();
+      if (!response.ok) {
+        return body.error || `Failed to rename "${target.name}".`;
+      }
+    } catch {
+      return `Failed to rename "${target.name}" — please try again.`;
+    }
+
+    const stored = body.name ?? newName;
+    if (target.kind === "notebook") {
+      setNotebooks((current) =>
+        current.map((notebook) =>
+          notebook.id === target.id ? { ...notebook, name: stored } : notebook,
+        ),
+      );
+    } else {
+      setDiscussions((current) =>
+        current.map((discussion) =>
+          discussion.id === target.id
+            ? { ...discussion, name: stored }
+            : discussion,
+        ),
+      );
+      // The header renders the active discussion's name from its own
+      // state (useDiscussionExecution loads it with the discussion), so
+      // renaming the one that's open has to reach it -- otherwise the
+      // tree and the header disagree until the next switch.
+      onDiscussionRenamed(target.id, stored);
+    }
+    setRenameTarget(null);
+    return null;
+  }
+
   async function handleExportNotebook(notebookId: string, name: string) {
     setExportError(null);
     const response = await fetch(`/api/notebooks/export?id=${notebookId}`);
@@ -467,6 +531,11 @@ export function Explorer({
       <h2>Explorer</h2>
       {deleteError && <p>{deleteError}</p>}
       {exportError && <p>{exportError}</p>}
+      <RenameDialog
+        target={renameTarget}
+        onCancel={() => setRenameTarget(null)}
+        onRename={handleRename}
+      />
       <div {...tree.getContainerProps("Explorer")}>
         {tree.getItems().map((item) => {
           const data = item.getItemData();
@@ -520,24 +589,31 @@ export function Explorer({
                 <h3 style={{ margin: 0, fontSize: "1em", flex: 1 }}>
                   {data.name}
                 </h3>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleExportNotebook(data.notebookId, data.name);
-                  }}
-                >
-                  Export
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteNotebook(data.notebookId, data.name);
-                  }}
-                >
-                  Delete notebook
-                </button>
+                <RowMenu
+                  label={`Actions for ${data.name}`}
+                  items={[
+                    {
+                      label: "Rename",
+                      onSelect: () =>
+                        setRenameTarget({
+                          kind: "notebook",
+                          id: data.notebookId,
+                          name: data.name,
+                        }),
+                    },
+                    {
+                      label: "Export",
+                      onSelect: () =>
+                        handleExportNotebook(data.notebookId, data.name),
+                    },
+                    {
+                      label: "Delete notebook",
+                      destructive: true,
+                      onSelect: () =>
+                        handleDeleteNotebook(data.notebookId, data.name),
+                    },
+                  ]}
+                />
               </div>
             );
           }
@@ -575,15 +651,32 @@ export function Explorer({
                   ● Running
                 </span>
               )}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteDiscussion(data.discussionId, data.name);
-                }}
-              >
-                Delete discussion
-              </button>
+              {/* No Export here: export is a notebook-level operation
+                  (/api/notebooks/export takes a notebook id and emits
+                  the whole .pact bundle). There is no per-discussion
+                  export endpoint to put behind a menu item, so the
+                  menu offers what exists rather than a third item that
+                  would have to fail. Flagged in the report. */}
+              <RowMenu
+                label={`Actions for ${data.name}`}
+                items={[
+                  {
+                    label: "Rename",
+                    onSelect: () =>
+                      setRenameTarget({
+                        kind: "discussion",
+                        id: data.discussionId,
+                        name: data.name,
+                      }),
+                  },
+                  {
+                    label: "Delete discussion",
+                    destructive: true,
+                    onSelect: () =>
+                      handleDeleteDiscussion(data.discussionId, data.name),
+                  },
+                ]}
+              />
             </div>
           );
         })}

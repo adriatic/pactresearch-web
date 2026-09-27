@@ -201,8 +201,15 @@ async function handleGet(request: Request) {
   return Response.json(notebooks);
 }
 
+// Both fields are optional and independent, and "absent" is distinct
+// from "present and null": PATCH { systemPrompt: null } clears the
+// system prompt, while a rename that simply omits systemPrompt must
+// leave whatever is stored alone. Writing both unconditionally -- which
+// is what this handler did when systemPrompt was its only field --
+// would mean every rename silently wiped the notebook's system prompt.
 interface UpdateNotebookRequestBody {
-  systemPrompt: string | null;
+  systemPrompt?: string | null;
+  name?: string;
 }
 
 async function handlePatch(request: Request) {
@@ -222,17 +229,57 @@ async function handlePatch(request: Request) {
     return Response.json({ error: "id is required." }, { status: 400 });
   }
 
-  let systemPrompt: string | null;
+  let body: UpdateNotebookRequestBody;
   try {
-    const body = (await request.json()) as UpdateNotebookRequestBody;
-    systemPrompt = body.systemPrompt;
+    body = (await request.json()) as UpdateNotebookRequestBody;
   } catch {
     return Response.json({ error: "Malformed request body." }, { status: 400 });
   }
 
-  if (systemPrompt !== null && typeof systemPrompt !== "string") {
+  // Guards the `in` checks below: request.json() happily returns null
+  // for a body of "null", and `"name" in null` is a TypeError, which
+  // would surface as a 500. Before this handler took two optional
+  // fields it read body.systemPrompt inside the try above, so a
+  // non-object body landed on "Malformed request body." -- keeping
+  // that 400 rather than regressing it into a server error.
+  if (typeof body !== "object" || body === null) {
+    return Response.json({ error: "Malformed request body." }, { status: 400 });
+  }
+
+  const update: { system_prompt?: string | null; name?: string } = {};
+
+  if ("systemPrompt" in body) {
+    const { systemPrompt } = body;
+    if (systemPrompt !== null && typeof systemPrompt !== "string") {
+      return Response.json(
+        { error: "systemPrompt must be a string or null." },
+        { status: 400 },
+      );
+    }
+    // Whitespace-only input is normalized to null here (the single place
+    // this is ever written), not left for every reader (SettingsDialog on
+    // reopen, /api/execute on run) to separately re-derive "empty" from —
+    // matching draft_content's own isEmptyDoc-at-write-time normalization.
+    const trimmed = systemPrompt?.trim();
+    update.system_prompt = trimmed ? trimmed : null;
+  }
+
+  if ("name" in body) {
+    const { name } = body;
+    // Same rule POST enforces, so a rename can't put a notebook into a
+    // state creation would have rejected.
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return Response.json(
+        { error: "name must be a non-empty string." },
+        { status: 400 },
+      );
+    }
+    update.name = name.trim();
+  }
+
+  if (Object.keys(update).length === 0) {
     return Response.json(
-      { error: "systemPrompt must be a string or null." },
+      { error: "Nothing to update: provide name or systemPrompt." },
       { status: 400 },
     );
   }
@@ -240,14 +287,9 @@ async function handlePatch(request: Request) {
   // Session-scoped client + RLS: this can only ever update a notebook the
   // caller owns — an empty result covers both "doesn't exist" and "isn't
   // yours", same non-distinguishing 404 pattern as PATCH /api/discussions.
-  // Whitespace-only input is normalized to null here (the single place
-  // this is ever written), not left for every reader (SettingsDialog on
-  // reopen, /api/execute on run) to separately re-derive "empty" from —
-  // matching draft_content's own isEmptyDoc-at-write-time normalization.
-  const trimmed = systemPrompt?.trim();
   const { data: updated, error } = await supabase
     .from("notebooks")
-    .update({ system_prompt: trimmed ? trimmed : null })
+    .update(update)
     .eq("id", id)
     .select();
 

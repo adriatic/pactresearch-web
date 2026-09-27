@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { chooseRowAction } from "./rowMenuActions";
 
 // Covers the per-discussion delete control in the Explorer tree and the
 // DELETE /api/discussions route behind it, through the real UI: a real
@@ -162,7 +163,7 @@ test("each discussion row has its own delete control, and using it removes exact
       response.request().method() === "DELETE",
   );
 
-  await doomedRow.getByRole("button", { name: "Delete discussion" }).click();
+  await chooseRowAction(doomedRow, doomedName, "Delete discussion");
 
   const deleteResponse = await deleteResponsePromise;
   expect(deleteResponse.status()).toBe(200);
@@ -209,10 +210,11 @@ test("a discussion holding its own active execution lock can't be deleted, but i
       response.request().method() === "DELETE",
   );
 
-  await page
-    .getByRole("treeitem", { name: doomedName })
-    .getByRole("button", { name: "Delete discussion" })
-    .click();
+  await chooseRowAction(
+    page.getByRole("treeitem", { name: doomedName }),
+    doomedName,
+    "Delete discussion",
+  );
 
   expect((await blockedResponsePromise).status()).toBe(409);
   await expect(
@@ -237,10 +239,11 @@ test("a discussion holding its own active execution lock can't be deleted, but i
       response.url().includes("/api/discussions") &&
       response.request().method() === "DELETE",
   );
-  await page
-    .getByRole("treeitem", { name: keptName })
-    .getByRole("button", { name: "Delete discussion" })
-    .click();
+  await chooseRowAction(
+    page.getByRole("treeitem", { name: keptName }),
+    keptName,
+    "Delete discussion",
+  );
 
   expect((await siblingResponsePromise).status()).toBe(200);
   await expect(page.getByRole("treeitem", { name: keptName })).toHaveCount(0, {
