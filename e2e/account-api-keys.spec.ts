@@ -218,3 +218,57 @@ test("with a key stored, the run gets past the key gate", async ({
     .single();
   expect(row!.anthropic_key_encrypted).not.toContain("sk-ant");
 });
+
+// The 2026-09-27 misdiagnosis, pinned.
+//
+// When the server cannot decrypt a stored key it answers this endpoint
+// with a 500 and an explanation. The Keys tab used to ignore the status
+// entirely, so Boolean(undefined) made hasKey false and the field
+// rendered empty and silent -- indistinguishable from never having
+// saved a key. That is what sent a production investigation looking for
+// a deleted database row that was in fact still there.
+test("an unreadable stored key is reported as unreadable, not as no key at all", async ({
+  page,
+  context,
+}) => {
+  await seed(page, context);
+
+  // Exactly what the route returns when decryption fails (see the
+  // decrypt catch in app/api/account/anthropic-key/route.ts).
+  await page.route("**/api/account/anthropic-key", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "Your saved key could not be read. Please re-enter and save it.",
+      }),
+    });
+  });
+
+  await page.locator("header").getByRole("button", { name: "Account" }).click();
+  const dialog = page.getByRole("dialog", { name: "Account" });
+  await dialog.getByRole("tab", { name: "Keys" }).click();
+
+  // It must say so...
+  await expect(
+    dialog.getByText(
+      "Your saved key could not be read. Please re-enter and save it.",
+    ),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // ...and must not claim the key is fine either. "Saved (hint)" is the
+  // placeholder shown when a key is readable; it must be absent here.
+  //
+  // The "sk-ant-..." placeholder IS still correct in this state and is
+  // deliberately not asserted against: the user has just been told to
+  // re-enter their key, and that is the hint for doing so. The defect
+  // being fixed was the silence, not the placeholder -- an empty field
+  // with no message read as "no key saved", and the same field with an
+  // explanation above it reads as "re-enter it", which is the truth.
+  await expect(dialog.getByPlaceholder(/^Saved \(/)).toHaveCount(0);
+
+  // The field stays usable, so the remedy the message asks for is
+  // actually available.
+  await expect(dialog.getByLabel("Anthropic API key:")).toBeEnabled();
+});
