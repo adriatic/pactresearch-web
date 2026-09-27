@@ -1,7 +1,22 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+
+// Task 52: notebooks are created through the New Notebook modal now. The
+// old flat form still exists in NotebookCreator but is hidden behind
+// SHOW_LEGACY_NOTEBOOK_FORM, so these specs drive the modal instead.
+async function createNotebookViaModal(page: Page, notebookName: string) {
+  await page
+    .locator("header")
+    .getByRole("button", { name: "New Notebook" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New notebook" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Name:").fill(notebookName);
+  await dialog.getByRole("button", { name: "Create notebook" }).click();
+  await expect(dialog).toBeHidden();
+}
 
 // "Add a discussion to this notebook" is a single, shared UI element
 // (not one instance per notebook) meant to target whichever notebook is
@@ -107,14 +122,12 @@ test("with two notebooks and neither having a discussion yet, selecting the seco
 
   await page.goto("/");
 
-  await page.getByLabel("Name:").first().fill(notebookAName);
-  await page.getByRole("button", { name: "Create notebook" }).click();
+  await createNotebookViaModal(page, notebookAName);
   await expect(page.getByRole("treeitem", { name: notebookAName })).toBeVisible(
     { timeout: 10_000 },
   );
 
-  await page.getByLabel("Name:").first().fill(notebookBName);
-  await page.getByRole("button", { name: "Create notebook" }).click();
+  await createNotebookViaModal(page, notebookBName);
   const notebookBRow = page.getByRole("treeitem", { name: notebookBName });
   await expect(notebookBRow).toBeVisible({ timeout: 10_000 });
 
@@ -169,13 +182,11 @@ test("clicking the FIRST of two notebooks after both exist correctly targets the
 
   await page.goto("/");
 
-  await page.getByLabel("Name:").first().fill(notebookAName);
-  await page.getByRole("button", { name: "Create notebook" }).click();
+  await createNotebookViaModal(page, notebookAName);
   const notebookARow = page.getByRole("treeitem", { name: notebookAName });
   await expect(notebookARow).toBeVisible({ timeout: 10_000 });
 
-  await page.getByLabel("Name:").first().fill(notebookBName);
-  await page.getByRole("button", { name: "Create notebook" }).click();
+  await createNotebookViaModal(page, notebookBName);
   await expect(page.getByRole("treeitem", { name: notebookBName })).toBeVisible(
     { timeout: 10_000 },
   );
@@ -233,8 +244,7 @@ test("with three notebooks, selecting the MIDDLE one targets it correctly -- not
   await page.goto("/");
 
   for (const name of names) {
-    await page.getByLabel("Name:").first().fill(name);
-    await page.getByRole("button", { name: "Create notebook" }).click();
+    await createNotebookViaModal(page, name);
     await expect(page.getByRole("treeitem", { name })).toBeVisible({
       timeout: 10_000,
     });
@@ -311,8 +321,7 @@ test("adding a discussion immediately after creating that notebook (already-pass
   // Create a brand new notebook -- per the fix, it becomes selected
   // immediately, with no separate click on its own row required, exactly
   // matching the previously-correct "just created it" flow.
-  await page.getByLabel("Name:").first().fill(freshNotebookName);
-  await page.getByRole("button", { name: "Create notebook" }).click();
+  await createNotebookViaModal(page, freshNotebookName);
   await expect(
     page.getByRole("treeitem", { name: freshNotebookName }),
   ).toBeVisible({ timeout: 10_000 });

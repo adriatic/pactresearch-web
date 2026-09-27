@@ -10,6 +10,7 @@ import { DiscussionContent } from "./DiscussionContent";
 import { SettingsDialog } from "./SettingsDialog";
 import { AccountDialog } from "./AccountDialog";
 import { ModelTierDialog } from "./ModelTierDialog";
+import { NewNotebookDialog } from "./NewNotebookDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 import { isEmptyDoc } from "@/lib/richContent";
 import {
@@ -169,6 +170,7 @@ export function Workspace({
   // Neither is persisted -- this only affects what is on screen.
   // Task 50: the Account and Model tier dialogs, both opened from the
   // header buttons that were placeholders until now.
+  const [showNewNotebook, setShowNewNotebook] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
   const [showModelTier, setShowModelTier] = useState(false);
   const [followUpHint, setFollowUpHint] = useState<string | null>(null);
@@ -213,6 +215,12 @@ export function Workspace({
         notebookId={execution.notebookId}
         open={showSettings}
         onClose={() => setShowSettings(false)}
+      />
+      <NewNotebookDialog
+        open={showNewNotebook}
+        onClose={() => setShowNewNotebook(false)}
+        onNotebookCreated={handleNotebookCreated}
+        onDiscussionCreated={handleDiscussionCreated}
       />
       <AccountDialog open={showAccount} onClose={() => setShowAccount(false)} />
       <ModelTierDialog
@@ -301,7 +309,7 @@ export function Workspace({
             }
           >
             <strong>PACT</strong>{" "}
-            <button type="button" disabled>
+            <button type="button" onClick={() => setShowNewNotebook(true)}>
               New Notebook
             </button>{" "}
             {/* Acts on whatever discussion is currently selected, using

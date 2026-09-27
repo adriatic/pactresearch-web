@@ -120,7 +120,11 @@ test("a brand-new discussion in a notebook with prior runs opens with an empty c
   await expect(prompt).toHaveText(priorPrompt, { timeout: 15_000 });
 
   // Create a new discussion in that same notebook, exactly as the UI does.
-  await page.getByLabel("Name:").nth(1).fill(newDiscussionName);
+  // .last(), not .nth(1): task 52 hid the flat notebook-creation
+  // form, so the discussion Name field is no longer the second one on
+  // the page. .last() picks it either way, including if that form is
+  // ever restored, since it renders after.
+  await page.getByLabel("Name:").last().fill(newDiscussionName);
   await page.getByRole("button", { name: "Create discussion" }).click();
   await expect(
     page.getByRole("treeitem", { name: newDiscussionName }),

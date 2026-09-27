@@ -2,6 +2,17 @@
 
 import { useRef, useState } from "react";
 
+// Task 52: the notebook-CREATION half of this component is superseded by
+// NewNotebookDialog (the "New Notebook" header button). It is hidden
+// rather than deleted so it can be restored in one line if the modal
+// turns out to have a problem -- flip this to true.
+//
+// The "Add a discussion to this notebook" half below is deliberately NOT
+// hidden. It is the only way to add a discussion to an existing
+// notebook; hiding it with the rest would have removed that outright,
+// which the task did not ask for and nothing else replaces.
+const SHOW_LEGACY_NOTEBOOK_FORM = false;
+
 const CATEGORIES = ["Personal Research", "Dev Test"] as const;
 
 interface ExistingDiscussion {
@@ -176,39 +187,49 @@ export function NotebookCreator({
 
   return (
     <section>
-      <h1>Notebook creator</h1>
-      <form onSubmit={handleCreateNotebook}>
-        <label>
-          Name:{" "}
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-        <br />
-        <label>
-          Category:{" "}
-          <select
-            value={category}
-            onChange={(e) =>
-              setCategory(e.target.value as (typeof CATEGORIES)[number])
-            }
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-        <br />
-        <button type="submit" disabled={notebookLoading}>
-          {notebookLoading ? "Creating..." : "Create notebook"}
-        </button>
-      </form>
-      {notebookError && <p>{notebookError}</p>}
+      {SHOW_LEGACY_NOTEBOOK_FORM && (
+        <>
+          <h1>Notebook creator</h1>
+          <form onSubmit={handleCreateNotebook}>
+            <label>
+              Name:{" "}
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </label>
+            <br />
+            <label>
+              Category:{" "}
+              <select
+                value={category}
+                onChange={(e) =>
+                  setCategory(e.target.value as (typeof CATEGORIES)[number])
+                }
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <br />
+            <button type="submit" disabled={notebookLoading}>
+              {notebookLoading ? "Creating..." : "Create notebook"}
+            </button>
+          </form>
+          {notebookError && <p>{notebookError}</p>}
+        </>
+      )}
+
+      {!selectedNotebookId && (
+        <p style={{ color: "#666" }}>
+          Select a notebook to add a discussion, or use New Notebook above.
+        </p>
+      )}
 
       {selectedNotebookId && (
         <>
