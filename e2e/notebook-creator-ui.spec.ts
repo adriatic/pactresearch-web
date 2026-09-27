@@ -1,7 +1,22 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+
+// Task 52: notebooks are created through the New Notebook modal now. The
+// old flat form still exists in NotebookCreator but is hidden behind
+// SHOW_LEGACY_NOTEBOOK_FORM, so these specs drive the modal instead.
+async function createNotebookViaModal(page: Page, notebookName: string) {
+  await page
+    .locator("header")
+    .getByRole("button", { name: "New Notebook" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New notebook" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Name:").fill(notebookName);
+  await dialog.getByRole("button", { name: "Create notebook" }).click();
+  await expect(dialog).toBeHidden();
+}
 
 // Two manual-testing bugs fixed together: (1) creating a notebook or
 // discussion used to dump the raw JSON API response into the UI instead of
@@ -111,8 +126,7 @@ test("creating a notebook and a discussion never shows the raw API response, and
   // followed by a colon) must never appear anywhere on the page.
   const jsonShapedText = page.getByText(/"(id|created_at|user_id)"\s*:/);
 
-  await page.getByLabel("Name:").first().fill(notebookName);
-  await page.getByRole("button", { name: "Create notebook" }).click();
+  await createNotebookViaModal(page, notebookName);
 
   // The Explorer tree IS the confirmation -- the notebook appearing there
   // is how the app reports success.
@@ -144,10 +158,25 @@ test("buttons render with real visual treatment, distinct from static text and f
 
   // An enabled button: a real <button> element with an actual border and
   // background — not plain inline text.
-  const createNotebookButton = page.getByRole("button", {
+  //
+  // Task 52 moved "Create notebook" into the New Notebook modal, so the
+  // modal has to be open for it to exist. Retargeted rather than swapped
+  // for some other button: this is still the same control the styling
+  // fix was originally about.
+  await page
+    .locator("header")
+    .getByRole("button", { name: "New Notebook" })
+    .click();
+  const newNotebookDialog = page.getByRole("dialog", { name: "New notebook" });
+  // A name is required for Create to be ENABLED, and an enabled button is
+  // what this assertion is about -- without one it is correctly disabled
+  // and would report cursor: not-allowed.
+  await newNotebookDialog.getByLabel("Name:").fill("styling check");
+  const createNotebookButton = newNotebookDialog.getByRole("button", {
     name: "Create notebook",
   });
   await expect(createNotebookButton).toBeVisible();
+  await expect(createNotebookButton).toBeEnabled();
   // border-style alone isn't a reliable signal here — Tailwind's Preflight
   // resets border-style to "solid" globally (with 0 width) so that adding
   // a width later doesn't also require setting a style; border-width is
@@ -160,9 +189,20 @@ test("buttons render with real visual treatment, distinct from static text and f
   expect(backgroundColor).not.toBe("transparent");
   await expect(createNotebookButton).toHaveCSS("cursor", "pointer");
 
-  // A disabled button (the header toolbar's not-yet-wired controls) still
-  // looks like a button, but visibly distinct in its disabled state.
-  const disabledButton = page.getByRole("button", { name: "New Notebook" });
+  // A disabled button still looks like a button, but visibly distinct in
+  // its disabled state.
+  //
+  // This used "New Notebook", which task 52 enabled -- it opens the
+  // modal now. Run is the honest replacement: a fresh user has no
+  // discussion selected, so it is genuinely disabled rather than
+  // disabled-as-a-placeholder, which makes it a better subject for this
+  // assertion than the placeholders ever were.
+  // Close the modal without creating anything, so the header is reachable.
+  await newNotebookDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(newNotebookDialog).toBeHidden();
+  const disabledButton = page
+    .locator("header")
+    .getByRole("button", { name: "Run" });
   await expect(disabledButton).toBeVisible();
   await expect(disabledButton).toBeDisabled();
   await expect(disabledButton).toHaveCSS("border-width", "1px");
@@ -170,6 +210,8 @@ test("buttons render with real visual treatment, distinct from static text and f
 
   // Static text (a heading) must not pick up button styling — proves the
   // fix is scoped to real buttons, not a blanket visual change.
-  const heading = page.getByRole("heading", { name: "Notebook creator" });
+  // "Notebook creator" was that heading; it is hidden with the legacy
+  // form as of task 52, so this uses the Explorer's own heading.
+  const heading = page.getByRole("heading", { name: "Explorer" });
   await expect(heading).toHaveCSS("border-width", "0px");
 });

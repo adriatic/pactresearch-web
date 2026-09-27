@@ -1,7 +1,22 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+
+// Task 52: notebooks are created through the New Notebook modal now. The
+// old flat form still exists in NotebookCreator but is hidden behind
+// SHOW_LEGACY_NOTEBOOK_FORM, so these specs drive the modal instead.
+async function createNotebookViaModal(page: Page, notebookName: string) {
+  await page
+    .locator("header")
+    .getByRole("button", { name: "New Notebook" })
+    .click();
+  const dialog = page.getByRole("dialog", { name: "New notebook" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Name:").fill(notebookName);
+  await dialog.getByRole("button", { name: "Create notebook" }).click();
+  await expect(dialog).toBeHidden();
+}
 
 // Task 36: reported in production as "the composer has zero height on a
 // new discussion and cannot be typed into at all" -- a correction to
@@ -126,13 +141,16 @@ test("typing immediately after creating a brand-new discussion survives the disc
   await page.goto("/");
   await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
 
-  await page.getByLabel("Name:").first().fill(notebookName);
-  await page.getByRole("button", { name: "Create notebook" }).click();
+  await createNotebookViaModal(page, notebookName);
 
   const notebookRow = page.getByRole("treeitem", { name: notebookName });
   await expect(notebookRow).toBeVisible({ timeout: 15_000 });
 
-  await page.getByLabel("Name:").nth(1).fill(discussionName);
+  // .last(), not .nth(1): task 52 hid the flat notebook-creation
+  // form, so the discussion Name field is no longer the second one on
+  // the page. .last() picks it either way, including if that form is
+  // ever restored, since it renders after.
+  await page.getByLabel("Name:").last().fill(discussionName);
   await page.getByRole("button", { name: "Create discussion" }).click();
 
   // No wait at all -- type immediately, exactly while the (artificially
