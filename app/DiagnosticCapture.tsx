@@ -176,9 +176,9 @@ export function DiagnosticCapture() {
                 fontFamily: "monospace",
                 fontSize: "0.75em",
                 whiteSpace: "pre",
-                border: "1px solid #ccc",
-                borderRadius: 4,
-                padding: 8,
+                // Border, radius and padding come from globals.css's
+                // shared field rule -- duplicating them inline here is
+                // how the two quietly drift apart.
               }}
             />
           </div>

@@ -47,3 +47,43 @@ button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/* Same problem as buttons above, same fix. Tailwind's preflight resets
+   padding and border on *everything* (`*, ::before, ::after, ::backdrop
+   { padding: 0; border: 0 solid }` — node_modules/tailwindcss/preflight
+   .css), so a plain <input> or <textarea> renders with no boundary at
+   all: you can't see where a field starts or ends until you click into
+   it and the browser paints its own focus ring, and the value sits
+   flush against the edge with nothing around it. Doing this once here,
+   rather than inline in each dialog, is what keeps the fields in
+   Account, Notebook settings and New notebook looking like each other
+   — the consistency that decays when dialogs are styled one at a time
+   as they get added.
+
+   Only text entry. Radio, checkbox, file, range and colour are widgets
+   with their own shape, and a text-field border box around one looks
+   wrong; submit/reset/button inputs are buttons and are already served
+   by the rule above. <select> is included so a dropdown doesn't read as
+   unstyled next to the bordered text fields beside it.
+
+   Vertical padding matches the button rule's own 6px, so a field and a
+   button sitting on one row (the "Refine with AI" input and its Send)
+   come out the same height. An inline style still wins, as with
+   buttons. */
+input:not(
+  [type="radio"],
+  [type="checkbox"],
+  [type="file"],
+  [type="range"],
+  [type="color"],
+  [type="submit"],
+  [type="reset"],
+  [type="button"],
+  [type="image"]
+),
+textarea,
+select {
+  padding: 6px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
