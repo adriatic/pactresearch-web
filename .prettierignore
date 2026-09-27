@@ -3,3 +3,9 @@ node_modules
 build
 out
 next-env.d.ts
+
+# Supabase CLI scratch, written while the local stack runs and
+# git-ignored (supabase/.gitignore). Same reason it is ignored by
+# eslint: without this, format:check fails on files nobody wrote,
+# but only on machines that have run `supabase start`.
+supabase/.temp

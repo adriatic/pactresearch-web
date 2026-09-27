@@ -29,13 +29,18 @@ const EXECUTION_MODES = [
 ] as const;
 type ExecutionMode = (typeof EXECUTION_MODES)[number]["value"];
 
-// How much of the research question becomes the first discussion's name.
-const NAME_FROM_QUESTION_LIMIT = 60;
-
-function discussionNameFromQuestion(question: string): string {
-  const oneLine = question.trim().replace(/\s+/g, " ");
-  if (oneLine.length <= NAME_FROM_QUESTION_LIMIT) return oneLine;
-  return `${oneLine.slice(0, NAME_FROM_QUESTION_LIMIT - 1).trimEnd()}…`;
+// The auto-created first discussion is named after its notebook --
+// "Alpha" gets "Alpha-d-1" -- rather than after a truncated copy of the
+// research question, which made long questions produce unreadable
+// elided row labels and duplicated text the composer already shows.
+//
+// Only the auto-created one. A discussion the user adds themselves is
+// still named by the user, and this is not a running counter: nothing
+// else creates a "-d-N", so there is no -d-2 today. The name is meant
+// to be a placeholder the user can change, which is what task 54's
+// Rename action in the row menu is for.
+export function firstDiscussionName(notebookName: string): string {
+  return `${notebookName.trim()}-d-1`;
 }
 
 export function NewNotebookDialog({
@@ -123,7 +128,7 @@ export function NewNotebookDialog({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           notebookId: notebookBody.id,
-          name: discussionNameFromQuestion(question),
+          name: firstDiscussionName(trimmedName),
         }),
       });
       const discussionBody = await discussionResponse.json();

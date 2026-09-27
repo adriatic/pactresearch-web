@@ -5,6 +5,7 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { chooseRowAction } from "./rowMenuActions";
 
 // Postgres's own ON DELETE CASCADE never reaches Supabase Storage --
 // deleting a discussion or notebook must explicitly clean up the
@@ -142,9 +143,7 @@ test("deleting a discussion removes its prompt-images from storage, not just its
       response.url().includes("/api/discussions") &&
       response.request().method() === "DELETE",
   );
-  await discussionRow
-    .getByRole("button", { name: "Delete discussion" })
-    .click();
+  await chooseRowAction(discussionRow, discussionName, "Delete discussion");
   expect((await deleteResponsePromise).status()).toBe(200);
   await expect(discussionRow).toHaveCount(0, { timeout: 10_000 });
 
@@ -213,7 +212,7 @@ test("deleting a notebook removes prompt-images for every discussion it containe
       response.url().includes("/api/notebooks") &&
       response.request().method() === "DELETE",
   );
-  await notebookRow.getByRole("button", { name: "Delete notebook" }).click();
+  await chooseRowAction(notebookRow, notebookName, "Delete notebook");
   expect((await deleteResponsePromise).status()).toBe(200);
   await expect(notebookRow).toHaveCount(0, { timeout: 10_000 });
 

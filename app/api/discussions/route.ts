@@ -150,8 +150,16 @@ async function handleGet(request: Request) {
   return Response.json(discussions);
 }
 
+// Optional and independent, and "absent" is distinct from "present and
+// null": PATCH { draftContent: null } deliberately clears the composer
+// draft, while a rename that omits draftContent must leave the draft
+// exactly where it is. Writing both unconditionally -- which is what
+// this handler did when draftContent was its only field -- would mean
+// renaming a discussion threw away whatever the user had typed into it
+// but not yet run.
 interface UpdateDiscussionRequestBody {
-  draftContent: RichContent | null;
+  draftContent?: RichContent | null;
+  name?: string;
 }
 
 async function handlePatch(request: Request) {
@@ -179,17 +187,52 @@ async function handlePatch(request: Request) {
   }
   trace.getActiveSpan()?.setAttribute("pact.discussion_id", id);
 
-  let draftContent: RichContent | null;
+  let body: UpdateDiscussionRequestBody;
   try {
-    const body = (await request.json()) as UpdateDiscussionRequestBody;
-    draftContent = body.draftContent;
+    body = (await request.json()) as UpdateDiscussionRequestBody;
   } catch {
     return Response.json({ error: "Malformed request body." }, { status: 400 });
   }
 
-  if (draftContent !== null && typeof draftContent !== "object") {
+  // Guards the `in` checks below: request.json() happily returns null
+  // for a body of "null", and `"name" in null` is a TypeError, which
+  // would surface as a 500. Before this handler took two optional
+  // fields it read body.systemPrompt inside the try above, so a
+  // non-object body landed on "Malformed request body." -- keeping
+  // that 400 rather than regressing it into a server error.
+  if (typeof body !== "object" || body === null) {
+    return Response.json({ error: "Malformed request body." }, { status: 400 });
+  }
+
+  const update: { draft_content?: RichContent | null; name?: string } = {};
+
+  if ("draftContent" in body) {
+    const { draftContent } = body;
+    if (draftContent !== null && typeof draftContent !== "object") {
+      return Response.json(
+        { error: "draftContent must be a JSON object or null." },
+        { status: 400 },
+      );
+    }
+    update.draft_content = draftContent ?? null;
+  }
+
+  if ("name" in body) {
+    const { name } = body;
+    // Same rule POST enforces, so a rename can't put a discussion into a
+    // state creation would have rejected.
+    if (typeof name !== "string" || name.trim().length === 0) {
+      return Response.json(
+        { error: "name must be a non-empty string." },
+        { status: 400 },
+      );
+    }
+    update.name = name.trim();
+  }
+
+  if (Object.keys(update).length === 0) {
     return Response.json(
-      { error: "draftContent must be a JSON object or null." },
+      { error: "Nothing to update: provide name or draftContent." },
       { status: 400 },
     );
   }
@@ -210,7 +253,7 @@ async function handlePatch(request: Request) {
       try {
         return await supabase
           .from("discussions")
-          .update({ draft_content: draftContent })
+          .update(update)
           .eq("id", id)
           .select();
       } finally {

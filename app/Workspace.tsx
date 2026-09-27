@@ -165,6 +165,18 @@ export function Workspace({
     setDiscussionListRefetchToken((t) => t + 1);
   }
 
+  // Task 54. Explorer already updated its own row; this is only about
+  // the header, which renders the ACTIVE discussion's name from the
+  // execution hook's own copy (loaded with the discussion). Renaming
+  // any other discussion changes nothing here, so this deliberately
+  // does not bump the refetch token -- a full refetch would reload the
+  // tree to apply a change the tree has already made.
+  function handleDiscussionRenamed(discussionId: string, name: string) {
+    if (activeDiscussionId === discussionId) {
+      execution.setDiscussionName(name);
+    }
+  }
+
   // Task 49. The composer hint while replying to a specific response's
   // trailing question, and a counter used to ask the composer for focus.
   // Neither is persisted -- this only affects what is on screen.
@@ -256,6 +268,7 @@ export function Workspace({
                 onNotebookSelected={setSelectedNotebookId}
                 onNotebookDeleted={handleNotebookDeleted}
                 onDiscussionDeleted={handleDiscussionDeleted}
+                onDiscussionRenamed={handleDiscussionRenamed}
                 refetchToken={discussionListRefetchToken}
               />
             </Panel>

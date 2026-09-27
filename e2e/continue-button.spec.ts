@@ -133,7 +133,17 @@ test("Continue clears and focuses the composer, and surfaces that response's own
   await seed(page, context);
   const prompt = page.getByLabel("Prompt");
 
-  const continueButtons = page.getByRole("button", { name: "Continue" });
+  // exact: true, because accessible-name matching is a case-insensitive
+  // SUBSTRING match by default, and task 54 gave every tree row a
+  // "⋮" trigger labelled "Actions for <row name>". This spec's own
+  // seeded rows are named "E2E continue ...", so the loose matcher
+  // silently picked up the notebook's and the discussion's menu
+  // triggers as well -- 5 buttons where 3 were meant. Narrowing the
+  // locator, not the assertion: it still has to be exactly 3.
+  const continueButtons = page.getByRole("button", {
+    name: "Continue",
+    exact: true,
+  });
   await expect(continueButtons).toHaveCount(3);
 
   // The composer opens holding the last cell's prompt -- task 44's
@@ -227,6 +237,9 @@ test("task 44's retained prompt is untouched until Continue is pressed", async (
   await expect(prompt).toHaveText(typed);
 
   // Only pressing Continue clears it.
-  await page.getByRole("button", { name: "Continue" }).last().click();
+  await page
+    .getByRole("button", { name: "Continue", exact: true })
+    .last()
+    .click();
   await expect(prompt).toHaveText("");
 });

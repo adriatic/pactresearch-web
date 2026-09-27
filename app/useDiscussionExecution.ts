@@ -765,6 +765,13 @@ export function useDiscussionExecution(discussionId: string | null) {
     clearComposerForFollowUp,
     lastSwitchDurationMs,
     discussionName,
+    // Task 54. Renaming the active discussion in the Explorer has to
+    // reach the header, which reads discussionName from here. Exposed
+    // as a plain setter rather than a refetch: the name is the only
+    // thing that changed, and reloading the discussion would also
+    // reload its content and history, which is how an in-progress
+    // composer edit gets clobbered.
+    setDiscussionName,
     notebookId,
   };
 }

@@ -42,7 +42,8 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-const { POST, GET, DELETE } = await import("@/app/api/discussions/route");
+const { POST, GET, DELETE, PATCH } =
+  await import("@/app/api/discussions/route");
 
 function makeDeleteRequest(id?: string) {
   const url = id
@@ -54,6 +55,14 @@ function makeDeleteRequest(id?: string) {
 function makeRequest(body: unknown) {
   return new Request("http://localhost/api/discussions", {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function makePatchRequest(id: string, body: unknown) {
+  return new Request(`http://localhost/api/discussions?id=${id}`, {
+    method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -546,5 +555,220 @@ describe("/api/discussions", () => {
       .select("id")
       .eq("id", doomed.id);
     expect(rows).toHaveLength(0);
+  });
+  // Task 54. Rename, from the Explorer row menu.
+  test("PATCH renames a discussion, trimming the new name", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Rename host" })
+      .select()
+      .single();
+    const { data: discussion } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Before",
+      })
+      .select()
+      .single();
+
+    const response = await PATCH(
+      makePatchRequest(discussion!.id, { name: "  After  " }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.name).toBe("After");
+
+    const { data: row } = await admin
+      .from("discussions")
+      .select("name")
+      .eq("id", discussion!.id)
+      .single();
+    expect(row?.name).toBe("After");
+  });
+
+  // The regression this route's field-presence handling exists for.
+  // draft_content was written unconditionally when it was PATCH's only
+  // field, so a rename -- which sends only `name` -- would have thrown
+  // away whatever the user had typed into the composer but not yet run.
+  // Renaming a discussion is exactly the moment someone has it open.
+  test("PATCH renaming a discussion leaves its draft_content untouched", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const draft = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Unsent work" }] },
+      ],
+    };
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Draft host" })
+      .select()
+      .single();
+    const { data: discussion } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Has a draft",
+        draft_content: draft,
+      })
+      .select()
+      .single();
+
+    const response = await PATCH(
+      makePatchRequest(discussion!.id, { name: "Renamed" }),
+    );
+    expect(response.status).toBe(200);
+
+    const { data: row } = await admin
+      .from("discussions")
+      .select("name, draft_content")
+      .eq("id", discussion!.id)
+      .single();
+    expect(row?.name).toBe("Renamed");
+    expect(row?.draft_content).toEqual(draft);
+  });
+
+  // The other half: an explicit null still clears the draft, which is
+  // how the composer wipes it. "Absent" and "present and null" have to
+  // stay different things.
+  test("PATCH with draftContent: null still clears the draft", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Clear host" })
+      .select()
+      .single();
+    const { data: discussion } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Clear me",
+        draft_content: {
+          type: "doc",
+          content: [{ type: "paragraph" }],
+        },
+      })
+      .select()
+      .single();
+
+    const response = await PATCH(
+      makePatchRequest(discussion!.id, { draftContent: null }),
+    );
+    expect(response.status).toBe(200);
+
+    const { data: row } = await admin
+      .from("discussions")
+      .select("name, draft_content")
+      .eq("id", discussion!.id)
+      .single();
+    expect(row?.draft_content).toBeNull();
+    // ...and clearing the draft must not disturb the name either.
+    expect(row?.name).toBe("Clear me");
+  });
+
+  test("PATCH rejects an empty or whitespace-only name, and changes nothing", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Validation host" })
+      .select()
+      .single();
+    const { data: discussion } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Still called this",
+      })
+      .select()
+      .single();
+
+    for (const name of ["", "   "]) {
+      const response = await PATCH(makePatchRequest(discussion!.id, { name }));
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toMatch(/non-empty/i);
+    }
+
+    const { data: row } = await admin
+      .from("discussions")
+      .select("name")
+      .eq("id", discussion!.id)
+      .single();
+    expect(row?.name).toBe("Still called this");
+  });
+
+  test("PATCH with no recognized field returns 400 rather than silently doing nothing", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Empty patch host" })
+      .select()
+      .single();
+    const { data: discussion } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Untouched",
+      })
+      .select()
+      .single();
+
+    const response = await PATCH(makePatchRequest(discussion!.id, {}));
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.error).toMatch(/nothing to update/i);
+  });
+  // The 500 that the two-optional-fields rewrite briefly introduced:
+  // request.json() returns null for a body of "null", and `"name" in
+  // null` throws. A malformed body has to stay a 400.
+  test("PATCH returns 400, not 500, for a non-object request body", async () => {
+    const { userId, cookies } = await createSignedInUser();
+    currentCookies = cookies;
+
+    const { data: notebook } = await admin
+      .from("notebooks")
+      .insert({ user_id: userId, name: "Malformed body host" })
+      .select()
+      .single();
+    const { data: discussion } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebook!.id,
+        user_id: userId,
+        name: "Malformed body target",
+      })
+      .select()
+      .single();
+
+    for (const raw of ["null", '"a string"', "42"]) {
+      const response = await PATCH(
+        new Request(`http://localhost/api/discussions?id=${discussion!.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: raw,
+        }),
+      );
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toMatch(/malformed/i);
+    }
   });
 });

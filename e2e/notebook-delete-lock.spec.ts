@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { chooseRowAction } from "./rowMenuActions";
 
 // Verifies the notebook-delete lock check (0fbc8c6) through the real UI:
 // a real browser, a real Next.js dev server, a real DELETE /api/notebooks
@@ -126,10 +127,11 @@ test("deleting a notebook with an actively executing discussion is blocked, with
       response.request().method() === "DELETE",
   );
 
-  await page
-    .getByRole("treeitem", { name: notebookName })
-    .getByRole("button", { name: "Delete notebook" })
-    .click();
+  await chooseRowAction(
+    page.getByRole("treeitem", { name: notebookName }),
+    notebookName,
+    "Delete notebook",
+  );
 
   const deleteResponse = await deleteResponsePromise;
   expect(deleteResponse.status()).toBe(409);
