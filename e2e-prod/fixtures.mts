@@ -13,14 +13,25 @@
 
 import { test as base, expect } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
-import { getProdAuthCookies, PROD_BASE_URL } from "./prod-session.mts";
+import {
+  getProdAuthCookies,
+  PROD_BASE_URL,
+  vercelBypassHeaders,
+} from "./prod-session.mts";
 
 export const test = base.extend<{
   prodContext: BrowserContext;
   prodPage: Page;
 }>({
   prodContext: async ({ browser }, use) => {
-    const context = await browser.newContext({ baseURL: PROD_BASE_URL });
+    // newContext does NOT inherit `use.extraHTTPHeaders` from the
+    // Playwright config -- that applies to the built-in fixtures only.
+    // These headers have to be passed here or a protected Preview
+    // serves Vercel's SSO page to every spec that uses prodPage.
+    const context = await browser.newContext({
+      baseURL: PROD_BASE_URL,
+      extraHTTPHeaders: vercelBypassHeaders(),
+    });
 
     const cookies = await getProdAuthCookies();
     const domain = new URL(PROD_BASE_URL).hostname;
