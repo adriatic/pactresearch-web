@@ -59,6 +59,13 @@ export function NewNotebookDialog({
     useState<ExecutionMode>("interactive");
   const [category, setCategory] = useState<Category>(CATEGORIES[0]);
   const [researchQuestion, setResearchQuestion] = useState("");
+  // Task 53. Excluded from task 52 on purpose: putting an editable
+  // System Prompt here before knowing it was honoured at execution time
+  // would have been a field that looks like it does something and does
+  // not. Step 1 established it IS honoured -- /api/execute reads
+  // notebooks.system_prompt and sends it to Anthropic as `system` --
+  // so it is real, and now it is here.
+  const [systemPrompt, setSystemPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,6 +87,7 @@ export function NewNotebookDialog({
       setExecutionMode("interactive");
       setCategory(CATEGORIES[0]);
       setResearchQuestion("");
+      setSystemPrompt("");
       setError(null);
       setCreating(false);
     }
@@ -97,7 +105,15 @@ export function NewNotebookDialog({
       const notebookResponse = await fetch("/api/notebooks", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: trimmedName, category }),
+        // Trimmed to null rather than sent as whitespace: PATCH
+        // /api/notebooks already normalises "blank means none" at the
+        // one place it writes, and a notebook created with "   " should
+        // land in the same state as one created with nothing.
+        body: JSON.stringify({
+          name: trimmedName,
+          category,
+          systemPrompt: systemPrompt.trim() || null,
+        }),
       });
       const notebookBody = await notebookResponse.json();
       if (!notebookResponse.ok) {
@@ -252,6 +268,47 @@ export function NewNotebookDialog({
             style={{ width: "100%", boxSizing: "border-box" }}
           />
         </label>
+
+        <label>
+          System prompt:
+          <br />
+          <textarea
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            rows={4}
+            disabled={creating}
+            placeholder={
+              "Instructions Claude follows for every prompt in this notebook — " +
+              "e.g. 'You are reviewing legal contracts for ambiguous liability " +
+              "clauses. Flag anything unusual and cite the specific clause.' " +
+              "Leave blank for no special instructions."
+            }
+            style={{ width: "100%", boxSizing: "border-box" }}
+          />
+        </label>
+        {/* The two states this app actually has, named plainly.
+            
+            Deliberately NOT worded as overriding a default. pact-web has
+            no global or default system prompt -- app_settings holds only
+            max_tokens -- so a notebook with none set sends no `system`
+            parameter to Anthropic at all. Saying "using the default"
+            would invent a layer that does not exist, which is the same
+            dishonest-UI problem that kept this field out of task 52.
+
+            Deliberately NOT role="status", for two reasons. This text
+            changes on every keystroke, so a live region would announce
+            it continuously while someone types -- noise, not help. And
+            report-a-problem.spec.ts asserts on an unqualified
+            page.getByRole("status"); DiscussionContent.tsx already
+            carries a comment about avoiding exactly this collision,
+            and a second status node would be a strict-mode violation
+            waiting for the first spec that opens this modal. */}
+        <p style={{ margin: "4px 0 0", color: "#666", fontSize: "0.85em" }}>
+          {systemPrompt.trim()
+            ? "System prompt set — it will apply to every prompt run in this notebook."
+            : "No system prompt — runs in this notebook use none. You can add one later in Settings."}
+        </p>
+        <br />
 
         {/* Refine with AI: present but inactive, and deliberately styled
             so that reads as "not available yet" rather than "broken".

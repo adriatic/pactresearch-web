@@ -118,8 +118,21 @@ test("the modal has the specified fields, and deliberately omits the others", as
   await expect(refineSend).toBeDisabled();
   await expect(dialog.getByText("Coming soon.")).toBeVisible();
 
-  // System prompt is excluded from this modal entirely (task 53).
-  await expect(dialog.getByText(/system prompt/i)).toHaveCount(0);
+  // Inverted by task 53, which is what this assertion was waiting for.
+  //
+  // Task 52 excluded System Prompt deliberately and recorded that here,
+  // scoped in the comment to "(task 53)" -- the exclusion was pending
+  // confirmation that the field was honoured at execution, not a
+  // permanent decision. Step 1 confirmed it is: /api/execute reads
+  // notebooks.system_prompt and sends it to Anthropic as `system`. So
+  // the field is now present, and this asserts its presence instead.
+  await expect(dialog.getByLabel("System prompt:")).toBeVisible();
+  await expect(dialog.getByLabel("System prompt:")).toBeEnabled();
+  // Still no invented "default" layer: pact-web has no global system
+  // prompt, so the UI must never imply one is in effect.
+  await expect(
+    dialog.getByText(/global default|using the default/i),
+  ).toHaveCount(0);
 });
 
 test("a research question creates the first discussion and pre-populates the composer", async ({
@@ -221,4 +234,129 @@ test("the modal is reusable: creating twice in a row works", async ({
   await expect(
     page.getByRole("treeitem", { name: `E2E repeat 2 ${suffix}` }),
   ).toBeVisible();
+});
+
+// Task 53. System prompt at creation time.
+//
+// Task 52 left this field out rather than shipping it disabled,
+// because a field that looks like it does something and does not is
+// the thing Nik has flagged repeatedly. Step 1 confirmed the value IS
+// read at execution -- /api/execute selects notebooks(system_prompt)
+// and sends it to Anthropic as `system` -- so it is honest to offer it
+// here now.
+test("a system prompt set at creation is stored, and shown when the notebook is reopened in Settings", async ({
+  page,
+  context,
+}) => {
+  const { admin, userId, suffix } = await signIn(page, context);
+  const notebookName = `E2E sysprompt notebook ${suffix}`;
+  const prompt = `Always answer in French. ${suffix}`;
+
+  const dialog = await openModal(page);
+
+  // The two real states, and nothing about a "default" -- pact-web has
+  // no global system prompt to fall back to.
+  await expect(
+    dialog.getByText(/No system prompt — runs in this notebook use none/),
+  ).toBeVisible();
+  await expect(dialog.getByText(/using the default/i)).toHaveCount(0);
+
+  await dialog.getByLabel("Name:").fill(notebookName);
+  await dialog.getByLabel("System prompt:").fill(prompt);
+
+  // The label flips to the other real state as soon as there is one.
+  await expect(
+    dialog.getByText(/System prompt set — it will apply to every prompt/),
+  ).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Create notebook" }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+  // In the database, not merely on screen.
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin
+          .from("notebooks")
+          .select("system_prompt")
+          .eq("user_id", userId)
+          .eq("name", notebookName)
+          .maybeSingle();
+        return data?.system_prompt ?? null;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(prompt);
+});
+
+test("leaving the system prompt blank stores null, not an empty string", async ({
+  page,
+  context,
+}) => {
+  const { admin, userId, suffix } = await signIn(page, context);
+  const notebookName = `E2E no-sysprompt notebook ${suffix}`;
+
+  const dialog = await openModal(page);
+  await dialog.getByLabel("Name:").fill(notebookName);
+  // Whitespace only: must land in the same state as leaving it empty,
+  // so "is a prompt set?" has one answer rather than two.
+  await dialog.getByLabel("System prompt:").fill("   ");
+  await dialog.getByRole("button", { name: "Create notebook" }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin
+          .from("notebooks")
+          .select("system_prompt")
+          .eq("user_id", userId)
+          .eq("name", notebookName)
+          .maybeSingle();
+        return data ? { found: true, value: data.system_prompt } : null;
+      },
+      { timeout: 15_000 },
+    )
+    .toEqual({ found: true, value: null });
+});
+
+// The bug tasks 51 and 52 both shipped: state surviving on a dialog
+// that renders null instead of unmounting. A system prompt typed for
+// one notebook must not silently attach itself to the next.
+test("the system prompt does not leak into the next notebook created", async ({
+  page,
+  context,
+}) => {
+  const { admin, userId, suffix } = await signIn(page, context);
+
+  const first = await openModal(page);
+  await first.getByLabel("Name:").fill(`E2E leak-first ${suffix}`);
+  await first.getByLabel("System prompt:").fill("Only for the first one.");
+  await first.getByRole("button", { name: "Create notebook" }).click();
+  await expect(first).toBeHidden({ timeout: 15_000 });
+
+  const second = await openModal(page);
+  await expect(second.getByLabel("System prompt:")).toHaveValue("");
+  await expect(
+    second.getByText(/No system prompt — runs in this notebook use none/),
+  ).toBeVisible();
+
+  await second.getByLabel("Name:").fill(`E2E leak-second ${suffix}`);
+  await second.getByRole("button", { name: "Create notebook" }).click();
+  await expect(second).toBeHidden({ timeout: 15_000 });
+
+  await expect
+    .poll(
+      async () => {
+        const { data } = await admin
+          .from("notebooks")
+          .select("system_prompt")
+          .eq("user_id", userId)
+          .eq("name", `E2E leak-second ${suffix}`)
+          .maybeSingle();
+        return data?.system_prompt ?? "ABSENT";
+      },
+      { timeout: 15_000 },
+    )
+    .toBe("ABSENT");
 });

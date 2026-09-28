@@ -878,6 +878,81 @@ describe("POST /api/execute", () => {
       .eq("id", notebookId);
   });
 
+  // Task 53's third verification point. The other two were already
+  // covered (the test above, and the omit-entirely test below); this
+  // one was not, and it is the one that matters once the prompt is
+  // editable from two places: a value read once and cached would pass
+  // both of those and still be wrong here.
+  test("editing a notebook's system_prompt takes effect on the very next run", async () => {
+    currentCookies = await signInAsTestUser();
+
+    const captured: (string | undefined)[] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as { system?: string };
+          captured.push(body.system);
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    try {
+      await admin
+        .from("notebooks")
+        .update({ system_prompt: "First instruction." })
+        .eq("id", notebookId);
+      const first = await POST(
+        makeRequest({
+          discussionId,
+          promptContent: plainTextToDoc(`edit-takes-effect-1-${Date.now()}`),
+        }),
+      );
+      expect(first.status).toBe(200);
+
+      // Edited between runs, exactly as the Settings dialog does it.
+      await admin
+        .from("notebooks")
+        .update({ system_prompt: "Second instruction, replacing the first." })
+        .eq("id", notebookId);
+      const second = await POST(
+        makeRequest({
+          discussionId,
+          promptContent: plainTextToDoc(`edit-takes-effect-2-${Date.now()}`),
+        }),
+      );
+      expect(second.status).toBe(200);
+
+      expect(captured).toEqual([
+        "First instruction.",
+        "Second instruction, replacing the first.",
+      ]);
+
+      // And clearing it stops sending one at all, rather than leaving
+      // the last value in force.
+      await admin
+        .from("notebooks")
+        .update({ system_prompt: null })
+        .eq("id", notebookId);
+      const third = await POST(
+        makeRequest({
+          discussionId,
+          promptContent: plainTextToDoc(`edit-takes-effect-3-${Date.now()}`),
+        }),
+      );
+      expect(third.status).toBe(200);
+      expect(captured[2]).toBeUndefined();
+    } finally {
+      await admin
+        .from("notebooks")
+        .update({ system_prompt: null })
+        .eq("id", notebookId);
+    }
+  });
+
   test("omits Anthropic's system parameter entirely when the notebook has no system_prompt", async () => {
     currentCookies = await signInAsTestUser();
 
