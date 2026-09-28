@@ -6,6 +6,7 @@ import {
   type PactExportCell,
   type PactExportDiscussion,
 } from "@/lib/pactExport";
+import { sumDiscussionTotalTimeMs } from "@/lib/activityRollup";
 
 async function handleGet(request: Request) {
   const supabase = await createClient();
@@ -90,6 +91,17 @@ async function handleGet(request: Request) {
       name: notebook.name,
       systemPrompt: notebook.system_prompt,
       category: notebook.category,
+      // Task 55d. Computed here, at export time, from the rows already
+      // fetched above -- the same sum getNotebookRollup derives for the
+      // live view, via the one shared helper, so the file and the app
+      // can never quote different totals.
+      //
+      // Backfilled rather than conditional: whatever timing data exists
+      // is summed, exactly as the live rollup does. Notebooks whose
+      // activity predates execution timing report the measured part,
+      // which understates rather than lying -- and no "no data" marker,
+      // per the earlier call that one would read as confusing.
+      totalTimeMs: sumDiscussionTotalTimeMs(discussionRows),
     },
     discussions,
     cells,

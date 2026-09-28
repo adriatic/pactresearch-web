@@ -59,6 +59,23 @@ export interface PactExport {
     name: string;
     systemPrompt: string | null;
     category?: string | null;
+    // Task 55d. The notebook's total measured run time, summed from its
+    // discussions' own totalTimeMs at export time.
+    //
+    // Persisted in the file even though the live view derives it on
+    // read, because the file has to answer "how long did this take?"
+    // a month later with no database behind it -- and be readable by a
+    // human opening the raw JSON. That is the opposite trade-off from
+    // the live rollup, and deliberately so.
+    //
+    // Optional, so PACT_EXPORT_VERSION stays at 1: files written before
+    // this simply lack it, and pact-mac ignores what it does not read.
+    // Verified, not assumed -- pact-mac's importNotebook (pact-
+    // production/src/storage/notebookStore.ts) accesses only
+    // data.notebook.name and .systemPrompt by direct property read,
+    // with no schema validation. pact-web has in fact been sending it
+    // an unrecognised notebook-level `category` all along.
+    totalTimeMs?: number;
   };
   discussions: PactExportDiscussion[];
   cells: PactExportCell[];
@@ -110,6 +127,15 @@ function requireNumber(value: unknown, field: string): number {
   return value;
 }
 
+// Absent stays absent rather than defaulting to 0. A file written
+// before task 55d has no measurement to report, and 0 would assert a
+// measured zero -- which is exactly the "reads as broken" confusion the
+// rollup work set out to avoid.
+function optionalNumber(value: unknown, field: string): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  return requireNumber(value, field);
+}
+
 // Validates and narrows an arbitrary parsed-JSON value into a PactExport,
 // throwing PactExportValidationError with a specific, human-readable
 // message for the first thing that's wrong -- a malformed file should
@@ -141,6 +167,14 @@ export function validatePactExport(data: unknown): PactExport {
     category: requireNullableString(
       data.notebook.category,
       "notebook.category",
+    ),
+    // Allow-listed explicitly: this validator rebuilds the notebook
+    // object field by field, so anything not named here is dropped on
+    // import. Without this line the field would export correctly and
+    // then vanish on the way back in.
+    totalTimeMs: optionalNumber(
+      data.notebook.totalTimeMs,
+      "notebook.totalTimeMs",
     ),
   };
 

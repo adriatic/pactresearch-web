@@ -118,6 +118,22 @@ async function rollupFor(
   };
 }
 
+// Notebook total is the sum of its discussions' stored totals -- the
+// same numbers the per-discussion view shows, so the two can never
+// disagree the way an independently-maintained notebook column would.
+//
+// Exported as a pure function because task 55d needs the identical sum
+// at .pact export time, where the discussion rows are already in hand
+// and re-querying them would be wasteful. Two call sites, one
+// definition of "how long did this notebook take" -- a second `reduce`
+// somewhere else is how the exported number and the displayed number
+// start disagreeing.
+export function sumDiscussionTotalTimeMs(
+  discussions: { total_time_ms: number | null }[],
+): number {
+  return discussions.reduce((sum, d) => sum + (d.total_time_ms ?? 0), 0);
+}
+
 export async function getDiscussionRollup(
   supabase: SupabaseClient,
   discussionId: string,
@@ -157,10 +173,7 @@ export async function getNotebookRollup(
   if (discussionsError) throw discussionsError;
 
   const rows = discussions ?? [];
-  // Notebook total is the sum of its discussions' stored totals -- the
-  // same numbers the per-discussion view shows, so the two can never
-  // disagree the way an independently-maintained notebook column would.
-  const totalTimeMs = rows.reduce((sum, d) => sum + (d.total_time_ms ?? 0), 0);
+  const totalTimeMs = sumDiscussionTotalTimeMs(rows);
 
   // The notebook's own created_at floors the span, so an empty notebook
   // still reports when it came into existence rather than nothing.
