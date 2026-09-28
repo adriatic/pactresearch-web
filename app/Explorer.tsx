@@ -229,14 +229,30 @@ export function Explorer({
   }, []);
 
   async function handleDeleteNotebook(notebookId: string, name: string) {
-    const confirmed = window.confirm(
-      `Delete notebook "${name}" and all its discussions? This cannot be undone.`,
-    );
-    if (!confirmed) return;
-
+    // Computed BEFORE the prompt so the message can state the blast
+    // radius. "and all its discussions" was true but vague: deleting a
+    // notebook with eleven discussions and one with none read
+    // identically, and the number is the part that makes someone stop
+    // and think.
+    //
+    // Counted from the tree's own loaded state, the same source the
+    // callback below already uses for deletedDiscussionIds. That can
+    // lag a discussion added in another tab, so this is an honest
+    // indication of scale rather than a guarantee -- the server
+    // deletes whatever is actually there, via ON DELETE CASCADE.
     const deletedDiscussionIds = discussions
       .filter((d) => d.notebook_id === notebookId)
       .map((d) => d.id);
+    const count = deletedDiscussionIds.length;
+    const blastRadius =
+      count === 0
+        ? "It has no discussions."
+        : `This will also delete its ${count} discussion${count === 1 ? "" : "s"}.`;
+
+    const confirmed = window.confirm(
+      `Delete notebook "${name}"?\n\n${blastRadius} This cannot be undone.`,
+    );
+    if (!confirmed) return;
 
     setDeleteError(null);
     const response = await fetch(`/api/notebooks?id=${notebookId}`, {
