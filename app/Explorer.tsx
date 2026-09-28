@@ -9,6 +9,8 @@ import {
 import { useTree } from "@headless-tree/react";
 import { RowMenu } from "./RowMenu";
 import { RenameDialog, type RenameTarget } from "./RenameDialog";
+import type { ActivityRollup } from "@/lib/activityRollup";
+import { formatRollupTotal } from "@/lib/formatActivity";
 
 // Phase D's real notebook tree — ports the core behavior of pact-mac's
 // Explorer.tsx (reviewed in full per 3.13 development-plan §3.13; the
@@ -142,6 +144,13 @@ export function Explorer({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  // Task 55c. Per-notebook rollups, keyed by notebook id. Fetched in one
+  // request rather than one per row, and re-fetched on the same token
+  // the tree itself uses -- a rollup is derived from discussions and
+  // runs, so it is stale exactly when the tree is.
+  const [notebookRollups, setNotebookRollups] = useState<
+    Record<string, ActivityRollup>
+  >({});
   // Which discussion (at most one -- execution_locks is keyed by user_id,
   // one lock per user, not per discussion) the signed-in user currently
   // has running, regardless of which discussion is active in Workspace --
@@ -165,6 +174,17 @@ export function Explorer({
         }
       },
     );
+
+    // Rollups are display-only: a failure here must leave the tree
+    // working, so this neither blocks the fetch above nor surfaces an
+    // error. A row simply shows no timing rather than the tree
+    // refusing to render.
+    fetch("/api/activity-rollups")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { notebooks?: Record<string, ActivityRollup> } | null) => {
+        if (!cancelled && body?.notebooks) setNotebookRollups(body.notebooks);
+      })
+      .catch(() => {});
 
     return () => {
       cancelled = true;
@@ -566,6 +586,12 @@ export function Explorer({
             // alone wouldn't be visible here the way it is on a
             // discussion's plain <span>.
             const isSelected = data.notebookId === selectedNotebookId;
+            // Empty string when the rollup has not arrived yet, which
+            // renders nothing rather than a flash of "No runs yet" that
+            // then changes its mind.
+            const rollupText = formatRollupTotal(
+              notebookRollups[data.notebookId] ?? null,
+            );
             return (
               <div
                 key={item.getId()}
@@ -586,9 +612,43 @@ export function Explorer({
                   {isExpanded ? "▼" : "▶"}
                 </span>
                 <span aria-hidden="true">📓</span>
-                <h3 style={{ margin: 0, fontSize: "1em", flex: 1 }}>
-                  {data.name}
-                </h3>
+                {/* Name and rollup stacked, with the heading holding
+                    ONLY the name. The rollup lived inside the <h3>
+                    first, which made the heading's own text "Alpha\nNo
+                    runs yet" -- caught immediately by
+                    notebook-export-import.spec.ts reading h3 inner
+                    text, and wrong regardless: the heading is the
+                    notebook's title, not a place to park metadata. */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h3 style={{ margin: 0, fontSize: "1em" }}>{data.name}</h3>
+                  {/* Task 55c. The notebook's measured total.
+
+                      aria-hidden, and that is a real trade rather than
+                      an oversight. A treeitem's accessible name is
+                      computed from its contents, so text added here
+                      lands in it -- and a dozen specs across this suite
+                      locate rows with { name, exact: true }, as does
+                      anyone navigating the tree by name. Hiding it
+                      keeps row identity stable and keeps timing out of
+                      the name a screen reader reads for navigation.
+                      The cost is that this figure is visual-only; the
+                      ACTIVE discussion's rollup is announced properly
+                      in the status line, and title= gives it back on
+                      hover. */}
+                  {rollupText && (
+                    <span
+                      aria-hidden="true"
+                      title={`Measured run time for this notebook: ${rollupText}`}
+                      style={{
+                        display: "block",
+                        fontSize: "0.75em",
+                        color: "#666",
+                      }}
+                    >
+                      {rollupText}
+                    </span>
+                  )}
+                </div>
                 <RowMenu
                   label={`Actions for ${data.name}`}
                   items={[

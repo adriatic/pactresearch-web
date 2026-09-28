@@ -1,5 +1,8 @@
 "use client";
 
+import type { ActivityRollup } from "@/lib/activityRollup";
+import { formatActivitySummary } from "@/lib/formatActivity";
+
 import { useEffect, useState } from "react";
 
 // The discussion-name/status row that sits directly above the composer,
@@ -55,6 +58,44 @@ export function ComposerHeader({
   // submit path.
   isRunning: boolean;
 }) {
+  // Task 55c. The active discussion's rollup, re-fetched on every
+  // switch AND whenever a run finishes -- a total that only updated on
+  // page load would be wrong the moment the user did the one thing
+  // that changes it.
+  const [rollup, setRollup] = useState<ActivityRollup | null>(null);
+  // Cleared during render, keyed on the discussion it belongs to,
+  // rather than in the effect below. Two reasons, and the lint rule
+  // that rejects the alternative (react-hooks/set-state-in-effect) is
+  // the lesser one: clearing in an effect means the first paint after a
+  // switch still shows the PREVIOUS discussion's total next to the new
+  // discussion's name -- briefly attributing one discussion's time to
+  // another. Same render-time reset idiom AccountDialog,
+  // SettingsDialog, ModelTierDialog and NewNotebookDialog all use.
+  const [rollupOwner, setRollupOwner] = useState<string | null>(null);
+  if (rollupOwner !== discussionId) {
+    setRollupOwner(discussionId);
+    setRollup(null);
+  }
+  useEffect(() => {
+    if (!discussionId) return;
+    let cancelled = false;
+    // Keyed on isRunning as well as the id: when a run ends this flips
+    // false and the effect re-runs, picking up the total_time_ms the
+    // run just added. Display-only, so a failure clears rather than
+    // surfaces -- a broken rollup must not break the header.
+    fetch(`/api/activity-rollups?discussionId=${discussionId}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { discussion?: ActivityRollup | null } | null) => {
+        if (!cancelled) setRollup(body?.discussion ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setRollup(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [discussionId, isRunning]);
+  const activitySummary = formatActivitySummary(rollup);
   // Milliseconds elapsed in the run this component last observed. Only
   // ever written from the interval callback below and from that effect's
   // own cleanup -- never synchronously during render or in an effect
@@ -144,6 +185,31 @@ export function ComposerHeader({
           ? (discussionName ?? "Loading...")
           : "No discussion selected"}
       </span>
+      {/* Task 55c. Timestamp AND total, which is what was originally
+          asked for -- "Last activity 28 Sep 14:32 · 2m 14s", or
+          "No runs yet" / "Not measured" when there is nothing real to
+          report.
+
+          A plain span, deliberately NOT role="status". There is already
+          exactly one status node in this app (the running indicator
+          just below), and report-a-problem.spec.ts targets it with an
+          unqualified getByRole("status") -- a second one is a
+          strict-mode violation, which DiscussionContent.tsx already
+          carries a comment about avoiding. This text also changes only
+          on a switch or a completed run, so it needs no live region to
+          be noticed. */}
+      {discussionId && activitySummary && (
+        <span
+          style={{
+            color: "#666",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {activitySummary}
+        </span>
+      )}
       {discussionId && (
         <span
           // One live region for the pair, so a screen reader announces
