@@ -1,7 +1,12 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { modelForTier } from "@/lib/modelTiers";
-import { resolveUserAnthropicKey } from "@/lib/userAnthropicKey";
+import {
+  isAnthropicKeyRejection,
+  REJECTED_KEY_CODE,
+  REJECTED_KEY_MESSAGE,
+  resolveUserAnthropicKey,
+} from "@/lib/userAnthropicKey";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
@@ -91,10 +96,27 @@ async function handlePost(request: Request): Promise<Response> {
     // Same reasoning as /api/execute's error path: log the real cause,
     // return something generic. An upstream error body can carry account
     // and key details that do not belong in a browser.
+    //
+    // Read once into a variable: the body is a stream, and the previous
+    // inline `await response.text()` inside the template literal could
+    // not be read again by the branch added below.
     const errorId = crypto.randomUUID();
+    const errorBody = await response.text().catch(() => "<unreadable>");
     console.error(
-      `[refine-system-prompt-error] id=${errorId} status=${response.status}: ${await response.text()}`,
+      `[refine-system-prompt-error] id=${errorId} status=${response.status}: ${errorBody}`,
     );
+
+    // Task 58. This route shares /api/execute's key path, so it must
+    // share its diagnosis too -- the same refused key telling the user
+    // two different stories depending on which button they pressed is
+    // exactly what the shared message constants exist to prevent.
+    if (isAnthropicKeyRejection(response.status)) {
+      return Response.json(
+        { error: REJECTED_KEY_MESSAGE, code: REJECTED_KEY_CODE },
+        { status: 400 },
+      );
+    }
+
     return Response.json(
       {
         error: "Couldn't draft a system prompt. Please try again.",

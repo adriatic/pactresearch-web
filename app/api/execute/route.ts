@@ -5,10 +5,30 @@ import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
 import { modelForTier } from "@/lib/modelTiers";
-import { resolveUserAnthropicKey } from "@/lib/userAnthropicKey";
+import {
+  isAnthropicKeyRejection,
+  REJECTED_KEY_CODE,
+  REJECTED_KEY_MESSAGE,
+  resolveUserAnthropicKey,
+} from "@/lib/userAnthropicKey";
 import { trace, context } from "@opentelemetry/api";
 
 const tracer = trace.getTracer("pact-api");
+
+// Task 58. Carries Anthropic's HTTP status alongside the message, so
+// the catch below can tell "your key was refused" from "the model
+// failed" without re-parsing the formatted message it used to throw.
+// String-matching an error message to make a user-facing decision is a
+// coupling that breaks silently the first time the wording changes.
+class AnthropicRequestError extends Error {
+  constructor(
+    readonly status: number,
+    body: string,
+  ) {
+    super(`Anthropic API request failed with status ${status}: ${body}`);
+    this.name = "AnthropicRequestError";
+  }
+}
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 // Task 50 item C: the model is chosen per user from their selected tier
@@ -326,9 +346,7 @@ async function handlePost(request: Request) {
       const errorBody = await anthropicResponse
         .text()
         .catch(() => "<failed to read response body>");
-      throw new Error(
-        `Anthropic API request failed with status ${anthropicResponse.status}: ${errorBody}`,
-      );
+      throw new AnthropicRequestError(anthropicResponse.status, errorBody);
     }
 
     let accumulatedText = "";
@@ -595,6 +613,30 @@ async function handlePost(request: Request) {
       `[execute-error] id=${errorId} discussionId=${discussionId}: ${errorMessage}`,
       error instanceof Error ? error.stack : error,
     );
+    // Task 58. A key Anthropic refuses is the user's to fix, and saying
+    // "contact support" sends them to the wrong place. Everything else
+    // -- model errors, timeouts, rate limits, our own bugs -- keeps the
+    // generic message and its error id, which is what correlates a
+    // report back to the log line above.
+    //
+    // 400, not 401: this route already returns 401 for "no session", and
+    // reusing it would make "you are signed out" and "Anthropic refused
+    // your key" indistinguishable to any caller reading the status.
+    //
+    // No errorId here on purpose. It exists so support can find the log
+    // line for a failure the user cannot act on; this one needs no
+    // support round trip, and an opaque id would only make an
+    // actionable message look like a crash report.
+    if (
+      error instanceof AnthropicRequestError &&
+      isAnthropicKeyRejection(error.status)
+    ) {
+      return Response.json(
+        { error: REJECTED_KEY_MESSAGE, code: REJECTED_KEY_CODE },
+        { status: 400 },
+      );
+    }
+
     return Response.json(
       {
         error:
