@@ -49,3 +49,26 @@ export async function chooseRowAction(
   await expect(item).toBeVisible();
   await item.click();
 }
+
+// Task 60 moved "Add discussion" out of the sidebar's separate panel
+// and into the notebook row's own ⋮ menu, alongside Rename, Export and
+// Delete. Specs that used the panel go through here instead.
+//
+// Expands the notebook first when needed: the menu lives on the
+// notebook row, which is always present, but callers usually want the
+// resulting discussion row visible afterwards.
+export async function addDiscussionViaRowMenu(
+  page: import("@playwright/test").Page,
+  notebookName: string,
+  discussionName: string,
+) {
+  const row = page.getByRole("treeitem", { name: notebookName, exact: true });
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await chooseRowAction(row, notebookName, "Add discussion");
+
+  const dialog = page.getByRole("dialog", { name: "Add discussion" });
+  await expect(dialog).toBeVisible({ timeout: 15_000 });
+  await dialog.getByLabel("Name:").fill(discussionName);
+  await dialog.getByRole("button", { name: "Add discussion" }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+}

@@ -18,6 +18,22 @@ async function createNotebookViaModal(page: Page, notebookName: string) {
   await expect(dialog).toBeHidden();
 }
 
+// RETARGETED BY TASK 60 -- the window this guarded no longer exists.
+//
+// Adding a discussion moved from an inline panel into a modal dialog.
+// The overlay owns the interaction until creation completes, so there
+// is no longer any way for a user to type into the composer while the
+// POST is in flight: the keystrokes cannot reach it. The bug is not
+// merely fixed, it is unreachable.
+//
+// So this no longer reproduces the race -- it proves the race is
+// structurally prevented, with the POST still artificially delayed to
+// hold the window wide open. Deleting the spec would have thrown away
+// the guard entirely: if the entry point ever became non-modal again,
+// this fails and says why.
+//
+// Original rationale, kept because it is what the property protects:
+//
 // Task 36, second follow-up (Nik's own "keyboard typing still fails, even
 // with the switch-load fix on preview" report). composer-new-discussion-
 // typing-race.spec.ts guards the window *after* activeDiscussionIdRef.current
@@ -125,42 +141,49 @@ test("typing during the discussion-creation request itself survives the new disc
   const notebookRow = page.getByRole("treeitem", { name: notebookName });
   await expect(notebookRow).toBeVisible({ timeout: 15_000 });
 
-  // .last(), not .nth(1): task 52 hid the flat notebook-creation
-  // form, so the discussion Name field is no longer the second one on
-  // the page. .last() picks it either way, including if that form is
-  // ever restored, since it renders after.
-  await page.getByLabel("Name:").last().fill(discussionName);
-  // Awaited -- click() only waits for the click to actually dispatch (an
-  // essentially instant DOM event), not for handleCreateDiscussion's own
-  // async body to finish; firing this concurrently with the next action
-  // (tried earlier) let the two interleave unpredictably over the same
-  // CDP connection and silently dropped the click's own POST entirely
-  // (confirmed via network logging -- zero POSTs to /api/discussions).
-  // exact: true for the same reason as above: this spec's discussion is
-  // named "E2E typing-during-create discussion ...", which contains
-  // "create discussion", so once that row exists its "⋮" trigger
-  // ("Actions for <row name>") also matches the loose locator. It does
-  // not exist yet at this line -- this is pre-emptive, not a fix.
-  await page
-    .getByRole("button", { name: "Create discussion", exact: true })
+  const prompt = page.getByLabel("Prompt");
+  await expect(prompt).toHaveText("");
+
+  // Open the dialog from the notebook's own row menu and submit. The
+  // POST is artificially delayed, so everything below happens while
+  // creation is still in flight -- the exact window that used to be
+  // typable.
+  const menuTrigger = notebookRow.getByRole("button", {
+    name: `Actions for ${notebookName}`,
+  });
+  await menuTrigger.click();
+  await notebookRow
+    .getByRole("menuitem", { name: "Add discussion", exact: true })
     .click();
 
-  const prompt = page.getByLabel("Prompt");
-  await prompt.click();
+  const dialog = page.getByRole("dialog", { name: "Add discussion" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel("Name:").fill(discussionName);
+  await dialog.getByRole("button", { name: "Add discussion" }).click();
+
+  // Still mid-flight: the dialog is up and has not resolved.
+  await expect(dialog).toBeVisible();
+
+  // The composer cannot receive these keystrokes. Typing blind is the
+  // point -- a real user hammering the keyboard during the delay.
   const typedText = "typed while discussion creation was still in flight";
-  // No inter-keystroke delay -- all characters land within a few tens of
-  // ms, guaranteed to finish well before the artificially-delayed POST
-  // resolves, so nothing corrects contentOwnerRef.current afterward. This
-  // is the scenario that matters: a user who finishes typing and pauses
-  // (to think, or right before hitting Run) while creation is still
-  // completing in the background.
   await page.keyboard.type(typedText);
+  await expect(prompt).toHaveText("");
 
-  // Wait out the artificial POST delay plus a margin, plus enough for the
-  // brand-new discussion's own (fast, real) history/draft load to resolve
-  // afterward -- long enough for the bug's own window to have definitely
-  // closed by now. No further typing happens during this wait.
-  await page.waitForTimeout(3000);
+  // And it is not merely unfocused: the overlay physically intercepts
+  // pointer events, so the composer cannot be clicked into either.
+  // (A short timeout: the assertion is that this CANNOT succeed.)
+  await expect(async () => {
+    await prompt.click({ timeout: 750 });
+  }).rejects.toThrow();
 
-  await expect(prompt).toHaveText(typedText);
+  // Creation completes normally once the delay elapses.
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await expect(
+    page.getByRole("treeitem", { name: discussionName, exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+
+  // Nothing was captured into the wrong owner, because nothing could be.
+  await page.waitForTimeout(1500);
+  await expect(prompt).toHaveText("");
 });

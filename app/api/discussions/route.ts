@@ -119,10 +119,21 @@ async function handleGet(request: Request) {
   const id = searchParams.get("id");
   trace.getActiveSpan()?.setAttribute("pact.discussion_id", id ?? "all");
 
+  // Task 60. Oldest first, so a newly added discussion appears AFTER the
+  // ones already there. This was descending, which is why a new
+  // discussion landed at the top of its notebook in the Explorer
+  // instead of at the bottom.
+  //
+  // id breaks ties: created_at is a timestamptz, and two discussions
+  // created in the same transaction-visible instant would otherwise come
+  // back in whatever order the planner chose -- which is exactly the
+  // kind of "usually fine" ordering that differs between the tree and a
+  // .pact export.
   let query = supabase
     .from("discussions")
     .select("*, notebooks(name)")
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
 
   // Optional narrowing to a single discussion (e.g. ExecuteTester loading
   // one discussion's persisted draft) — still a "list" response shape

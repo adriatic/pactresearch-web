@@ -2,6 +2,7 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { addDiscussionViaRowMenu } from "./rowMenuActions";
 
 // Task 52. The New Notebook modal that replaces the flat inline form.
 
@@ -200,8 +201,9 @@ test("without a research question it creates just the notebook, and Add a discus
   // Hiding the legacy form must NOT have taken discussion creation with
   // it -- that form is still the only way to add one to an existing
   // notebook.
-  await page.getByLabel("Name:").last().fill(discussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: the separate panel is gone; the entry point is the
+  // notebook row's own ⋮ menu. Same creation, new door.
+  await addDiscussionViaRowMenu(page, notebookName, discussionName);
   await expect(
     page.getByRole("treeitem", { name: discussionName }),
   ).toBeVisible({ timeout: 15_000 });

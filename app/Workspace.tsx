@@ -269,6 +269,7 @@ export function Workspace({
                 onNotebookDeleted={handleNotebookDeleted}
                 onDiscussionDeleted={handleDiscussionDeleted}
                 onDiscussionRenamed={handleDiscussionRenamed}
+                onDiscussionCreated={handleDiscussionCreated}
                 refetchToken={discussionListRefetchToken}
               />
             </Panel>

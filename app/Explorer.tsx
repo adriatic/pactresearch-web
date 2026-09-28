@@ -9,6 +9,10 @@ import {
 import { useTree } from "@headless-tree/react";
 import { RowMenu } from "./RowMenu";
 import { RenameDialog, type RenameTarget } from "./RenameDialog";
+import {
+  AddDiscussionDialog,
+  type AddDiscussionTarget,
+} from "./AddDiscussionDialog";
 import type { ActivityRollup } from "@/lib/activityRollup";
 import { formatRollupTotal } from "@/lib/formatActivity";
 
@@ -113,6 +117,7 @@ export function Explorer({
   onNotebookDeleted,
   onDiscussionDeleted,
   onDiscussionRenamed,
+  onDiscussionCreated,
   refetchToken,
 }: {
   activeDiscussionId: string | null;
@@ -137,6 +142,10 @@ export function Explorer({
   // discussion's name, and nothing outside this tree renders a
   // notebook's name, so a notebook rename is purely local state here.
   onDiscussionRenamed: (discussionId: string, name: string) => void;
+  // Task 60. Adding a discussion moved into the row menu, so Explorer
+  // now needs the same callback NotebookCreator used to own -- it
+  // selects the new discussion and refetches the tree.
+  onDiscussionCreated: (discussionId: string) => void;
   refetchToken: number;
 }) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -144,6 +153,8 @@ export function Explorer({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  // Task 60. Which notebook the "Add discussion" dialog is open for.
+  const [addTarget, setAddTarget] = useState<AddDiscussionTarget | null>(null);
   // Task 55c. Per-notebook rollups, keyed by notebook id. Fetched in one
   // request rather than one per row, and re-fetched on the same token
   // the tree itself uses -- a rollup is derived from discussions and
@@ -556,6 +567,14 @@ export function Explorer({
         onCancel={() => setRenameTarget(null)}
         onRename={handleRename}
       />
+      <AddDiscussionDialog
+        target={addTarget}
+        onCancel={() => setAddTarget(null)}
+        onCreated={(discussionId) => {
+          setAddTarget(null);
+          onDiscussionCreated(discussionId);
+        }}
+      />
       <div {...tree.getContainerProps("Explorer")}>
         {tree.getItems().map((item) => {
           const data = item.getItemData();
@@ -652,6 +671,18 @@ export function Explorer({
                 <RowMenu
                   label={`Actions for ${data.name}`}
                   items={[
+                    {
+                      // First: the one constructive action, ahead of
+                      // three that act on what already exists. It also
+                      // keeps Delete last, furthest from the pointer's
+                      // resting place when the menu opens.
+                      label: "Add discussion",
+                      onSelect: () =>
+                        setAddTarget({
+                          notebookId: data.notebookId,
+                          notebookName: data.name,
+                        }),
+                    },
                     {
                       label: "Rename",
                       onSelect: () =>
