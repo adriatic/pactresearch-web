@@ -2,7 +2,19 @@ name: CI
 
 on: push
 
+# The integration job takes minutes, not seconds, and `on: push` fires
+# for every commit. Without this, pushing three times in a row leaves
+# three full database stacks grinding away on superseded commits. Only
+# the newest push per branch is worth finishing.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # Fast feedback: no Docker, no database, finishes in well under a
+  # minute. Kept as its own job so a lint error is never buried behind a
+  # ten-minute integration run, and so the two failures are told apart
+  # at a glance in the checks list.
   ci:
     runs-on: ubuntu-latest
     steps:
@@ -26,3 +38,64 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+  # Task 57. The integration suite, against a real local Supabase.
+  #
+  # WHY THIS EXISTS. These 94 tests were running on nobody's machine but
+  # a developer's. Task 55b found 11 of them failing, and they had been
+  # failing for some time -- `after` was called outside a request scope,
+  # broken since task 42 -- because nothing ran them automatically. A
+  # suite outside CI is not a guard, it is a suite someone remembers to
+  # run.
+  #
+  # No supabase/setup-cli action: the CLI is already a devDependency, so
+  # `npm ci` installs it and `npx supabase` resolves to that exact
+  # pinned version -- the same one used locally. One less moving part,
+  # and no chance of CI and a developer running different CLI versions.
+  #
+  # ubuntu-latest ships Docker, which is all `supabase start` needs.
+  # Every service is started rather than a trimmed subset: the suite
+  # touches Realtime (responses-realtime) and Storage (prompt-image
+  # cleanup in the execute path), and guessing wrong about which
+  # services are needed buys a couple of minutes at the cost of a
+  # confusing failure.
+  integration:
+    runs-on: ubuntu-latest
+    # Generous: `supabase start` pulls images on a cold runner, and the
+    # suite itself resets the database per file (fileParallelism is off
+    # deliberately, so one file's reset cannot wipe another's data).
+    timeout-minutes: 30
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.x"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start Supabase
+        run: npx supabase start
+
+      - name: Integration tests
+        run: npm run test:integration
+        env:
+          # The tests set this themselves where they need a specific
+          # value, but several assume a usable secret is present before
+          # they start. A fixed throwaway value here means the suite
+          # never depends on a developer's .env.local -- the exact
+          # local/CI divergence that hid the 2026-09-27 outage, where
+          # decryption worked locally and failed in production because
+          # only one of them had the variable.
+          #
+          # Not a credential: 32 bytes of a constant, for a database
+          # that is created and destroyed inside this job.
+          API_KEY_ENCRYPTION_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM="
+
+      - name: Stop Supabase
+        if: always()
+        run: npx supabase stop --no-backup
