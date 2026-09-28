@@ -6,6 +6,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { DiagnosticCapture } from "./DiagnosticCapture";
 import { CONSOLE_BUFFER_LIMIT, CONSOLE_ARG_MAX_CHARS } from "@/lib/diagnostics";
 import "./globals.css"; // Tailwind base + global resets.
+import { BuildBadge } from "./BuildBadge";
 
 // Task 39: the always-on collection half of "Report a problem" (the UI
 // half is app/DiagnosticCapture.tsx, the capture half lib/diagnostics.ts).
@@ -125,6 +126,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{ __html: DIAGNOSTIC_COLLECTOR }}
         />
         {children}
+        <BuildBadge />
         <DiagnosticCapture />
       </body>
     </html>
