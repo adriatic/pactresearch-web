@@ -33,6 +33,11 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # `npm run typecheck` runs `next typegen` first, deliberately, so
+      # this step needs nothing extra here. See the note in package.json:
+      # the generated route types are gitignored, so a fresh checkout has
+      # none, and a CI-only typegen step would leave the same local/CI
+      # divergence that let this break unnoticed for a week of merges.
       - name: Typecheck
         run: npm run typecheck
 
