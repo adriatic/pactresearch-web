@@ -452,6 +452,113 @@ describe("POST /api/execute", () => {
     }
   });
 
+  // Task 58. A well-formed key that Anthropic itself refuses -- revoked,
+  // mistyped, or another account's. This is the case a real user is most
+  // likely to hit, and it used to produce the least useful of the four
+  // key messages: the generic "contact support", which points at us when
+  // the remedy is entirely theirs.
+  //
+  // Distinct from the incident fix: that one handles a key that is
+  // missing or cannot be decrypted, i.e. detectable before any request
+  // is made. This one reads fine and reaches Anthropic.
+  test("a key Anthropic rejects with 401 produces an actionable message, not the generic failure", async () => {
+    currentCookies = await signInAsTestUser();
+
+    server.use(
+      http.post("https://api.anthropic.com/v1/messages", () =>
+        HttpResponse.json(
+          {
+            type: "error",
+            error: {
+              type: "authentication_error",
+              message: "API key is invalid.",
+            },
+          },
+          { status: 401 },
+        ),
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.code).toBe("anthropic_rejected_key");
+    expect(body.error).toMatch(/Anthropic rejected your API key/i);
+    expect(body.error).toMatch(/Account/);
+    // The old behaviour, explicitly excluded.
+    expect(body.error).not.toMatch(/contact support/i);
+    // No error id: this needs no support round trip, and an opaque id
+    // would make an actionable message read as a crash report.
+    expect(body.errorId).toBeUndefined();
+    // Anthropic's own wording must not leak through.
+    expect(body.error).not.toMatch(/authentication_error/);
+
+    // 400, not 401 -- this route uses 401 for "no session", and the two
+    // must stay distinguishable to any caller reading the status.
+    expect(response.status).not.toBe(401);
+  });
+
+  // The other half of the requirement: the 401 branch must not swallow
+  // unrelated failures. A 500 from Anthropic is a genuine execution
+  // failure and must keep its generic message AND its error id.
+  test("a non-401 Anthropic failure still returns the generic message with an error id", async () => {
+    currentCookies = await signInAsTestUser();
+
+    server.use(
+      http.post("https://api.anthropic.com/v1/messages", () =>
+        HttpResponse.json(
+          {
+            type: "error",
+            error: { type: "api_error", message: "Overloaded" },
+          },
+          { status: 500 },
+        ),
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toMatch(/Execution failed/i);
+    expect(body.errorId).toEqual(expect.any(String));
+    expect(body.code).toBeUndefined();
+    expect(body.error).not.toMatch(/Anthropic rejected/i);
+  });
+
+  // 403 is deliberately NOT treated as a key rejection: it is an account
+  // or permission problem, and telling the user to re-check a valid key
+  // would send them to fix the one thing that is not broken.
+  test("a 403 is not misreported as a rejected key", async () => {
+    currentCookies = await signInAsTestUser();
+
+    server.use(
+      http.post("https://api.anthropic.com/v1/messages", () =>
+        HttpResponse.json(
+          {
+            type: "error",
+            error: { type: "permission_error", message: "nope" },
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).not.toMatch(/Anthropic rejected/i);
+    expect(body.errorId).toEqual(expect.any(String));
+  });
+
   // Task 55b part 1.
   test("accumulates each run's total_ms into discussions.total_time_ms", async () => {
     currentCookies = await signInAsTestUser();
@@ -806,7 +913,15 @@ describe("POST /api/execute", () => {
     expect("system" in capturedBody!).toBe(false);
   });
 
-  test("logs the real Anthropic error server-side but returns only a generic message to the user", async () => {
+  // Retargeted by task 58, not weakened. This was written when a 401
+  // from Anthropic produced the generic 500, and it asserted three
+  // things: the real cause is logged in full, none of it leaks to the
+  // user, and the lock is still released. All three still hold and are
+  // still asserted here. What changed is only the user-facing half --
+  // a refused key now gets its own actionable message -- which makes
+  // the no-leak assertions MORE important, not less: the message names
+  // the key without quoting anything Anthropic said about it.
+  test("logs the real Anthropic 401 in full while showing the user only the actionable key message", async () => {
     currentCookies = await signInAsTestUser();
 
     server.use(
@@ -848,16 +963,16 @@ describe("POST /api/execute", () => {
       consoleErrorSpy.mockRestore();
     }
 
-    // User-facing: generic, no leaked detail, but a correlation id to
-    // match back to the server-side log line.
-    expect(response!.status).toBe(500);
+    // User-facing: actionable, and still leaking nothing.
+    expect(response!.status).toBe(400);
     expect(body!.error).toBe(
-      "Execution failed. Please try again or contact support if this persists.",
+      "Anthropic rejected your API key. Check it in Account → Keys.",
     );
     expect(body!.error).not.toContain("authentication_error");
     expect(body!.error).not.toContain("invalid x-api-key");
-    expect(typeof body!.errorId).toBe("string");
-    expect(body!.errorId.length).toBeGreaterThan(0);
+    // No correlation id, by design: the other three key failures carry
+    // none either, and this one needs no support round trip.
+    expect(body!.errorId).toBeUndefined();
 
     // Server-side: the real cause, in full, tagged with that same id.
     expect(loggedCalls.length).toBeGreaterThan(0);
@@ -866,7 +981,10 @@ describe("POST /api/execute", () => {
       .map((arg) => (typeof arg === "string" ? arg : JSON.stringify(arg)))
       .join("\n");
     expect(loggedText).toContain("[execute-error]");
-    expect(loggedText).toContain(body!.errorId);
+    // The log line is still tagged with an id even though the response
+    // no longer quotes one -- an operator reading logs must still be
+    // able to tie the line to a single request.
+    expect(loggedText).toMatch(/\[execute-error\] id=\S+/);
     expect(loggedText).toContain("401");
     expect(loggedText).toContain("authentication_error");
     expect(loggedText).toContain("invalid x-api-key");

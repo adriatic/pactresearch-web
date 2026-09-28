@@ -38,6 +38,31 @@ export const KEY_ENCRYPTION_UNCONFIGURED_MESSAGE =
   "not start. Nothing was sent to Anthropic. Please contact support.";
 export const KEY_ENCRYPTION_UNCONFIGURED_CODE = "key_encryption_unconfigured";
 
+// Task 58. The key decrypted fine and reached Anthropic, which refused
+// it -- revoked, mistyped, or belonging to another account. Distinct
+// from every failure above, all of which are detectable before the
+// request is made.
+//
+// This is the case a real user is most likely to hit, and until now it
+// produced the least useful of the four messages: the generic
+// "Execution failed. Please try again or contact support", which points
+// at us when the remedy is entirely theirs.
+export const REJECTED_KEY_MESSAGE =
+  "Anthropic rejected your API key. Check it in Account → Keys.";
+export const REJECTED_KEY_CODE = "anthropic_rejected_key";
+
+// Whether an Anthropic HTTP status means "this key is not acceptable".
+//
+// 401 only, deliberately. Anthropic also returns 403 for a permission
+// problem, but that is an account or entitlement issue rather than a
+// wrong key -- telling someone to re-check a key that is perfectly
+// valid would send them to fix the one thing that is not broken. A 403
+// keeps the generic message and its error id, which is the right
+// outcome for something needing a human to look at the account.
+export function isAnthropicKeyRejection(status: number): boolean {
+  return status === 401;
+}
+
 export interface UserKeyFailure {
   error: string;
   code: string;
