@@ -27,7 +27,84 @@ import { createServerClient } from "@supabase/ssr";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
 
-export const PROD_BASE_URL = "https://pact-web.pactresearch.net";
+/** Production, and the default when nothing overrides it. */
+export const PRODUCTION_BASE_URL = "https://pact-web.pactresearch.net";
+
+/**
+ * The deployment under test. Override to run the same specs against a
+ * Preview URL:
+ *
+ *   PACT_E2E_BASE_URL=https://pactresearch-xxxx.vercel.app npm run test:e2e:prod
+ */
+export const E2E_TARGET_BASE_URL =
+  process.env.PACT_E2E_BASE_URL || PRODUCTION_BASE_URL;
+
+const BYPASS_SECRET = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+
+/**
+ * Headers that skip Deployment Protection, per Vercel's documented
+ * contract. Empty when no secret is configured, so production -- which
+ * is not protected -- keeps working with no setup at all.
+ *
+ * x-vercel-set-bypass-cookie is sent alongside the secret because a
+ * browser navigation makes follow-up requests for assets; without the
+ * cookie only the first request would carry the bypass. ("true" here;
+ * "samesitenone" would be needed inside an iframe, which nothing does.)
+ */
+export function vercelBypassHeaders(): Record<string, string> {
+  if (!BYPASS_SECRET) return {};
+  return {
+    "x-vercel-protection-bypass": BYPASS_SECRET,
+    "x-vercel-set-bypass-cookie": "true",
+  };
+}
+
+/**
+ * The bypass WITHOUT the cookie header -- for plain fetch(), not a
+ * browser.
+ *
+ * x-vercel-set-bypass-cookie makes Vercel answer with a redirect plus
+ * Set-Cookie. A browser stores that cookie and the follow-up asset
+ * requests sail through; Node's fetch does not persist it, so it
+ * follows the redirect, gets redirected again, and dies with "redirect
+ * count exceeded". Found by running this against a real protected
+ * preview, not by reading the docs.
+ *
+ * A direct fetch needs no cookie anyway: every call carries the header
+ * itself.
+ */
+export function vercelBypassRequestHeaders(): Record<string, string> {
+  if (!BYPASS_SECRET) return {};
+  return { "x-vercel-protection-bypass": BYPASS_SECRET };
+}
+
+/**
+ * Fails fast on the one combination that produces a baffling failure:
+ * aiming at a protected deployment with no secret. Without this the
+ * specs run against Vercel's SSO login page and report missing
+ * selectors, which reads as an application bug rather than a missing
+ * environment variable.
+ *
+ * Production is exempt: it is public, so the secret is optional there
+ * and the suite keeps working for anyone who has not set one up.
+ */
+export function assertTargetReachable(): void {
+  if (E2E_TARGET_BASE_URL === PRODUCTION_BASE_URL) return;
+  if (BYPASS_SECRET) return;
+  throw new Error(
+    `PACT_E2E_BASE_URL is set to ${E2E_TARGET_BASE_URL}, which is not production, ` +
+      "but VERCEL_AUTOMATION_BYPASS_SECRET is not set. Vercel Deployment " +
+      "Protection will serve its SSO page instead of the app. Generate a " +
+      "secret under Vercel → project Settings → Deployment Protection → " +
+      "Protection Bypass for Automation, and export it as " +
+      "VERCEL_AUTOMATION_BYPASS_SECRET.",
+  );
+}
+
+// Kept as the historical name used by existing specs and fixtures; it
+// now follows the target above rather than being a second hard-coded
+// copy of the production URL.
+export const PROD_BASE_URL = E2E_TARGET_BASE_URL;
 
 const SESSION_FILE = path.resolve(process.cwd(), "cc-test-session.json");
 
@@ -89,9 +166,7 @@ function getProdSupabaseConfig(): { url: string; anonKey: string } {
 
 function readStoredSession(): StoredSession {
   if (!existsSync(SESSION_FILE)) {
-    throw new TestSessionExpiredError(
-      "No cc-test-session.json found.",
-    );
+    throw new TestSessionExpiredError("No cc-test-session.json found.");
   }
   return JSON.parse(readFileSync(SESSION_FILE, "utf-8")) as StoredSession;
 }
@@ -110,7 +185,10 @@ async function getValidTokens(): Promise<{
 
   const now = Date.now() / 1000;
   if (stored.expires_at - EXPIRY_BUFFER_SECONDS > now) {
-    return { accessToken: stored.access_token, refreshToken: stored.refresh_token };
+    return {
+      accessToken: stored.access_token,
+      refreshToken: stored.refresh_token,
+    };
   }
 
   const anonClient = createServerClient(url, anonKey, {
@@ -194,6 +272,14 @@ export async function prodFetch(
 
   const headers = new Headers(init.headers);
   headers.set("Cookie", cookieHeader);
+  // Same bypass the browser contexts use. prodFetch talks to the
+  // deployment directly rather than through Playwright, so it gets no
+  // headers from the config -- without this, a spec calling prodFetch
+  // against a protected Preview receives Vercel's SSO HTML and fails
+  // on a JSON parse, which points nowhere near the real cause.
+  for (const [name, value] of Object.entries(vercelBypassRequestHeaders())) {
+    headers.set(name, value);
+  }
 
   return fetch(url, { ...init, headers });
 }
