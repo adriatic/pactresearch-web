@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { chooseRowAction } from "./rowMenuActions";
@@ -435,4 +436,218 @@ test("after export, delete, and re-import, each discussion's composer shows its 
   // this is per-discussion history, not a leftover from the last switch.
   await importedD1.click();
   await expect(prompt).toHaveText(d1Prompt, { timeout: 10_000 });
+});
+
+// Task 55d. The notebook-level totalTimeMs written into the file.
+//
+// Read out of the actual downloaded bytes, not out of an API response:
+// the requirement is that someone opening the raw .pact a month from
+// now, with no database behind it, can see how long the work took. If
+// it is not in the file on disk, it does not exist for that purpose.
+test("the exported file carries a notebook-level totalTimeMs, and it survives a round trip", async ({
+  page,
+  context,
+}) => {
+  const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
+  const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
+
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-rollup-export-${suffix}@example.com`;
+  const password = "correct horse battery staple 55!";
+  const notebookName = `E2E rollup notebook ${suffix}`;
+
+  const { data: created, error: userError } = await admin.auth.admin.createUser(
+    { email, password, email_confirm: true },
+  );
+  if (userError || !created.user) throw userError ?? new Error("no user");
+  const userId = created.user.id;
+
+  const { data: notebook } = await admin
+    .from("notebooks")
+    .insert({ user_id: userId, name: notebookName, category: "Dev Test" })
+    .select()
+    .single();
+
+  // Known, deliberately uneven timings so the assertion cannot pass by
+  // coincidence, plus a never-run discussion contributing nothing.
+  await admin.from("discussions").insert([
+    {
+      notebook_id: notebook!.id,
+      user_id: userId,
+      name: `${notebookName} ran-long`,
+      total_time_ms: 1234,
+    },
+    {
+      notebook_id: notebook!.id,
+      user_id: userId,
+      name: `${notebookName} ran-short`,
+      total_time_ms: 766,
+    },
+    {
+      notebook_id: notebook!.id,
+      user_id: userId,
+      name: `${notebookName} never-ran`,
+      total_time_ms: 0,
+    },
+  ]);
+  const EXPECTED_TOTAL = 1234 + 766 + 0;
+
+  const jar: { name: string; value: string }[] = [];
+  const jarClient = createServerClient(API_URL, ANON_KEY, {
+    cookies: {
+      getAll: () => jar,
+      setAll: (cs) =>
+        cs.forEach(({ name, value }) => {
+          const e = jar.find((c) => c.name === name);
+          if (e) e.value = value;
+          else jar.push({ name, value });
+        }),
+    },
+  });
+  const { error: signInError } = await jarClient.auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (signInError) throw signInError;
+  await context.addCookies(
+    jar.map(({ name, value }) => ({
+      name,
+      value,
+      domain: "localhost",
+      path: "/",
+      secure: false,
+      httpOnly: false,
+      sameSite: "Lax" as const,
+    })),
+  );
+
+  await page.goto("/");
+  const row = page.getByRole("treeitem", { name: notebookName, exact: true });
+  await expect(row).toBeVisible({ timeout: 15_000 });
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    chooseRowAction(row, notebookName, "Export"),
+  ]);
+  const exported = JSON.parse(readFileSync((await download.path())!, "utf-8"));
+
+  // The field is present, and is the sum of the per-discussion values
+  // in the same file -- not an independently drifting number.
+  expect(exported.notebook.totalTimeMs).toBe(EXPECTED_TOTAL);
+  expect(exported.notebook.totalTimeMs).toBe(
+    exported.discussions.reduce(
+      (sum: number, d: { totalTimeMs: number }) => sum + d.totalTimeMs,
+      0,
+    ),
+  );
+  // Additive change only: the version must not have moved, or every
+  // existing file and every pact-mac file stops importing.
+  expect(exported.version).toBe(1);
+
+  // Round trip: import the file back, then export the copy and confirm
+  // the number is still there and still right.
+  await page
+    .locator('input[type="file"][accept=".pact"]')
+    .setInputFiles((await download.path())!);
+
+  const importedRow = page.getByRole("treeitem", {
+    name: `${notebookName} 1`,
+    exact: true,
+  });
+  await expect(importedRow).toBeVisible({ timeout: 15_000 });
+
+  const [reDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    chooseRowAction(importedRow, `${notebookName} 1`, "Export"),
+  ]);
+  const reExported = JSON.parse(
+    readFileSync((await reDownload.path())!, "utf-8"),
+  );
+  expect(reExported.notebook.totalTimeMs).toBe(EXPECTED_TOTAL);
+});
+
+// A .pact written before task 55d has no notebook.totalTimeMs at all.
+// Those files must still import -- the field is additive, not required.
+test("a pre-55d .pact file, with no notebook totalTimeMs, still imports", async ({
+  page,
+  context,
+}) => {
+  const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
+  const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
+
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-legacy-pact-${suffix}@example.com`;
+  const password = "correct horse battery staple 56!";
+  const notebookName = `E2E legacy pact ${suffix}`;
+
+  const { data: created, error: userError } = await admin.auth.admin.createUser(
+    { email, password, email_confirm: true },
+  );
+  if (userError || !created.user) throw userError ?? new Error("no user");
+
+  const jar: { name: string; value: string }[] = [];
+  const jarClient = createServerClient(API_URL, ANON_KEY, {
+    cookies: {
+      getAll: () => jar,
+      setAll: (cs) =>
+        cs.forEach(({ name, value }) => {
+          const e = jar.find((c) => c.name === name);
+          if (e) e.value = value;
+          else jar.push({ name, value });
+        }),
+    },
+  });
+  const { error: signInError } = await jarClient.auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (signInError) throw signInError;
+  await context.addCookies(
+    jar.map(({ name, value }) => ({
+      name,
+      value,
+      domain: "localhost",
+      path: "/",
+      secure: false,
+      httpOnly: false,
+      sameSite: "Lax" as const,
+    })),
+  );
+
+  await page.goto("/");
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
+
+  // Exactly the shape this app emitted before task 55d: no
+  // notebook.totalTimeMs key at all.
+  const legacy = {
+    version: 1,
+    exportedAt: Date.now(),
+    notebook: {
+      name: notebookName,
+      systemPrompt: null,
+      category: "Dev Test",
+    },
+    discussions: [
+      {
+        id: "legacy-d1",
+        name: `${notebookName} d1`,
+        createdAt: 1,
+        totalTimeMs: 99,
+      },
+    ],
+    cells: [],
+  };
+  expect("totalTimeMs" in legacy.notebook).toBe(false);
+
+  await page.locator('input[type="file"][accept=".pact"]').setInputFiles({
+    name: "legacy.pact",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(legacy)),
+  });
+
+  // Imports cleanly -- no validation error, notebook present in the tree.
+  await expect(
+    page.getByRole("treeitem", { name: notebookName, exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/isn't valid|Failed to import/i)).toHaveCount(0);
 });
