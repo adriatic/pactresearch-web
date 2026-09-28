@@ -58,6 +58,19 @@ jobs:
   # pinned version -- the same one used locally. One less moving part,
   # and no chance of CI and a developer running different CLI versions.
   #
+  # SCOPE, DECIDED 2026-09-28 (Nik) -- recorded here so it is not
+  # re-litigated from first principles every time this job feels slow:
+  #
+  #   - E2E stays MANUAL and is deliberately not added to this job. It
+  #     needs this same stack plus a production build and a browser
+  #     install on every run.
+  #
+  #   - If this job's ~10 minutes per push proves too slow, the answer
+  #     is to SPLIT THE SUITE -- not to restrict it to main and pull
+  #     requests. Restricting the triggers would mean feature branches
+  #     stop being checked at all, which is the situation task 57
+  #     existed to end.
+  #
   # ubuntu-latest ships Docker, which is all `supabase start` needs.
   # Every service is started rather than a trimmed subset: the suite
   # touches Realtime (responses-realtime) and Storage (prompt-image
