@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { addDiscussionViaRowMenu } from "./rowMenuActions";
 
 // Task 52: notebooks are created through the New Notebook modal now. The
 // old flat form still exists in NotebookCreator but is hidden behind
@@ -150,8 +151,9 @@ test("typing immediately after creating a brand-new discussion survives the disc
   // form, so the discussion Name field is no longer the second one on
   // the page. .last() picks it either way, including if that form is
   // ever restored, since it renders after.
-  await page.getByLabel("Name:").last().fill(discussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: the separate panel is gone; the entry point is the
+  // notebook row's own ⋮ menu. Same creation, new door.
+  await addDiscussionViaRowMenu(page, notebookName, discussionName);
 
   // No wait at all -- type immediately, exactly while the (artificially
   // slowed) discussion/responses fetches for this brand-new discussion

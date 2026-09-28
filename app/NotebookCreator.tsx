@@ -7,11 +7,16 @@ import { useRef, useState } from "react";
 // rather than deleted so it can be restored in one line if the modal
 // turns out to have a problem -- flip this to true.
 //
-// The "Add a discussion to this notebook" half below is deliberately NOT
-// hidden. It is the only way to add a discussion to an existing
-// notebook; hiding it with the rest would have removed that outright,
-// which the task did not ask for and nothing else replaces.
+// Task 60 closed the loop on the note that used to sit here. It said
+// the "Add a discussion to this notebook" half was deliberately NOT
+// hidden, because it was the only way to add a discussion to an
+// existing notebook and nothing else replaced it. Something does now:
+// "Add discussion" in each notebook row's own ⋮ menu, alongside
+// Rename, Export and Delete. So this half is hidden too, on its own
+// flag, and for the same reason as the first -- one line to restore if
+// the menu entry turns out to have a problem.
 const SHOW_LEGACY_NOTEBOOK_FORM = false;
+const SHOW_LEGACY_ADD_DISCUSSION_PANEL = false;
 
 const CATEGORIES = ["Personal Research", "Dev Test"] as const;
 
@@ -225,13 +230,23 @@ export function NotebookCreator({
         </>
       )}
 
-      {!selectedNotebookId && (
+      {/* Where the action went. An action that moves without leaving a
+          trace is an action users conclude was removed -- this panel is
+          exactly where someone who knows the old flow will look. */}
+      {!SHOW_LEGACY_ADD_DISCUSSION_PANEL && (
+        <p style={{ color: "#666" }}>
+          To add a discussion, use the ⋮ menu on a notebook in the Explorer
+          above.
+        </p>
+      )}
+
+      {SHOW_LEGACY_ADD_DISCUSSION_PANEL && !selectedNotebookId && (
         <p style={{ color: "#666" }}>
           Select a notebook to add a discussion, or use New Notebook above.
         </p>
       )}
 
-      {selectedNotebookId && (
+      {SHOW_LEGACY_ADD_DISCUSSION_PANEL && selectedNotebookId && (
         <>
           <h2>Add a discussion to this notebook</h2>
           <form onSubmit={handleCreateDiscussion}>

@@ -42,7 +42,13 @@ async function handleGet(request: Request) {
   const { data: discussionRows, error: discussionsError } = await supabase
     .from("discussions")
     .select("id, name, created_at, total_time_ms")
-    .eq("notebook_id", notebookId);
+    .eq("notebook_id", notebookId)
+    // Task 60. This had no ORDER BY at all, so the order was whatever
+    // Postgres happened to return -- which is not stable, and can shift
+    // when a row is updated and rewritten. The exported file must match
+    // what the Explorer shows, so both now sort the same way.
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true });
   if (discussionsError) {
     throw discussionsError;
   }

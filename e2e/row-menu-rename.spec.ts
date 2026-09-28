@@ -139,7 +139,12 @@ test("the row menu holds the row's actions, and Rename really renames a notebook
   await trigger.click();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
   const menu = notebookRow.getByRole("menu");
+  // Task 60 added a fourth item. Order asserted, not just membership:
+  // "Add discussion" leads because it is the one constructive action,
+  // and "Delete notebook" stays last, furthest from where the pointer
+  // rests when the menu opens.
   await expect(menu.getByRole("menuitem")).toHaveText([
+    "Add discussion",
     "Rename",
     "Export",
     "Delete notebook",

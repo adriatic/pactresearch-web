@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { addDiscussionViaRowMenu } from "./rowMenuActions";
 
 // Task 44 item A, reported by Nik and reproducible by hand: in a notebook
 // that already has a discussion with prior runs, create a NEW discussion
@@ -124,8 +125,9 @@ test("a brand-new discussion in a notebook with prior runs opens with an empty c
   // form, so the discussion Name field is no longer the second one on
   // the page. .last() picks it either way, including if that form is
   // ever restored, since it renders after.
-  await page.getByLabel("Name:").last().fill(newDiscussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: the separate panel is gone; the entry point is the
+  // notebook row's own ⋮ menu. Same creation, new door.
+  await addDiscussionViaRowMenu(page, notebookName, newDiscussionName);
   await expect(
     page.getByRole("treeitem", { name: newDiscussionName }),
   ).toBeVisible({ timeout: 15_000 });

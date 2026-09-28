@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { addDiscussionViaRowMenu } from "./rowMenuActions";
 
 // Task 52: notebooks are created through the New Notebook modal now. The
 // old flat form still exists in NotebookCreator but is hidden behind
@@ -18,6 +19,18 @@ async function createNotebookViaModal(page: Page, notebookName: string) {
   await expect(dialog).toBeHidden();
 }
 
+// RETARGETED BY TASK 60, and the premise changed underneath it.
+//
+// Adding a discussion moved out of the shared panel and onto each
+// notebook row's own ⋮ menu. The target is now part of the gesture, so
+// the mis-targeting described below is not merely fixed -- it is no
+// longer expressible. These scenarios are kept anyway, because the
+// property they assert (the discussion lands under the notebook the
+// user meant) is the thing that matters, and asserting it at the
+// database level costs nothing.
+//
+// Original rationale, retained because it is why this file exists:
+//
 // "Add a discussion to this notebook" is a single, shared UI element
 // (not one instance per notebook) meant to target whichever notebook is
 // currently selected in the Explorer. It previously tracked its own
@@ -138,8 +151,11 @@ test("with two notebooks and neither having a discussion yet, selecting the seco
   // via its own row.
   await notebookBRow.locator("h3").click();
 
-  await page.getByLabel("Name:").last().fill(discussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: added from that notebook's own ⋮ menu. The target is
+  // now explicit in the gesture, so the shared-panel mis-targeting
+  // this spec was written for cannot occur -- the assertion below
+  // still proves the row landed under the right notebook.
+  await addDiscussionViaRowMenu(page, notebookBName, discussionName);
   await expect(
     page.getByRole("treeitem", { name: discussionName }),
   ).toBeVisible({ timeout: 10_000 });
@@ -196,8 +212,11 @@ test("clicking the FIRST of two notebooks after both exist correctly targets the
   // panel would still be silently targeting B).
   await notebookARow.locator("h3").click();
 
-  await page.getByLabel("Name:").last().fill(discussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: added from that notebook's own ⋮ menu. The target is
+  // now explicit in the gesture, so the shared-panel mis-targeting
+  // this spec was written for cannot occur -- the assertion below
+  // still proves the row landed under the right notebook.
+  await addDiscussionViaRowMenu(page, notebookAName, discussionName);
   await expect(
     page.getByRole("treeitem", { name: discussionName }),
   ).toBeVisible({ timeout: 10_000 });
@@ -253,8 +272,11 @@ test("with three notebooks, selecting the MIDDLE one targets it correctly -- not
   const middleRow = page.getByRole("treeitem", { name: names[1] });
   await middleRow.locator("h3").click();
 
-  await page.getByLabel("Name:").last().fill(discussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: added from that notebook's own ⋮ menu. The target is
+  // now explicit in the gesture, so the shared-panel mis-targeting
+  // this spec was written for cannot occur -- the assertion below
+  // still proves the row landed under the right notebook.
+  await addDiscussionViaRowMenu(page, names[1], discussionName);
   await expect(
     page.getByRole("treeitem", { name: discussionName }),
   ).toBeVisible({ timeout: 10_000 });
@@ -325,12 +347,24 @@ test("adding a discussion immediately after creating that notebook (already-pass
   await expect(
     page.getByRole("treeitem", { name: freshNotebookName }),
   ).toBeVisible({ timeout: 10_000 });
+  // Was: the shared panel's heading appearing once a notebook was
+  // selected. Task 60 removed that panel, and selection no longer
+  // gates anything -- a brand-new notebook offers the action on its
+  // own row straight away, with no click on the row required first.
   await expect(
-    page.getByText("Add a discussion to this notebook"),
+    page
+      .getByRole("treeitem", { name: freshNotebookName, exact: true })
+      .getByRole("button", { name: `Actions for ${freshNotebookName}` }),
   ).toBeVisible();
+  await expect(page.getByText("Add a discussion to this notebook")).toHaveCount(
+    0,
+  );
 
-  await page.getByLabel("Name:").last().fill(freshDiscussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: added from that notebook's own ⋮ menu. The target is
+  // now explicit in the gesture, so the shared-panel mis-targeting
+  // this spec was written for cannot occur -- the assertion below
+  // still proves the row landed under the right notebook.
+  await addDiscussionViaRowMenu(page, freshNotebookName, freshDiscussionName);
   await expect(
     page.getByRole("treeitem", { name: freshDiscussionName }),
   ).toBeVisible({ timeout: 10_000 });

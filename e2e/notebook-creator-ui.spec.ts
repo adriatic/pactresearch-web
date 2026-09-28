@@ -2,6 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { addDiscussionViaRowMenu } from "./rowMenuActions";
 
 // Task 52: notebooks are created through the New Notebook modal now. The
 // old flat form still exists in NotebookCreator but is hidden behind
@@ -140,8 +141,9 @@ test("creating a notebook and a discussion never shows the raw API response, and
   // something that silently drifts back in.
   await expect(page.getByText(/" created\./)).toHaveCount(0);
 
-  await page.getByLabel("Name:").last().fill(discussionName);
-  await page.getByRole("button", { name: "Create discussion" }).click();
+  // Task 60: the separate panel is gone; the entry point is the
+  // notebook row's own ⋮ menu. Same creation, new door.
+  await addDiscussionViaRowMenu(page, notebookName, discussionName);
 
   await expect(
     page.getByRole("treeitem", { name: discussionName }),
