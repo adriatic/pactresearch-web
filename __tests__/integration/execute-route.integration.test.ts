@@ -559,6 +559,245 @@ describe("POST /api/execute", () => {
     expect(body.errorId).toEqual(expect.any(String));
   });
 
+  // Task 62. The discussion's own prior turns.
+  //
+  // Asserted on the OUTBOUND REQUEST, not the visible reply: a model
+  // can answer a follow-up plausibly without ever having been sent the
+  // earlier turn, so checking the response would hide exactly the bug
+  // being fixed.
+  test("a later turn sends this discussion's prior turns, in order, with alternating roles", async () => {
+    currentCookies = await signInAsTestUser();
+
+    // Start from a known-empty discussion. Earlier tests in this file
+    // share discussionId and leave response rows behind -- harmless
+    // until task 62, because history was never read. Now that it is,
+    // those rows would join this request, so each history test owns
+    // its own starting state.
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+
+    // Two completed turns already in this discussion.
+    await admin.from("responses").insert([
+      {
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: "Who was Nikola Tesla?",
+        response: "An inventor. Pioneered early wireless communication.",
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: "2026-09-01T10:00:00Z",
+      },
+      {
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: "What about alternating current?",
+        response: "He championed AC over DC.",
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: "2026-09-01T10:05:00Z",
+      },
+    ]);
+
+    let sent: { role: string; content: unknown }[] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            messages: { role: string; content: unknown }[];
+          };
+          sent = body.messages;
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({
+        discussionId,
+        promptContent: plainTextToDoc("In your first response you wrote..."),
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    // Two prior turns -> four messages, then the new prompt.
+    expect(sent).toHaveLength(5);
+    expect(sent.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+    ]);
+    expect(sent[0].content).toBe("Who was Nikola Tesla?");
+    expect(sent[1].content).toBe(
+      "An inventor. Pioneered early wireless communication.",
+    );
+    expect(sent[2].content).toBe("What about alternating current?");
+    expect(sent[3].content).toBe("He championed AC over DC.");
+    // The current prompt is last, and is rich content rather than text.
+    expect(Array.isArray(sent[4].content)).toBe(true);
+
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  });
+
+  test("a brand-new discussion's first turn still sends exactly one message", async () => {
+    currentCookies = await signInAsTestUser();
+
+    const { data: fresh } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebookId,
+        user_id: userId,
+        name: `history-first-turn-${Date.now()}`,
+      })
+      .select()
+      .single();
+
+    let sent: { role: string }[] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            messages: { role: string }[];
+          };
+          sent = body.messages;
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({
+        discussionId: fresh!.id,
+        promptContent: plainTextToDoc("first ever prompt"),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].role).toBe("user");
+  });
+
+  // The leak the brief asked about: two discussions in ONE notebook.
+  test("a sibling discussion's turns never leak into this one", async () => {
+    currentCookies = await signInAsTestUser();
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+
+    const { data: sibling } = await admin
+      .from("discussions")
+      .insert({
+        notebook_id: notebookId,
+        user_id: userId,
+        name: `history-sibling-${Date.now()}`,
+      })
+      .select()
+      .single();
+
+    await admin.from("responses").insert({
+      discussion_id: sibling!.id,
+      user_id: userId,
+      prompt_text: "SIBLING SECRET PROMPT",
+      response: "SIBLING SECRET RESPONSE",
+      model: "m",
+      resolved_model: "claude-sonnet-4-6",
+    });
+
+    let sent: { role: string; content: unknown }[] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            messages: { role: string; content: unknown }[];
+          };
+          sent = body.messages;
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({
+        discussionId,
+        promptContent: plainTextToDoc("unrelated prompt"),
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    const asText = JSON.stringify(sent);
+    expect(asText).not.toContain("SIBLING SECRET PROMPT");
+    expect(asText).not.toContain("SIBLING SECRET RESPONSE");
+    expect(sent).toHaveLength(1);
+  });
+
+  // An in-flight or failed run leaves a row with no response. Including
+  // its prompt would put two user messages back to back, which
+  // Anthropic rejects -- so one failed run would break every later turn
+  // in that discussion.
+  test("an incomplete prior turn is dropped rather than breaking role alternation", async () => {
+    currentCookies = await signInAsTestUser();
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+
+    await admin.from("responses").insert([
+      {
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: "a completed turn",
+        response: "its answer",
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: "2026-09-01T10:00:00Z",
+      },
+      {
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: "a run that never finished",
+        response: null,
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: "2026-09-01T10:05:00Z",
+      },
+    ]);
+
+    let sent: { role: string; content: unknown }[] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            messages: { role: string; content: unknown }[];
+          };
+          sent = body.messages;
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("next") }),
+    );
+    expect(response.status).toBe(200);
+
+    // The completed pair, then the new prompt. The dangling one is gone.
+    expect(sent.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(JSON.stringify(sent)).not.toContain("a run that never finished");
+
+    // No two consecutive user messages anywhere.
+    for (let i = 1; i < sent.length; i++) {
+      expect(sent[i].role === sent[i - 1].role).toBe(false);
+    }
+
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  });
+
   // Task 55b part 1.
   test("accumulates each run's total_ms into discussions.total_time_ms", async () => {
     currentCookies = await signInAsTestUser();
