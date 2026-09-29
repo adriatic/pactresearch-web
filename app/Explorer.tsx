@@ -118,6 +118,7 @@ export function Explorer({
   onDiscussionDeleted,
   onDiscussionRenamed,
   onDiscussionCreated,
+  isRunning,
   refetchToken,
 }: {
   activeDiscussionId: string | null;
@@ -146,6 +147,11 @@ export function Explorer({
   // now needs the same callback NotebookCreator used to own -- it
   // selects the new discussion and refetches the tree.
   onDiscussionCreated: (discussionId: string) => void;
+  // Task 63. The same `loading` the Run button and ComposerHeader's
+  // status dot already use. Not for rendering here -- purely so the
+  // per-notebook rollups refetch when a run FINISHES, which is the one
+  // moment they change and the one moment nothing told this tree.
+  isRunning: boolean;
   refetchToken: number;
 }) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
@@ -200,7 +206,22 @@ export function Explorer({
     return () => {
       cancelled = true;
     };
-  }, [refetchToken]);
+    // isRunning as well as refetchToken, and this is task 63's actual
+    // fix. refetchToken bumps when the tree's STRUCTURE changes --
+    // create, delete, import -- and a completed run changes none of
+    // that. So the rollups were fetched once at page load and never
+    // again: run three prompts and the tree still reported whatever
+    // was true before you started, which for a fresh notebook is
+    // "No runs yet".
+    //
+    // Reported as "rename breaks the rollup", and the rename was
+    // innocent -- verified by rolling up the same notebook either side
+    // of a PATCH and getting identical numbers. Renaming just drew the
+    // eye to a row that had been stale since load.
+    //
+    // ComposerHeader already keyed its own rollup on isRunning for
+    // exactly this reason (task 55c); the tree was left behind.
+  }, [refetchToken, isRunning]);
 
   // 3s poll: frequent enough that "still running" feels live without
   // hammering the DB for what's ultimately a single small row read,

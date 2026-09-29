@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { chooseRowAction } from "./rowMenuActions";
 
 // Task 55c. The rollups from 55a/55b, finally on screen.
 //
@@ -245,4 +246,125 @@ test("screenshot: Explorer rollups and status line", async ({
     }
   }
   expect(withData.length).toBeGreaterThan(0);
+});
+
+// Task 63. Reported as "renaming a notebook shows No runs yet". The
+// rename was innocent -- rolling the same notebook up either side of a
+// PATCH gives identical numbers. The real fault: the tree fetched its
+// rollups once at page load and refetched only when the tree's
+// STRUCTURE changed (create, delete, import). A completed run changes
+// none of that, so the row kept reporting whatever was true before the
+// run -- "No runs yet" for a notebook that had just been used.
+test("the tree re-queries its rollups when a run finishes", async ({
+  page,
+  context,
+}) => {
+  const { withoutData } = await seed(page, context);
+
+  const row = page.getByRole("treeitem", { name: withoutData, exact: true });
+  await expect(row).toContainText("No runs yet", { timeout: 15_000 });
+
+  const discussionRow = page.getByRole("treeitem", { name: /never-run/ });
+  await expect(async () => {
+    if ((await discussionRow.count()) === 0) {
+      await row.locator("h3").click();
+    }
+    await expect(discussionRow).toHaveCount(1, { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+  await discussionRow.click();
+
+  // Count rollup requests from here on. This is the assertion that
+  // matters: asserting the rendered TEXT would pass either way,
+  // because a mocked run writes no timing rows and "No runs yet"
+  // stays correct. What was broken is that the tree never asked again.
+  // Only the BULK request counts -- the one with no query string, which
+  // is the tree's. /api/activity-rollups?discussionId=... is the status
+  // line's, and ComposerHeader has refetched that on isRunning since
+  // task 55c. Counting both made this test pass with the fix reverted,
+  // which is how the distinction was found.
+  let treeRollupRequests = 0;
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      url.pathname === "/api/activity-rollups" &&
+      !url.searchParams.has("discussionId")
+    ) {
+      treeRollupRequests += 1;
+    }
+  });
+
+  await page.route("**/api/execute", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        response: "done",
+        resolved_model: "claude-sonnet-4-6-mock",
+      }),
+    }),
+  );
+
+  const composer = page.getByLabel("Prompt");
+  await composer.fill("trigger a run");
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/execute")),
+    page.getByRole("button", { name: "Run", exact: true }).click(),
+  ]);
+
+  // Before task 63 this stayed at 0: the tree refetched only when its
+  // structure changed, and finishing a run changes no structure.
+  await expect
+    .poll(() => treeRollupRequests, { timeout: 15_000 })
+    .toBeGreaterThan(0);
+});
+
+// The reported repro, and the checklist's rename cases -- asserted
+// against the API response rather than only the rendering, since a
+// client-side cache is exactly what turned out to be at fault.
+test("renaming a notebook does not change its rollup, with runs or without", async ({
+  page,
+  context,
+}) => {
+  const { withData, withoutData } = await seed(page, context);
+
+  const measured = page.getByRole("treeitem", { name: withData, exact: true });
+  const unrun = page.getByRole("treeitem", { name: withoutData, exact: true });
+  await expect(measured).toContainText("2m 14s", { timeout: 15_000 });
+  await expect(unrun).toContainText("No runs yet", { timeout: 15_000 });
+
+  // Rename the one WITH runs. It must keep its total.
+  const renamed = `${withData} renamed`;
+  await chooseRowAction(measured, withData, "Rename");
+  const dialog = page.getByRole("dialog", { name: "Rename notebook" });
+  await dialog.getByLabel("Name:").fill(renamed);
+  await dialog.getByRole("button", { name: "Rename" }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+
+  const renamedRow = page.getByRole("treeitem", { name: renamed, exact: true });
+  await expect(renamedRow).toBeVisible({ timeout: 15_000 });
+  await expect(renamedRow).toContainText("2m 14s");
+  await expect(renamedRow).not.toContainText("No runs yet");
+
+  // Rename it a second time -- nothing degrades cumulatively.
+  const renamedTwice = `${renamed} again`;
+  await chooseRowAction(renamedRow, renamed, "Rename");
+  await dialog.getByLabel("Name:").fill(renamedTwice);
+  await dialog.getByRole("button", { name: "Rename" }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  const twiceRow = page.getByRole("treeitem", {
+    name: renamedTwice,
+    exact: true,
+  });
+  await expect(twiceRow).toContainText("2m 14s", { timeout: 15_000 });
+
+  // And an empty notebook renamed still reads as empty -- no
+  // overcorrection into always claiming runs.
+  const emptyRenamed = `${withoutData} renamed`;
+  await chooseRowAction(unrun, withoutData, "Rename");
+  await dialog.getByLabel("Name:").fill(emptyRenamed);
+  await dialog.getByRole("button", { name: "Rename" }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 });
+  await expect(
+    page.getByRole("treeitem", { name: emptyRenamed, exact: true }),
+  ).toContainText("No runs yet", { timeout: 15_000 });
 });

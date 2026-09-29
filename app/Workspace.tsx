@@ -270,6 +270,7 @@ export function Workspace({
                 onDiscussionDeleted={handleDiscussionDeleted}
                 onDiscussionRenamed={handleDiscussionRenamed}
                 onDiscussionCreated={handleDiscussionCreated}
+                isRunning={execution.loading}
                 refetchToken={discussionListRefetchToken}
               />
             </Panel>
