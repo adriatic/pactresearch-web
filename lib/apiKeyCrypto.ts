@@ -4,6 +4,7 @@ import {
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
+import { encryptionSecretProblem } from "./requiredEnv";
 
 // Task 51. Application-level encryption for stored third-party API keys.
 //
@@ -25,7 +26,8 @@ import {
 
 const ALGORITHM = "aes-256-gcm";
 const IV_BYTES = 12;
-const KEY_BYTES = 32;
+// Key length is enforced by lib/requiredEnv (ENCRYPTION_KEY_BYTES), which
+// the startup and build checks use too -- one rule, not two.
 // Versioned so the format can change later without having to guess how
 // an existing row was written.
 const FORMAT_VERSION = "v1";
@@ -42,19 +44,15 @@ function getKey(): Buffer {
   if (!raw) {
     throw new EncryptionNotConfiguredError("is not set");
   }
-  let key: Buffer;
-  try {
-    key = Buffer.from(raw, "base64");
-  } catch {
-    throw new EncryptionNotConfiguredError("is not valid base64");
+  // Task 66. The shape rule lives in lib/requiredEnv so the startup and
+  // build-time checks enforce exactly what this function needs, rather
+  // than a second copy of the rule that could drift from it. The
+  // returned reason says the length it got, never the value.
+  const problem = encryptionSecretProblem(raw);
+  if (problem) {
+    throw new EncryptionNotConfiguredError(problem);
   }
-  if (key.length !== KEY_BYTES) {
-    // Says the length it got, never the value.
-    throw new EncryptionNotConfiguredError(
-      `must decode to ${KEY_BYTES} bytes, got ${key.length}`,
-    );
-  }
-  return key;
+  return Buffer.from(raw, "base64");
 }
 
 // Returns "v1:<iv>:<authTag>:<ciphertext>", all base64. Safe to store in
