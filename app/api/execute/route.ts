@@ -309,6 +309,66 @@ async function handlePost(request: Request) {
       .getActiveSpan()
       ?.setAttribute("pact.prompt_content_convert_ms", contentConvertMs);
 
+    // Task 62. THIS DISCUSSION'S OWN PRIOR TURNS.
+    //
+    // Until now this route sent exactly one message -- the current
+    // prompt -- so the model had never seen anything said earlier in
+    // the discussion. Asked about its own first answer it replied "I
+    // haven't made a previous response in our conversation", which was
+    // not a lapse: it was true. Present since the route was first
+    // written (bd71346); role: "assistant" had never appeared in this
+    // file on any branch.
+    //
+    // Scoped to this discussionId alone -- not the notebook, not other
+    // discussions. Chronological, with id breaking ties, the same
+    // ordering task 60 had to fix in the tree and the export; a
+    // conversation replayed out of order is worse than none.
+    const historyReadStart = Date.now();
+    const { data: priorTurns, error: historyError } =
+      await tracer.startActiveSpan("history-read", async (span) => {
+        try {
+          return await supabase
+            .from("responses")
+            .select("prompt_text, response, created_at, id")
+            .eq("discussion_id", discussionId)
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true });
+        } finally {
+          span.end();
+        }
+      });
+    if (historyError) {
+      // Deliberately fatal, unlike the system-prompt read above, which
+      // degrades to "no system prompt". Silently running a later turn
+      // with no history is the exact bug this fixes, and it would look
+      // to the user like the model forgetting rather than like an
+      // error. Better to fail loudly than to reintroduce it quietly.
+      throw historyError;
+    }
+    trace
+      .getActiveSpan()
+      ?.setAttribute("pact.history_read_ms", Date.now() - historyReadStart);
+
+    // Only COMPLETED turns. A row whose response is still null or empty
+    // is an in-flight or failed run, and including its prompt would put
+    // two user messages back to back -- which Anthropic rejects
+    // outright ("roles must alternate"). Dropping the pair keeps the
+    // sequence valid and keeps a failed run from poisoning every later
+    // turn in that discussion.
+    const priorMessages = (priorTurns ?? [])
+      .filter(
+        (turn) =>
+          (turn.prompt_text ?? "").trim().length > 0 &&
+          (turn.response ?? "").trim().length > 0,
+      )
+      .flatMap((turn) => [
+        { role: "user" as const, content: turn.prompt_text as string },
+        { role: "assistant" as const, content: turn.response as string },
+      ]);
+    trace
+      .getActiveSpan()
+      ?.setAttribute("pact.history_turn_count", priorMessages.length / 2);
+
     const anthropicConnectStart = Date.now();
     const anthropicResponse = await context.with(ttftCtx, () =>
       tracer.startActiveSpan("anthropic-connect", async (span) => {
@@ -325,7 +385,10 @@ async function handlePost(request: Request) {
               max_tokens: maxTokens,
               stream: true,
               ...(systemPrompt ? { system: systemPrompt } : {}),
-              messages: [{ role: "user", content: anthropicContent }],
+              messages: [
+                ...priorMessages,
+                { role: "user", content: anthropicContent },
+              ],
             }),
           });
         } finally {
