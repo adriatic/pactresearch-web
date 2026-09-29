@@ -9,13 +9,32 @@
 // already become a bare "(" and the delimiter is gone. A remark plugin
 // is the wrong layer; verified, not assumed -- see the tests.
 //
-// Both forms are rewritten to "$$...$$" rather than "$...$" because
-// single-dollar math is deliberately off (see MarkdownResponse): with it
-// on, "it costs $50 and $60" parses "$50 and $" as an equation. The
-// dollar pair does double duty -- remark-math reads "$$" at the start of
-// a line as display math and "$$" mid-sentence as inline math -- so the
-// same rewrite gets the right presentation from where the equation sat
-// in the original text.
+// Display math always becomes "$$...$$". The inline delimiter is a
+// parameter because the two consumers need different answers, and the
+// reason is worth stating once here rather than being rediscovered:
+//
+//   In the app (MarkdownResponse) inline math is "$$...$$" too, because
+//   single-dollar math is deliberately OFF -- with it on, "it costs $50
+//   and $60" parses "$50 and $" as an equation. remark-math reads "$$"
+//   mid-sentence as inline and "$$" on its own line as display, so one
+//   delimiter covers both and currency is never at risk.
+//
+//   In an exported markdown file (task 65) inline math is "$...$",
+//   because the file is read by viewers we do not control, and "$...$"
+//   inline / "$$...$$" display is the convention they implement. GitHub
+//   in particular documents "$" as the inline form and "$$" as a block,
+//   so "$$" mid-sentence would break the sentence onto its own line.
+//   This only ever ADDS dollars where the author wrote "\(...\)"; an
+//   existing "$50" in the text is never touched. Measured, for the
+//   obvious worry: a viewer with single-dollar math on already mangles
+//   "costs $50 and $60" in a sentence containing no math at all, so the
+//   pairing is its configuration meeting the model's own text, not
+//   something this rewrite creates -- and "$$" would not avoid it. Test
+//   in __tests__/discussion-markdown-renders.test.tsx.
+//
+// Same scan, same protected regions, one parameter -- so the two cannot
+// drift apart in anything except that deliberate choice.
+export type InlineMathDelimiter = "$" | "$$";
 
 // Regions whose contents must survive verbatim: fenced code, inline code,
 // and math that already uses the dollar form. Kept as one alternation so
@@ -35,13 +54,32 @@ const PROTECTED =
 // each delimited region is consumed whole.
 const LATEX = /\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)/g;
 
-function rewrite(segment: string): string {
+function rewrite(segment: string, inlineDelimiter: InlineMathDelimiter) {
   return segment.replace(
     LATEX,
-    (_match, display: string | undefined, inline: string | undefined) =>
-      display === undefined
-        ? `$$${(inline ?? "").trim()}$$`
-        : `\n$$\n${display.trim()}\n$$\n`,
+    (
+      match: string,
+      display: string | undefined,
+      inline: string | undefined,
+      offset: number,
+      whole: string,
+    ) => {
+      if (display === undefined) {
+        return `${inlineDelimiter}${(inline ?? "").trim()}${inlineDelimiter}`;
+      }
+      // Display math has to start its own line for remark-math to read
+      // it as display, so a newline is added only where there is not one
+      // already. Adding them unconditionally is invisible in the app --
+      // the renderer collapses blank lines -- but task 65 writes this
+      // same output to a file a human opens in a text editor, where an
+      // equation surrounded by two blank lines on each side looks like
+      // a mistake.
+      const lead = whole.slice(0, offset).endsWith("\n") ? "" : "\n";
+      const tail = whole.slice(offset + match.length).startsWith("\n")
+        ? ""
+        : "\n";
+      return `${lead}$$\n${display.trim()}\n$$${tail}`;
+    },
   );
 }
 
@@ -55,7 +93,11 @@ function rewrite(segment: string): string {
 // An unpaired "$$" is therefore left as literal text until its partner
 // arrives. PROTECTED already captures balanced pairs, so anything still
 // sitting in an unprotected segment is an opener with no closer.
-function maskUnpairedMathFence(text: string): string {
+// Exported because it is a *streaming* concern, not part of delimiter
+// normalisation: a stored, finished response has no half-open fence, and
+// masking one in an exported file would put literal backslashes in front
+// of the reader. MarkdownResponse composes the two; the export does not.
+export function maskUnpairedMathFence(text: string): string {
   return text
     .split(PROTECTED)
     .map((segment, index) =>
@@ -64,14 +106,16 @@ function maskUnpairedMathFence(text: string): string {
     .join("");
 }
 
-export function normalizeLatexDelimiters(source: string): string {
+export function normalizeLatexDelimiters(
+  source: string,
+  inlineDelimiter: InlineMathDelimiter = "$$",
+): string {
   // split() with a capturing group keeps the delimiters, so the protected
   // regions land at the odd indices and are copied through untouched.
-  const rewritten = source
+  return source
     .split(PROTECTED)
     .map((segment, index) =>
-      index % 2 === 1 ? segment : rewrite(segment ?? ""),
+      index % 2 === 1 ? segment : rewrite(segment ?? "", inlineDelimiter),
     )
     .join("");
-  return maskUnpairedMathFence(rewritten);
 }

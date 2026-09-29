@@ -2,7 +2,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
-import { normalizeLatexDelimiters } from "@/lib/latexDelimiters";
+import {
+  maskUnpairedMathFence,
+  normalizeLatexDelimiters,
+} from "@/lib/latexDelimiters";
 // KaTeX ships the fonts and layout rules its output depends on. Without
 // this the markup renders but looks like unstyled spans -- which is a
 // different flavour of unreadable from the raw LaTeX it replaces.
@@ -50,7 +53,7 @@ export function MarkdownResponse({ content }: { content: string }) {
       remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]}
       rehypePlugins={[rehypeKatex]}
     >
-      {normalizeLatexDelimiters(content)}
+      {maskUnpairedMathFence(normalizeLatexDelimiters(content))}
     </ReactMarkdown>
   );
 }
