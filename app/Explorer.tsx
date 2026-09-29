@@ -15,6 +15,7 @@ import {
 } from "./AddDiscussionDialog";
 import type { ActivityRollup } from "@/lib/activityRollup";
 import { formatRollupTotal } from "@/lib/formatActivity";
+import { downloadDiscussionExport } from "@/lib/downloadDiscussionExport";
 
 // Phase D's real notebook tree — ports the core behavior of pact-mac's
 // Explorer.tsx (reviewed in full per 3.13 development-plan §3.13; the
@@ -383,29 +384,13 @@ export function Explorer({
   // Task 65. Per-discussion export, and deliberately not a .pact file:
   // markdown, because a single discussion someone exports is usually
   // headed for an email or a doc rather than back into pact-web. The
-  // server does the rendering and names the file, so the convention
-  // lives in one place (lib/discussionMarkdown.ts).
+  // download itself is shared with the active-discussion header's own
+  // Export button (lib/downloadDiscussionExport.ts).
   async function handleExportDiscussion(discussionId: string, name: string) {
     setExportError(null);
-    const response = await fetch(
-      `/api/discussions/export?id=${encodeURIComponent(discussionId)}`,
-    );
-    if (!response.ok) {
+    if (!(await downloadDiscussionExport(discussionId))) {
       setExportError(`Failed to export "${name}".`);
-      return;
     }
-    const { filename, markdown } = await response.json();
-    const blob = new Blob([markdown], {
-      type: "text/markdown;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   }
 
   // Per-discussion counterpart to handleDeleteNotebook above. The 409 it

@@ -2,6 +2,7 @@
 
 import type { ActivityRollup } from "@/lib/activityRollup";
 import { formatActivitySummary } from "@/lib/formatActivity";
+import { downloadDiscussionExport } from "@/lib/downloadDiscussionExport";
 
 import { useEffect, useState } from "react";
 
@@ -58,6 +59,11 @@ export function ComposerHeader({
   // submit path.
   isRunning: boolean;
 }) {
+  // Task 65 follow-up: state for this header's own Export button,
+  // declared here because the render-time reset below clears it.
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
   // Task 55c. The active discussion's rollup, re-fetched on every
   // switch AND whenever a run finishes -- a total that only updated on
   // page load would be wrong the moment the user did the one thing
@@ -75,6 +81,10 @@ export function ComposerHeader({
   if (rollupOwner !== discussionId) {
     setRollupOwner(discussionId);
     setRollup(null);
+    // A failure message belongs to the discussion it was about. Cleared
+    // here rather than in an effect for the same reason the rollup is
+    // (react-hooks/set-state-in-effect, and the stale first paint).
+    setExportError(null);
   }
   useEffect(() => {
     if (!discussionId) return;
@@ -137,6 +147,23 @@ export function ComposerHeader({
       setHasRun(false);
     };
   }, [discussionId]);
+
+  // Task 65 follow-up. Export the discussion you are looking at, from
+  // where you are looking at it. The Explorer's row menu already offers
+  // this, but reaching it means finding the row for the discussion
+  // already open in front of you -- and in a tree of any size that is
+  // the long way round.
+  //
+  // Same endpoint, same shared download helper as the row menu, so the
+  // two cannot produce different files.
+  async function handleExport() {
+    if (!discussionId) return;
+    setExportError(null);
+    setExporting(true);
+    const ok = await downloadDiscussionExport(discussionId);
+    setExporting(false);
+    if (!ok) setExportError("Export failed");
+  }
 
   const statusColor = isRunning ? RUNNING_COLOR : IDLE_COLOR;
 
@@ -249,6 +276,42 @@ export function ComposerHeader({
             }}
           />
         </span>
+      )}
+      {discussionId && (
+        <>
+          {exportError && (
+            // Next to the button that failed, not in the sidebar where
+            // the Explorer puts its own copy -- a message about a click
+            // belongs where the click happened.
+            <span style={{ color: "#b00", whiteSpace: "nowrap" }}>
+              {exportError}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={exporting}
+            // "Export discussion", not "Export". Playwright matches
+            // accessible names by case-insensitive SUBSTRING unless told
+            // otherwise, and this app's tree rows are conventionally
+            // named "E2E <feature> notebook ...", so a button simply
+            // named "Export" collides with the "Actions for E2E
+            // discussion-export notebook ..." trigger. The longer name
+            // keeps a page-level locator unambiguous on its own, and
+            // reads better to a screen reader besides. See the note at
+            // the top of e2e/rowMenuActions.ts.
+            aria-label="Export discussion"
+            title="Export this discussion as a markdown file"
+            style={{
+              flexShrink: 0,
+              fontSize: "0.85em",
+              padding: "2px 8px",
+              cursor: exporting ? "default" : "pointer",
+            }}
+          >
+            {exporting ? "Exporting…" : "Export"}
+          </button>
+        </>
       )}
     </div>
   );

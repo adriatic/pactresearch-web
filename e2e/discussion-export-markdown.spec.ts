@@ -224,4 +224,46 @@ test("exporting a discussion downloads a readable markdown file of that discussi
   // Nothing internal.
   expect(markdown).not.toContain(discussion!.id);
   expect(markdown).not.toContain("claude-sonnet-4-6");
+
+  // ---------------------------------------------------------------
+  // The second entry point: the Export button on the active-discussion
+  // header. The risk worth testing is not that it works, it is that it
+  // DRIFTS from the row menu -- a different endpoint, a different
+  // filename, a different file. So the assertion is that the two
+  // downloads are identical, byte for byte.
+  //
+  // The page opened on the sibling (findLatestDiscussion picks the most
+  // recently created), so selecting the row first is also what makes
+  // this a real test of "export what I am looking at".
+  const header = page.getByRole("group", { name: "Active discussion" });
+  await expect(header).toContainText(siblingName);
+
+  await discussionRow.click();
+  await expect(header).toContainText(discussionName, { timeout: 15_000 });
+
+  // Measured, and the reason the button is named "Export discussion"
+  // rather than "Export": Playwright matches accessible names by
+  // case-insensitive substring, and this notebook is named "E2E
+  // discussion-export notebook ...", so a page-level loose "Export"
+  // also finds its row-menu trigger. The longer name is unambiguous on
+  // its own; if someone shortens it, this fails and says why.
+  expect(
+    await page.getByRole("button", { name: "Export" }).count(),
+  ).toBeGreaterThan(1);
+  expect(
+    await page
+      .getByRole("button", { name: "Export discussion", exact: true })
+      .count(),
+  ).toBe(1);
+
+  const [headerDownload] = await Promise.all([
+    page.waitForEvent("download"),
+    header
+      .getByRole("button", { name: "Export discussion", exact: true })
+      .click(),
+  ]);
+
+  expect(headerDownload.suggestedFilename()).toBe(download.suggestedFilename());
+  const headerPath = await headerDownload.path();
+  expect(readFileSync(headerPath!, "utf-8")).toBe(markdown);
 });
