@@ -45,13 +45,33 @@ function rewrite(segment: string): string {
   );
 }
 
+// Streaming delivers a response a few characters at a time, so a "$$"
+// block spends a moment open with only half an equation inside it.
+// remark-math closes an unterminated block at end of input and KaTeX
+// then renders the fragment as red error text -- measured: at one frame
+// of "L = \frac{1}{2} m v^2" arriving, the panel showed a katex-error
+// span for "\frac". Every equation would flash red on its way in.
+//
+// An unpaired "$$" is therefore left as literal text until its partner
+// arrives. PROTECTED already captures balanced pairs, so anything still
+// sitting in an unprotected segment is an opener with no closer.
+function maskUnpairedMathFence(text: string): string {
+  return text
+    .split(PROTECTED)
+    .map((segment, index) =>
+      index % 2 === 1 ? segment : (segment ?? "").replaceAll("$$", "\\$\\$"),
+    )
+    .join("");
+}
+
 export function normalizeLatexDelimiters(source: string): string {
   // split() with a capturing group keeps the delimiters, so the protected
   // regions land at the odd indices and are copied through untouched.
-  return source
+  const rewritten = source
     .split(PROTECTED)
     .map((segment, index) =>
       index % 2 === 1 ? segment : rewrite(segment ?? ""),
     )
     .join("");
+  return maskUnpairedMathFence(rewritten);
 }

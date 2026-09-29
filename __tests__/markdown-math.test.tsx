@@ -280,11 +280,42 @@ describe("existing markdown still renders", () => {
     ).not.toThrow();
   });
 
+  // Measured across every 3-character frame of a response containing one
+  // equation: without this, "$$\\nL = \\frac" rendered a red katex-error
+  // span, so every equation flashed red on its way in.
+  test("no frame of a streaming response renders a KaTeX error", () => {
+    const full =
+      "The Lagrangian is:\n\n$$\nL = \\frac{1}{2} m v^2\n$$\n\nDone.";
+    for (let i = 1; i <= full.length; i += 1) {
+      const { container } = render(
+        <MarkdownResponse content={full.slice(0, i)} />,
+      );
+      expect(
+        container.querySelectorAll(".katex-error"),
+        `frame ${i}: ${JSON.stringify(full.slice(0, i))}`,
+      ).toHaveLength(0);
+      cleanup();
+    }
+  });
+
+  test("an unclosed $$ stays literal, then typesets once it closes", () => {
+    const partial = render(<MarkdownResponse content={"$$\nE = mc^2"} />);
+    expect(typeset(partial.container)).toBe(0);
+    expect(partial.container.textContent).toContain("E = mc^2");
+    cleanup();
+
+    const complete = render(<MarkdownResponse content={"$$\nE = mc^2\n$$"} />);
+    expect(typeset(complete.container)).toBe(1);
+  });
+
+  // Genuinely broken LaTeX -- not a partial -- should still be reported
+  // in place rather than silently dropped or taking the response down.
   test("invalid LaTeX does not blow up the whole response", () => {
     const { container } = render(
       <MarkdownResponse content={"Before.\n\n$$\n\\frac{1}{\n$$\n\nAfter."} />,
     );
     expect(container.textContent).toContain("Before.");
     expect(container.textContent).toContain("After.");
+    expect(container.querySelectorAll(".katex-error")).toHaveLength(1);
   });
 });
