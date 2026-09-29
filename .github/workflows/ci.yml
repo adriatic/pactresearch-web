@@ -10,6 +10,27 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Task 66. next.config.ts refuses to build, and refuses to run
+# `next typegen`, without the variables the app genuinely requires --
+# the gate that was missing when API_KEY_ENCRYPTION_SECRET was deleted
+# from Vercel on 2026-09-27 and the deploy went live anyway.
+#
+# CI has to satisfy that gate to typecheck at all, so these are set
+# here, at workflow level, with throwaway values. They are NOT
+# credentials: the Supabase pair is Supabase's own fixed local-dev
+# demo pair, published in .env.local.example, and the encryption
+# secret is 32 bytes of a constant for a database this job creates and
+# destroys.
+#
+# CI cannot verify production's environment -- nothing here knows what
+# Vercel holds. What it does verify is that the gate is wired and
+# passes, and the "environment gate fails loudly" step below proves it
+# can still fail. The unit tests cover the logic itself.
+env:
+  NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321"
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+  API_KEY_ENCRYPTION_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM="
+
 jobs:
   # Fast feedback: no Docker, no database, finishes in well under a
   # minute. Kept as its own job so a lint error is never buried behind a
@@ -43,6 +64,32 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      # Proves the gate can still FAIL, not just pass. Every other step
+      # in this job runs with the variables present, so without this a
+      # gate that had been silently removed would look identical to a
+      # gate that works.
+      #
+      # `next typegen` is the cheapest command that loads next.config.ts
+      # (a full build would take minutes to prove the same thing).
+      - name: Environment gate fails loudly on a missing variable
+        env:
+          API_KEY_ENCRYPTION_SECRET: ""
+        run: |
+          set +e
+          output=$(npx next typegen 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          if [ $status -eq 0 ]; then
+            echo "::error::next typegen succeeded with API_KEY_ENCRYPTION_SECRET unset -- the environment gate is not running."
+            exit 1
+          fi
+          if ! echo "$output" | grep -q "Missing required environment variable: API_KEY_ENCRYPTION_SECRET"; then
+            echo "::error::The gate failed, but not with the message that names the variable."
+            exit 1
+          fi
+          echo "Gate failed as intended, naming the variable."
 
   # Task 57. The integration suite, against a real local Supabase.
   #
@@ -99,20 +146,15 @@ jobs:
       - name: Start Supabase
         run: npx supabase start
 
+      # API_KEY_ENCRYPTION_SECRET comes from the workflow-level env
+      # above. The tests set it themselves where they need a specific
+      # value, but several assume a usable secret is present before they
+      # start, and inheriting it means the suite never depends on a
+      # developer's .env.local -- the exact local/CI divergence that hid
+      # the 2026-09-27 outage, where decryption worked locally and
+      # failed in production because only one of them had the variable.
       - name: Integration tests
         run: npm run test:integration
-        env:
-          # The tests set this themselves where they need a specific
-          # value, but several assume a usable secret is present before
-          # they start. A fixed throwaway value here means the suite
-          # never depends on a developer's .env.local -- the exact
-          # local/CI divergence that hid the 2026-09-27 outage, where
-          # decryption worked locally and failed in production because
-          # only one of them had the variable.
-          #
-          # Not a credential: 32 bytes of a constant, for a database
-          # that is created and destroyed inside this job.
-          API_KEY_ENCRYPTION_SECRET: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM="
 
       - name: Stop Supabase
         if: always()
