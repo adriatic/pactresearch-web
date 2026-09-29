@@ -380,6 +380,34 @@ export function Explorer({
     URL.revokeObjectURL(url);
   }
 
+  // Task 65. Per-discussion export, and deliberately not a .pact file:
+  // markdown, because a single discussion someone exports is usually
+  // headed for an email or a doc rather than back into pact-web. The
+  // server does the rendering and names the file, so the convention
+  // lives in one place (lib/discussionMarkdown.ts).
+  async function handleExportDiscussion(discussionId: string, name: string) {
+    setExportError(null);
+    const response = await fetch(
+      `/api/discussions/export?id=${encodeURIComponent(discussionId)}`,
+    );
+    if (!response.ok) {
+      setExportError(`Failed to export "${name}".`);
+      return;
+    }
+    const { filename, markdown } = await response.json();
+    const blob = new Blob([markdown], {
+      type: "text/markdown;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   // Per-discussion counterpart to handleDeleteNotebook above. The 409 it
   // can get back is about *this* discussion's own active execution lock
   // (DELETE /api/discussions), not the notebook-level "some discussion in
@@ -779,12 +807,6 @@ export function Explorer({
                   ● Running
                 </span>
               )}
-              {/* No Export here: export is a notebook-level operation
-                  (/api/notebooks/export takes a notebook id and emits
-                  the whole .pact bundle). There is no per-discussion
-                  export endpoint to put behind a menu item, so the
-                  menu offers what exists rather than a third item that
-                  would have to fail. Flagged in the report. */}
               <RowMenu
                 label={`Actions for ${data.name}`}
                 items={[
@@ -796,6 +818,15 @@ export function Explorer({
                         id: data.discussionId,
                         name: data.name,
                       }),
+                  },
+                  {
+                    // Task 65. Same position as Export in the notebook
+                    // menu above -- between Rename and Delete -- so the
+                    // two menus read the same way. This one emits
+                    // markdown, not .pact.
+                    label: "Export",
+                    onSelect: () =>
+                      handleExportDiscussion(data.discussionId, data.name),
                   },
                   {
                     label: "Delete discussion",
