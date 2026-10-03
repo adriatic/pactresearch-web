@@ -33,7 +33,25 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:3000",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /ipad-.*\.spec\.ts/,
+    },
+    // Task 75: iPad-only behaviour (the on-screen keyboard), so WebKit with
+    // an iPad UA and touch. 1080x758 is the area left visible by iPadOS
+    // Chrome's toolbars on an iPad (gen 7) in landscape -- the device in
+    // the bug report.
+    {
+      name: "webkit-ipad",
+      use: {
+        ...devices["iPad (gen 7) landscape"],
+        viewport: { width: 1080, height: 758 },
+      },
+      testMatch: /ipad-.*\.spec\.ts/,
+    },
+  ],
   webServer: {
     // Build then serve. Building here rather than relying on a stale
     // .next means a run can never silently test a previous commit's
