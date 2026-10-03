@@ -171,4 +171,21 @@ test("the composer and Explorer sidebar stay fixed and visible when discussion c
     return region ? region.scrollHeight > region.clientHeight : false;
   });
   expect(contentScrolls).toBe(true);
+
+  // Task 75 sized the workspace from the visible viewport instead of
+  // 100vh, for the iPad keyboard. On a desktop browser that must come out
+  // exactly as before: the full window height, top at 0, page unscrolled.
+  const fit = await page.evaluate(() => {
+    const workspace = document.querySelector("[data-group]")!;
+    const rect = workspace.getBoundingClientRect();
+    return {
+      top: rect.top,
+      height: rect.height,
+      windowHeight: window.innerHeight,
+      scrollY: window.scrollY,
+    };
+  });
+  expect(fit.top).toBe(0);
+  expect(fit.height).toBe(fit.windowHeight);
+  expect(fit.scrollY).toBe(0);
 });

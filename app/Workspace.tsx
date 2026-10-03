@@ -12,6 +12,7 @@ import { AccountDialog } from "./AccountDialog";
 import { ModelTierDialog } from "./ModelTierDialog";
 import { NewNotebookDialog } from "./NewNotebookDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
+import { useVisibleViewportHeight } from "./useVisibleViewportHeight";
 import { isEmptyDoc } from "@/lib/richContent";
 import {
   extractFollowUpQuestion,
@@ -75,6 +76,7 @@ export function Workspace({
   const [showSettings, setShowSettings] = useState(false);
 
   const execution = useDiscussionExecution(activeDiscussionId);
+  useVisibleViewportHeight();
 
   function handleDiscussionCreated(discussionId: string) {
     setActiveDiscussionId(discussionId);
@@ -239,7 +241,12 @@ export function Workspace({
         open={showModelTier}
         onClose={() => setShowModelTier(false)}
       />
-      <Group orientation="horizontal" style={{ height: "100vh" }}>
+      {/* Task 75: the visible height, not 100vh -- on an iPad 100vh
+          ignores the on-screen keyboard. See useVisibleViewportHeight. */}
+      <Group
+        orientation="horizontal"
+        style={{ height: "var(--visible-height, 100dvh)" }}
+      >
         <Panel defaultSize={280} minSize={180} maxSize={560}>
           {/* Task 43 item 2. The Explorer/NotebookCreator boundary was a
               plain <hr />: the two shared the sidebar with no way to trade
