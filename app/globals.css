@@ -25,6 +25,28 @@ body {
   font-size: 16px;
 }
 
+/* Modal dialogs never outgrow the screen. Every app dialog is a
+   <section role="dialog"> centred in a position: fixed overlay, and none
+   had a height limit: on an iPad in landscape New notebook is 719px tall,
+   so with the keyboard up (599px visible) its Cancel button sat below the
+   edge with nothing able to scroll to it. Done here once, like buttons
+   and inputs below, so a dialog added later cannot forget it.
+
+   The overlay takes the visible height (--visible-height, published by
+   useVisibleViewportHeight; 100dvh before that runs), so the dialog
+   centres in what is actually on screen above the keyboard. Its inline
+   inset: 0 still pins top, and with top and height both set the browser
+   ignores bottom. The dialog itself caps at that height less a margin
+   and scrolls inside. */
+:has(> section[role="dialog"]) {
+  height: var(--visible-height, 100dvh);
+}
+
+section[role="dialog"] {
+  max-height: calc(var(--visible-height, 100dvh) - 32px);
+  overflow-y: auto;
+}
+
 /* Plain, functional button treatment — every real <button> in the app
    gets this by default, so no component has to remember to style one
    individually. An inline style (e.g. login's primary CTA) still wins
