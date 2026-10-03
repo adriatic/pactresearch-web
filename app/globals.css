@@ -7,13 +7,15 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Task 75 follow-up: the app is light-only. A dark block from the
+     Create Next App template used to switch body text to #ededed under
+     prefers-color-scheme: dark, while buttons, dialogs, menus and the
+     transcript all keep hard-coded light backgrounds -- so on a device in
+     dark mode (Nik's iPad) every toolbar label was near-white on #f0f0f0
+     and read as greyed out. color-scheme keeps native controls
+     (checkboxes, scrollbars) light as well. A real dark theme would be
+     its own piece of work. */
+  color-scheme: light;
 }
 
 body {

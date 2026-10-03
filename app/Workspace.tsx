@@ -45,6 +45,26 @@ import {
 // plain pixel values — session-only, matching 3.13 decision 4's
 // still-deferred persisted-UI-preference boundary (no localStorage/
 // defaultLayout wiring here).
+// Task 75 follow-up. react-resizable-panels gives every Panel inside a
+// vertical Group `touch-action: pan-x` (react-resizable-panels.js, Panel
+// and Group render, "see issues/662"), applied after our own style prop so
+// it cannot be overridden. That Panel was the scroll container, so on an
+// iPad a vertical finger drag was refused outright -- the transcript
+// streamed but could not be scrolled. A mouse wheel ignores touch-action,
+// which is why desktop never showed it.
+//
+// The browser only consults touch-action from the touched element up to
+// the nearest scroll container, so making this inner div the scroller
+// takes the library's value out of the chain -- no library patch needed.
+// Used for every Panel in a vertical Group whose content scrolls.
+function TouchScroll({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ height: "100%", overflowY: "auto", touchAction: "pan-y" }}>
+      {children}
+    </div>
+  );
+}
+
 export function Workspace({
   initialDiscussionId,
 }: {
@@ -267,31 +287,35 @@ export function Workspace({
             orientation="vertical"
             style={{ height: "100%", minHeight: 0 }}
           >
-            <Panel minSize={96} style={{ overflowY: "auto" }}>
-              <Explorer
-                activeDiscussionId={activeDiscussionId}
-                selectedNotebookId={selectedNotebookId}
-                onSelect={handleDiscussionSelected}
-                onNotebookSelected={setSelectedNotebookId}
-                onNotebookDeleted={handleNotebookDeleted}
-                onDiscussionDeleted={handleDiscussionDeleted}
-                onDiscussionRenamed={handleDiscussionRenamed}
-                onDiscussionCreated={handleDiscussionCreated}
-                isRunning={execution.loading}
-                refetchToken={discussionListRefetchToken}
-              />
+            <Panel minSize={96}>
+              <TouchScroll>
+                <Explorer
+                  activeDiscussionId={activeDiscussionId}
+                  selectedNotebookId={selectedNotebookId}
+                  onSelect={handleDiscussionSelected}
+                  onNotebookSelected={setSelectedNotebookId}
+                  onNotebookDeleted={handleNotebookDeleted}
+                  onDiscussionDeleted={handleDiscussionDeleted}
+                  onDiscussionRenamed={handleDiscussionRenamed}
+                  onDiscussionCreated={handleDiscussionCreated}
+                  isRunning={execution.loading}
+                  refetchToken={discussionListRefetchToken}
+                />
+              </TouchScroll>
             </Panel>
             {/* Same 4px/#ccc treatment as the other two separators;
                 row-resize because this Group stacks vertically. */}
             <Separator
               style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
             />
-            <Panel defaultSize={220} minSize={96} style={{ overflowY: "auto" }}>
-              <NotebookCreator
-                selectedNotebookId={selectedNotebookId}
-                onNotebookCreated={handleNotebookCreated}
-                onDiscussionCreated={handleDiscussionCreated}
-              />
+            <Panel defaultSize={220} minSize={96}>
+              <TouchScroll>
+                <NotebookCreator
+                  selectedNotebookId={selectedNotebookId}
+                  onNotebookCreated={handleNotebookCreated}
+                  onDiscussionCreated={handleDiscussionCreated}
+                />
+              </TouchScroll>
             </Panel>
           </Group>
         </Panel>
@@ -434,20 +458,24 @@ export function Workspace({
             <Separator
               style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
             />
-            <Panel style={{ overflowY: "auto" }}>
-              <DiscussionContent
-                discussionId={activeDiscussionId}
-                history={execution.history}
-                streamedResponse={execution.streamedResponse}
-                streamedResponseCreatedAt={execution.streamedResponseCreatedAt}
-                isStreaming={execution.isStreaming}
-                // Same `loading` as the Run button and ComposerHeader's
-                // status dot -- task 42 Part C reuses it rather than
-                // introducing a third source of truth for "is it running".
-                isRunning={execution.loading}
-                onContinue={handleContinue}
-                executionError={execution.executionError}
-              />
+            <Panel>
+              <TouchScroll>
+                <DiscussionContent
+                  discussionId={activeDiscussionId}
+                  history={execution.history}
+                  streamedResponse={execution.streamedResponse}
+                  streamedResponseCreatedAt={
+                    execution.streamedResponseCreatedAt
+                  }
+                  isStreaming={execution.isStreaming}
+                  // Same `loading` as the Run button and ComposerHeader's
+                  // status dot -- task 42 Part C reuses it rather than
+                  // introducing a third source of truth for "is it running".
+                  isRunning={execution.loading}
+                  onContinue={handleContinue}
+                  executionError={execution.executionError}
+                />
+              </TouchScroll>
             </Panel>
           </Group>
         </Panel>
