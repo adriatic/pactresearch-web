@@ -49,7 +49,9 @@ export default defineConfig({
         ...devices["iPad (gen 7) landscape"],
         viewport: { width: 1080, height: 758 },
       },
-      testMatch: /ipad-.*\.spec\.ts/,
+      // Task 76: the magic-link sign-in spec runs here too, so the flow
+      // is checked in WebKit (Nik's failure was Safari) as well as Chromium.
+      testMatch: /(ipad-.*|magic-link-.*)\.spec\.ts/,
     },
   ],
   webServer: {
