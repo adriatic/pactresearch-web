@@ -9,7 +9,18 @@ import {
   REQUIRED_ENV_VARS,
 } from "./lib/requiredEnv";
 
-const nextConfig: NextConfig = {/* config options here */};
+// Task 75 round 2b. Turbopack's filesystem build cache (on by default
+// since Next 16.3) is restored by Vercel from the previous deployment, and
+// on Vercel it intermittently served a compiled globals.css from several
+// builds earlier. Measured on a scratch branch: with the cache on, 1 of 3
+// CSS-only pushes shipped the exact old chunk (3jxy_hb8vq8sy.css); with
+// it off, 8 of 8 shipped the right CSS, for ~10s more per build. Never
+// reproduced locally. Leave off until a Next upgrade is shown to fix it.
+const nextConfig: NextConfig = {
+  experimental: {
+    turbopackFileSystemCacheForBuild: false,
+  },
+};
 
 // Next loads and re-evaluates this config several times per build, so a
 // module-level flag does not dedupe the success line (and a `let` at
