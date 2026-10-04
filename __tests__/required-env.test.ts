@@ -5,6 +5,7 @@ import {
   findEnvProblems,
   formatEnvProblems,
   OPTIONAL_ENV_VARS,
+  PRODUCTION_SUPABASE_REF,
   REQUIRED_ENV_VARS,
 } from "@/lib/requiredEnv";
 
@@ -167,5 +168,53 @@ describe("the message", () => {
       ),
     ).toContain("1 problem.");
     expect(formatEnvProblems(findEnvProblems({}))).toContain("3 problems.");
+  });
+});
+
+// Task 67: Preview and Production on separate Supabase projects.
+describe("Preview and Production use separate databases", () => {
+  const PROD_URL = `https://${PRODUCTION_SUPABASE_REF}.supabase.co`;
+  const PREVIEW_URL = "https://abcdefghijklmnopqrst.supabase.co";
+
+  function deployment(vercelEnv: string | undefined, url: string) {
+    return {
+      ...completeEnv(),
+      NEXT_PUBLIC_SUPABASE_URL: url,
+      VERCEL_ENV: vercelEnv,
+    };
+  }
+
+  test("a Preview build pointed at Production's project fails, naming why", () => {
+    const [problem] = findEnvProblems(deployment("preview", PROD_URL));
+    expect(problem.name).toBe("NEXT_PUBLIC_SUPABASE_URL");
+    expect(problem.detail).toMatch(/Preview deployment at the Production/);
+    expect(problem.why).toMatch(/separate Supabase projects/);
+  });
+
+  test("a Preview build on its own project passes", () => {
+    expect(findEnvProblems(deployment("preview", PREVIEW_URL))).toEqual([]);
+  });
+
+  test("a Production build on Production's project passes", () => {
+    expect(findEnvProblems(deployment("production", PROD_URL))).toEqual([]);
+  });
+
+  test("a Production build pointed anywhere else fails", () => {
+    const [problem] = findEnvProblems(deployment("production", PREVIEW_URL));
+    expect(problem.detail).toMatch(/other than Production's/);
+  });
+
+  test("local development and CI (no VERCEL_ENV) are not checked", () => {
+    expect(findEnvProblems(deployment(undefined, PROD_URL))).toEqual([]);
+    expect(
+      findEnvProblems(deployment(undefined, "http://127.0.0.1:54321")),
+    ).toEqual([]);
+  });
+
+  test("the message never quotes the URL", () => {
+    const text = formatEnvProblems(
+      findEnvProblems(deployment("preview", PROD_URL)),
+    );
+    expect(text).not.toContain(PRODUCTION_SUPABASE_REF);
   });
 });

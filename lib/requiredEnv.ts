@@ -84,6 +84,51 @@ export const OPTIONAL_ENV_VARS: { name: string; why: string }[] = [
   },
 ];
 
+// Task 67. Preview and Production must never share a database: a save
+// made while testing a Preview deploy once wrote to a Production row,
+// because Preview's NEXT_PUBLIC_SUPABASE_URL held Production's value. The
+// code reads Supabase only through that variable, so this check on it is
+// what keeps the split from silently undoing itself. Keyed on Vercel's own
+// VERCEL_ENV; local development and CI do not set it and are not checked.
+//
+// The project ref is not a secret -- it is the hostname baked into every
+// browser bundle.
+export const PRODUCTION_SUPABASE_REF = "lznjqrfjgdrmxgzmkfje";
+
+const DATABASE_SPLIT_WHY =
+  "Preview and Production must use separate Supabase projects, so nothing done while testing a Preview can touch Production data (task 67)";
+
+export function databaseSplitProblem(
+  env: Record<string, string | undefined>,
+): EnvProblem | null {
+  const raw = env.NEXT_PUBLIC_SUPABASE_URL;
+  let host: string;
+  try {
+    host = new URL(raw ?? "").hostname;
+  } catch {
+    return null; // missing or malformed is already reported on its own
+  }
+  const isProductionProject = host === `${PRODUCTION_SUPABASE_REF}.supabase.co`;
+
+  if (env.VERCEL_ENV === "preview" && isProductionProject) {
+    return {
+      name: "NEXT_PUBLIC_SUPABASE_URL",
+      detail:
+        "points this Preview deployment at the Production Supabase project",
+      why: DATABASE_SPLIT_WHY,
+    };
+  }
+  if (env.VERCEL_ENV === "production" && !isProductionProject) {
+    return {
+      name: "NEXT_PUBLIC_SUPABASE_URL",
+      detail:
+        "points this Production deployment at a Supabase project other than Production's",
+      why: DATABASE_SPLIT_WHY,
+    };
+  }
+  return null;
+}
+
 export interface EnvProblem {
   name: string;
   /** "missing" for absent or blank; otherwise what is wrong with the value. */
@@ -113,6 +158,8 @@ export function findEnvProblems(
       problems.push({ name: variable.name, detail, why: variable.why });
     }
   }
+  const split = databaseSplitProblem(env);
+  if (split) problems.push(split);
   return problems;
 }
 
