@@ -5,6 +5,7 @@ import {
   findEnvProblems,
   formatEnvProblems,
   OPTIONAL_ENV_VARS,
+  PRODUCTION_SUPABASE_PUBLISHABLE_KEY,
   PRODUCTION_SUPABASE_REF,
   REQUIRED_ENV_VARS,
 } from "@/lib/requiredEnv";
@@ -216,5 +217,74 @@ describe("Preview and Production use separate databases", () => {
       findEnvProblems(deployment("preview", PROD_URL)),
     );
     expect(text).not.toContain(PRODUCTION_SUPABASE_REF);
+  });
+});
+
+// Task 67, second check: Preview was first switched with the new project's
+// URL but Production's publishable key, which the URL check passed.
+describe("Preview does not use Production's publishable key", () => {
+  const PREVIEW_URL = "https://abcdefghijklmnopqrst.supabase.co";
+  const PROD_URL = `https://${PRODUCTION_SUPABASE_REF}.supabase.co`;
+
+  function deployment(vercelEnv: string | undefined, url: string, key: string) {
+    return {
+      ...completeEnv(),
+      NEXT_PUBLIC_SUPABASE_URL: url,
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: key,
+      VERCEL_ENV: vercelEnv,
+    };
+  }
+
+  test("a Preview build with Production's key fails, naming the key", () => {
+    const problems = findEnvProblems(
+      deployment("preview", PREVIEW_URL, PRODUCTION_SUPABASE_PUBLISHABLE_KEY),
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0].name).toBe("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+    expect(problems[0].detail).toMatch(/Production's publishable key/);
+  });
+
+  test("Production's URL and key in a Preview build are both reported", () => {
+    expect(
+      findEnvProblems(
+        deployment("preview", PROD_URL, PRODUCTION_SUPABASE_PUBLISHABLE_KEY),
+      ).map((p) => p.name),
+    ).toEqual([
+      "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      "NEXT_PUBLIC_SUPABASE_URL",
+    ]);
+  });
+
+  test("a Preview build with its own key passes", () => {
+    expect(
+      findEnvProblems(
+        deployment("preview", PREVIEW_URL, "sb_publishable_preview"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("Production with its own key passes", () => {
+    expect(
+      findEnvProblems(
+        deployment("production", PROD_URL, PRODUCTION_SUPABASE_PUBLISHABLE_KEY),
+      ),
+    ).toEqual([]);
+  });
+
+  test("local development and CI are not checked", () => {
+    expect(
+      findEnvProblems(
+        deployment(undefined, PREVIEW_URL, PRODUCTION_SUPABASE_PUBLISHABLE_KEY),
+      ),
+    ).toEqual([]);
+  });
+
+  test("the message never quotes the key", () => {
+    const text = formatEnvProblems(
+      findEnvProblems(
+        deployment("preview", PREVIEW_URL, PRODUCTION_SUPABASE_PUBLISHABLE_KEY),
+      ),
+    );
+    expect(text).not.toContain(PRODUCTION_SUPABASE_PUBLISHABLE_KEY);
   });
 });
