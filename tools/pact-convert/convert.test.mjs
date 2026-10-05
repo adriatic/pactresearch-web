@@ -225,7 +225,7 @@ describe("the command line", () => {
     expect(results.filter((r) => r.status === "error")).toHaveLength(1);
     const report = readFileSync(join(out, "conversion-report.txt"), "utf8");
     expect(report).toContain(
-      "3 converted, 3 already current (copied unchanged), 1 errors.",
+      "4 converted, 3 already current (copied unchanged), 1 errors.",
     );
     expect(report).toContain("not carried over: xmState");
   });
@@ -253,5 +253,93 @@ describe("the command line", () => {
     expect(() =>
       run(["--out", join(input, "converted"), input], quiet),
     ).toThrow(/--out must be outside the inputs/);
+  });
+});
+
+// Legacy referenced-cell context (approved 2026-10-05). The fixture copies
+// the real nesting structure with synthetic text: d1 asks Q0; d2 quotes
+// Q0 + d1's answer and asks Q1 (run twice); d3 quotes two levels deep.
+describe("legacy referenced-cell context", () => {
+  const FILE = "signed-pactresearch-net-referenced-cells.pact";
+  const payload = () => JSON.parse(read(FILE)).payload;
+  const asSigned = (p) =>
+    JSON.stringify({ ...JSON.parse(read(FILE)), payload: p });
+
+  test("each quoted prompt becomes its own question, verified, and nothing else changes", () => {
+    const original = payload();
+    const r = convertText(read(FILE));
+    const out = JSON.parse(r.output);
+    expect(out.cells.map((c) => c.promptText)).toEqual([
+      "Synthetic question one.\nWith a second line.",
+      "Synthetic follow-up two?",
+      "Synthetic follow-up two?",
+      "Synthetic follow-up three?",
+    ]);
+    expect(out.cells.map((c) => c.response)).toEqual(
+      original.cells.map((c) => c.response),
+    );
+    expect(r.notes[0]).toMatch(
+      /^Unwrapped legacy referenced-cell context in 3 of 4 prompts \(cells\[1\], cells\[2\], cells\[3\]\); \d+ characters of quoted earlier entries removed/,
+    );
+    validatePactExport(out);
+  });
+
+  test("a quoted answer that differs from the earlier entry leaves that prompt as written", () => {
+    const p = payload();
+    p.cells[3].promptText = p.cells[3].promptText.replace(
+      "Synthetic answer two, second run.",
+      "Synthetic answer two, EDITED.",
+    );
+    const r = convertText(asSigned(p));
+    const out = JSON.parse(r.output);
+    expect(out.cells[3].promptText).toBe(p.cells[3].promptText);
+    expect(out.cells[1].promptText).toBe("Synthetic follow-up two?");
+    expect(r.notes).toContain(
+      "Not unwrapped, left as written: cells[3] has legacy referenced-cell context, but quoted answer 2 matches no earlier entry.",
+    );
+  });
+
+  test("an answer that itself contains a quoted-response marker is not guessed at", () => {
+    const p = payload();
+    const tricky = "Synthetic answer one.\nResponse: looks like a marker";
+    p.cells[0].response = tricky;
+    p.cells[1].promptText = p.cells[1].promptText.replace(
+      "Synthetic answer one.\n\n- point",
+      tricky,
+    );
+    const r = convertText(asSigned(p));
+    expect(JSON.parse(r.output).cells[1].promptText).toBe(
+      p.cells[1].promptText,
+    );
+    expect(r.notes.join(" ")).toMatch(
+      /cells\[1\] .* expected 2 pieces for 1 reference\(s\), found 3/,
+    );
+  });
+
+  test("a quote with nothing after it is left as written", () => {
+    const p = payload();
+    p.cells[1].promptText =
+      "[Referenced Cell]\nPrompt: Synthetic question one.\nWith a second line.\nResponse: Synthetic answer one.\n\n- point\n";
+    const r = convertText(asSigned(p));
+    expect(JSON.parse(r.output).cells[1].promptText).toBe(
+      p.cells[1].promptText,
+    );
+    expect(r.notes.join(" ")).toMatch(
+      /cells\[1\] .* nothing would remain of the question/,
+    );
+  });
+
+  test("the placeholder anywhere but the start is not touched", () => {
+    const file = JSON.parse(read("plain-old-minimal.pact"));
+    file.cells[0].promptText = "Intro.\n[Referenced Cell]\nPrompt: not leading";
+    const r = convertText(JSON.stringify(file));
+    expect(r.status).toBe("current");
+  });
+
+  test("converting the converted file again changes nothing", () => {
+    const once = convertText(read(FILE));
+    const twice = convertText(once.output);
+    expect(twice.status).toBe("current");
+    expect(twice.notes).toEqual([]);
   });
 });

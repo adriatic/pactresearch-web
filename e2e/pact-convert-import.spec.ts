@@ -222,3 +222,40 @@ test("importing the same converted file twice creates a second notebook", async 
     }),
   ).toBeVisible({ timeout: 15_000 });
 });
+
+// Legacy referenced-cell context: after conversion a quoted follow-up shows
+// only its own question -- no "[Referenced Cell]" and no quoted answers.
+test("a converted referenced-cell prompt shows only its own question", async ({
+  page,
+  context,
+}) => {
+  await signIn(page, context);
+  await importFile(
+    page,
+    "referenced.pact",
+    converted("signed-pactresearch-net-referenced-cells.pact"),
+  );
+  const notebookRow = page.getByRole("treeitem", {
+    name: "Fixture referenced cells",
+    exact: true,
+  });
+  const third = page.getByRole("treeitem", {
+    name: "Synthetic 3",
+    exact: true,
+  });
+  await expect(async () => {
+    if ((await third.count()) === 0) await notebookRow.locator("h3").click();
+    await expect(third).toHaveCount(1, { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+  await third.click();
+  const main = page.locator("main");
+  await expect(main.getByText("Synthetic answer three.")).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(main).toContainText("Synthetic follow-up three?");
+  await expect(main).not.toContainText("[Referenced Cell]");
+  await expect(main).not.toContainText("Synthetic answer one.");
+  await expect(page.getByLabel("Prompt")).toHaveText(
+    "Synthetic follow-up three?",
+  );
+});

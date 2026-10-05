@@ -158,6 +158,88 @@ function validate(body) {
 }
 
 // Observations that change nothing in the output, for Nik's decisions.
+// Legacy "referenced cell" context (approved by Nik, 2026-10-05).
+//
+// The legacy app built a follow-up prompt by pasting the referenced cell's
+// prompt AND answer into it, nested once per level:
+//
+//   [Referenced Cell]\nPrompt: [Referenced Cell]\nPrompt: <Q0>\nResponse: <R1><Q1>\nResponse: <R2><own question>
+//
+// so every inlined piece is a copy of an earlier entry of the same notebook
+// and the cell's own question is the text after the last inlined answer.
+// Measured on Nik's files: 24 of 267 cells, all in Medication Interactions,
+// with up to ~20,000 characters of quoted context per prompt.
+//
+// The prompt is replaced by its own question ONLY when the whole chain
+// verifies byte for byte: Q0 is an earlier entry's (unwrapped) question,
+// and each Rj is the response of an earlier entry whose question is the
+// previous level's. Anything that does not verify -- a mismatch, a
+// response that itself contains "\nResponse: ", an empty question -- is
+// left exactly as written and reported. Duplicate prompts across entries
+// of a discussion are deliberately left alone.
+const REFERENCED_RUN = "[Referenced Cell]\nPrompt: ";
+const REFERENCED_LEAD = /^(?:\[Referenced Cell\]\nPrompt: )+/;
+
+function unwrapReferencedContext(body) {
+  const changed = [];
+  const notUnwrapped = [];
+  // Earlier entries in time order, each with its own question exactly as
+  // the legacy app would quote it -- untrimmed. Deeper prompts quote an
+  // earlier question with its leading line break, so verification must
+  // compare against that form; only the new prompt text is trimmed.
+  const order = body.cells
+    .map((cell, index) => ({ cell, index }))
+    .sort((a, b) => a.cell.createdAt - b.cell.createdAt);
+  const earlier = [];
+  for (const { cell, index } of order) {
+    let question = cell.promptText;
+    const lead = cell.promptText.match(REFERENCED_LEAD);
+    if (lead) {
+      const runs = lead[0].length / REFERENCED_RUN.length;
+      const pieces = cell.promptText
+        .slice(lead[0].length)
+        .split("\nResponse: ");
+      let reason = null;
+      if (pieces.length !== runs + 1) {
+        reason = `expected ${runs + 1} pieces for ${runs} reference(s), found ${pieces.length}`;
+      } else if (!earlier.some((e) => e.question === pieces[0])) {
+        reason = "the first quoted question matches no earlier entry";
+      } else {
+        let previousQuestion = pieces[0];
+        for (let j = 1; j < pieces.length && !reason; j++) {
+          const source = earlier.find(
+            (e) =>
+              e.question === previousQuestion &&
+              pieces[j].startsWith(e.response),
+          );
+          if (!source) {
+            reason = `quoted answer ${j} matches no earlier entry`;
+            break;
+          }
+          previousQuestion = pieces[j].slice(source.response.length);
+          if (
+            j < pieces.length - 1 &&
+            !earlier.some((e) => e.question === previousQuestion)
+          ) {
+            reason = `quoted question ${j + 1} matches no earlier entry`;
+          }
+        }
+        const own = previousQuestion.replace(/^\n+/, "");
+        if (!reason && !own.trim())
+          reason = "nothing would remain of the question";
+        if (!reason) {
+          changed.push({ index, removed: cell.promptText.length - own.length });
+          cell.promptText = own;
+          question = previousQuestion;
+        }
+      }
+      if (reason) notUnwrapped.push({ index, reason });
+    }
+    earlier.push({ question, response: cell.response });
+  }
+  return { changed, notUnwrapped };
+}
+
 function notesFor(body) {
   const notes = [];
   const unrun = body.cells.filter((c) => !c.response.trim()).length;
@@ -274,7 +356,21 @@ export function convertText(text) {
   if (removed.length) changed = true;
 
   validate(out);
-  const notes = notesFor(out);
+  const notes = [];
+  const unwrap = unwrapReferencedContext(out);
+  if (unwrap.changed.length) {
+    changed = true;
+    const chars = unwrap.changed.reduce((n, c) => n + c.removed, 0);
+    notes.push(
+      `Unwrapped legacy referenced-cell context in ${unwrap.changed.length} of ${out.cells.length} prompts (${unwrap.changed.map((c) => `cells[${c.index}]`).join(", ")}); ${chars} characters of quoted earlier entries removed, each verified against an earlier entry.`,
+    );
+  }
+  for (const n of unwrap.notUnwrapped) {
+    notes.push(
+      `Not unwrapped, left as written: cells[${n.index}] has legacy referenced-cell context, but ${n.reason}.`,
+    );
+  }
+  notes.push(...notesFor(out));
 
   return changed
     ? {
