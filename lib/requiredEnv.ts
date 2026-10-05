@@ -84,6 +84,73 @@ export const OPTIONAL_ENV_VARS: { name: string; why: string }[] = [
   },
 ];
 
+// Task 67. Preview and Production must never share a database: a save
+// made while testing a Preview deploy once wrote to a Production row,
+// because Preview's NEXT_PUBLIC_SUPABASE_URL held Production's value. The
+// code reads Supabase only through that variable, so this check on it is
+// what keeps the split from silently undoing itself. Keyed on Vercel's own
+// VERCEL_ENV; local development and CI do not set it and are not checked.
+//
+// The project ref is not a secret -- it is the hostname baked into every
+// browser bundle.
+export const PRODUCTION_SUPABASE_REF = "lznjqrfjgdrmxgzmkfje";
+
+// Production's publishable key -- public by design, shipped in every
+// browser bundle (read from pact-web.pactresearch.net, 2026-10-05). Added
+// after Preview was first switched with the new project's URL but
+// Production's key: every Supabase request from that Preview was refused
+// ("Invalid API key"), and the URL-only check above passed it. If
+// Production's key is ever rotated, update this; a stale value only stops
+// this check catching anything, it never fails a correct build.
+export const PRODUCTION_SUPABASE_PUBLISHABLE_KEY =
+  "sb_publishable_HgfofcajF88EcTEmk-9ZMw_VKwkGvjJ";
+
+const DATABASE_SPLIT_WHY =
+  "Preview and Production must use separate Supabase projects, so nothing done while testing a Preview can touch Production data (task 67)";
+
+export function databaseSplitProblems(
+  env: Record<string, string | undefined>,
+): EnvProblem[] {
+  const problems: EnvProblem[] = [];
+  if (
+    env.VERCEL_ENV === "preview" &&
+    env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ===
+      PRODUCTION_SUPABASE_PUBLISHABLE_KEY
+  ) {
+    problems.push({
+      name: "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+      detail: "is Production's publishable key in a Preview deployment",
+      why: DATABASE_SPLIT_WHY,
+    });
+  }
+  const raw = env.NEXT_PUBLIC_SUPABASE_URL;
+  let host: string;
+  try {
+    host = new URL(raw ?? "").hostname;
+  } catch {
+    return problems; // missing or malformed URL is already reported on its own
+  }
+  const isProductionProject = host === `${PRODUCTION_SUPABASE_REF}.supabase.co`;
+
+  if (env.VERCEL_ENV === "preview" && isProductionProject) {
+    problems.push({
+      name: "NEXT_PUBLIC_SUPABASE_URL",
+      detail:
+        "points this Preview deployment at the Production Supabase project",
+      why: DATABASE_SPLIT_WHY,
+    });
+  }
+  if (env.VERCEL_ENV === "production" && !isProductionProject) {
+    problems.push({
+      name: "NEXT_PUBLIC_SUPABASE_URL",
+      detail:
+        "points this Production deployment at a Supabase project other than Production's",
+      why: DATABASE_SPLIT_WHY,
+    });
+  }
+  return problems;
+}
+
 export interface EnvProblem {
   name: string;
   /** "missing" for absent or blank; otherwise what is wrong with the value. */
@@ -113,6 +180,7 @@ export function findEnvProblems(
       problems.push({ name: variable.name, detail, why: variable.why });
     }
   }
+  problems.push(...databaseSplitProblems(env));
   return problems;
 }
 
