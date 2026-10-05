@@ -147,6 +147,14 @@ export function validatePactExport(data: unknown): PactExport {
     );
   }
 
+  // Task 77: JSON with neither a version nor a notebook is not a .pact
+  // file at all -- say that, rather than "unsupported version undefined".
+  if (data.version === undefined && data.notebook === undefined) {
+    throw new PactExportValidationError(
+      "Not a .pact file: it has no format version and no notebook.",
+    );
+  }
+
   if (data.version !== PACT_EXPORT_VERSION) {
     throw new PactExportValidationError(
       `Unsupported .pact file version: expected ${PACT_EXPORT_VERSION}, got ${JSON.stringify(data.version)}.`,
@@ -250,6 +258,146 @@ export function validatePactExport(data: unknown): PactExport {
     discussions,
     cells,
   };
+}
+
+// Task 77. Reading .pact files written by older PACT apps.
+//
+// Measured across the 95 .pact files on Nik's machine (2026-10-04): every
+// one is format version 1, in one of two wrappings.
+//   - Plain: the format above. Written by pact-web, pact-mac, the VSCode
+//     extension and the legacy app over time, with optional fields coming
+//     and going (category, resolvedModel, totalTimeMs) and older model
+//     names ("claude", "claude-sonnet", "gpt"). validatePactExport already
+//     accepted all 56 of these.
+//   - Signed: { version, payload, signature, signedAt, signer }, where
+//     payload is a plain export. Written by pact-mac / the extension
+//     (signer "pact-local") and the legacy app (signer
+//     "pactresearch.net"). All 36 were rejected before this.
+//
+// Some fields have no home in pact-web: the signature, pact-mac's
+// desktop navigation state (xmState) and notebook execution mode
+// (executionMode -- pact-web is interactive-only, see the header). They
+// are not imported, but they are never dropped silently: readPactFile
+// names every field it leaves behind, and the import route returns that
+// list so the user is told.
+
+export interface PactImport {
+  pactExport: PactExport;
+  /** Human-readable, one entry per field from the file that is not kept. */
+  notCarriedOver: string[];
+}
+
+const KNOWN_TOP = ["version", "exportedAt", "notebook", "discussions", "cells"];
+const KNOWN_NOTEBOOK = ["name", "systemPrompt", "category", "totalTimeMs"];
+const KNOWN_DISCUSSION = ["id", "name", "createdAt", "totalTimeMs"];
+const KNOWN_CELL = [
+  "id",
+  "discussionId",
+  "parentId",
+  "promptText",
+  "response",
+  "model",
+  "resolvedModel",
+  "cellType",
+  "createdAt",
+];
+
+function describeDropped(path: string, value: unknown): string {
+  if (path === "xmState") {
+    return "xmState: the desktop app's navigation state (open discussion, scroll positions). pact-web has no equivalent.";
+  }
+  if (path === "notebook.executionMode") {
+    return `notebook.executionMode ("${String(value)}"): pact-web notebooks are interactive-only, so the mode is not kept.`;
+  }
+  return `${path}: not part of pact-web's notebook format.`;
+}
+
+function unknownKeys(
+  value: unknown,
+  known: string[],
+  pathPrefix: string,
+): string[] {
+  if (!isPlainObject(value)) return [];
+  return Object.keys(value)
+    .filter((key) => !known.includes(key))
+    .map((key) => describeDropped(`${pathPrefix}${key}`, value[key]));
+}
+
+// Unknown keys across an array's items, reported once per key with how
+// many items carried it -- one line, not one per cell.
+function unknownItemKeys(
+  items: unknown,
+  known: string[],
+  label: string,
+): string[] {
+  if (!Array.isArray(items)) return [];
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    if (!isPlainObject(item)) continue;
+    for (const key of Object.keys(item)) {
+      if (!known.includes(key)) counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  return [...counts].map(
+    ([key, n]) =>
+      `${label}.${key} (in ${n} of ${items.length}): not part of pact-web's notebook format.`,
+  );
+}
+
+export function readPactFile(data: unknown): PactImport {
+  const notCarriedOver: string[] = [];
+  let body: unknown = data;
+
+  if (isPlainObject(data) && "payload" in data && "signature" in data) {
+    if (data.version !== PACT_EXPORT_VERSION) {
+      throw new PactExportValidationError(
+        `Unsupported signed .pact file version: expected ${PACT_EXPORT_VERSION}, got ${JSON.stringify(data.version)}.`,
+      );
+    }
+    let payload: unknown = data.payload;
+    if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload);
+      } catch {
+        throw new PactExportValidationError(
+          "Not a valid .pact file: its signed payload is not readable JSON.",
+        );
+      }
+    }
+    if (!isPlainObject(payload)) {
+      throw new PactExportValidationError(
+        "Not a valid .pact file: its signed payload is missing.",
+      );
+    }
+    // The signer is a short label ("pact-local", "pactresearch.net"), not
+    // a key; anything else is not echoed back.
+    const signer =
+      typeof data.signer === "string" && /^[\w.-]{1,40}$/.test(data.signer)
+        ? data.signer
+        : "an unknown signer";
+    notCarriedOver.push(
+      `The file's signature (signed by ${signer}): pact-web does not verify or keep .pact signatures.`,
+    );
+    for (const key of Object.keys(data)) {
+      if (
+        !["version", "payload", "signature", "signedAt", "signer"].includes(key)
+      ) {
+        notCarriedOver.push(describeDropped(key, data[key]));
+      }
+    }
+    body = payload;
+  }
+
+  if (isPlainObject(body)) {
+    notCarriedOver.push(
+      ...unknownKeys(body, KNOWN_TOP, ""),
+      ...unknownKeys(body.notebook, KNOWN_NOTEBOOK, "notebook."),
+      ...unknownItemKeys(body.discussions, KNOWN_DISCUSSION, "discussions"),
+      ...unknownItemKeys(body.cells, KNOWN_CELL, "cells"),
+    );
+  }
+
+  return { pactExport: validatePactExport(body), notCarriedOver };
 }
 
 export { PactExportValidationError };

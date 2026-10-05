@@ -92,6 +92,10 @@ export function Workspace({
   const [discussionListRefetchToken, setDiscussionListRefetchToken] =
     useState(0);
   const [importError, setImportError] = useState<string | null>(null);
+  // Task 77: after a successful import of an older .pact file, what the
+  // file held that pact-web did not keep. Never silent. Plain text, not
+  // role="status": report-a-problem.spec.ts relies on there being one.
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -133,13 +137,16 @@ export function Workspace({
     if (!file) return;
 
     setImportError(null);
+    setImportNotice(null);
     try {
       const text = await file.text();
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
       } catch {
-        setImportError("That file isn't valid JSON -- not a .pact file.");
+        setImportError(
+          "That file isn't valid JSON -- it may be truncated, or not a .pact file.",
+        );
         return;
       }
 
@@ -151,6 +158,11 @@ export function Workspace({
       const body = await response.json();
       if (response.ok) {
         setDiscussionListRefetchToken((t) => t + 1);
+        if (Array.isArray(body.notCarriedOver) && body.notCarriedOver.length) {
+          setImportNotice(
+            `Imported "${body.name}". Not carried over: ${body.notCarriedOver.join(" ")}`,
+          );
+        }
       } else {
         setImportError(body.error || "Failed to import .pact file.");
       }
@@ -410,6 +422,23 @@ export function Workspace({
               <span style={{ color: "#a00", fontSize: "0.85em" }}>
                 {" "}
                 {importError}
+              </span>
+            )}
+            {importNotice && (
+              <span
+                data-import-notice
+                style={{ color: "#555", fontSize: "0.85em" }}
+              >
+                {" "}
+                {importNotice}{" "}
+                <button
+                  type="button"
+                  aria-label="Dismiss import notice"
+                  onClick={() => setImportNotice(null)}
+                  style={{ padding: "0 6px" }}
+                >
+                  ×
+                </button>
               </span>
             )}
           </header>
