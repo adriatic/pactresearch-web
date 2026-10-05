@@ -651,3 +651,100 @@ test("a pre-55d .pact file, with no notebook totalTimeMs, still imports", async 
   ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(/isn't valid|Failed to import/i)).toHaveCount(0);
 });
+
+// An import that fails partway must not leave a half-imported notebook.
+// The notebook, its discussions and its responses are separate inserts;
+// this file passes validation but its last cell's timestamp is not a
+// representable date, so the responses insert fails after the notebook
+// and discussions are already written.
+test("an import that fails partway leaves no notebook behind", async ({
+  page,
+  context,
+}) => {
+  const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
+  const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
+
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-import-rollback-${suffix}@example.com`;
+  const password = "correct horse battery staple 78!";
+
+  const { data: created, error: userError } = await admin.auth.admin.createUser(
+    { email, password, email_confirm: true },
+  );
+  if (userError || !created.user) throw userError ?? new Error("no user");
+  const userId = created.user.id;
+
+  const jar: { name: string; value: string }[] = [];
+  const jarClient = createServerClient(API_URL, ANON_KEY, {
+    cookies: {
+      getAll: () => jar,
+      setAll: (cs) =>
+        cs.forEach(({ name, value }) => {
+          const e = jar.find((c) => c.name === name);
+          if (e) e.value = value;
+          else jar.push({ name, value });
+        }),
+    },
+  });
+  const { error: signInError } = await jarClient.auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (signInError) throw signInError;
+  await context.addCookies(
+    jar.map(({ name, value }) => ({
+      name,
+      value,
+      domain: "localhost",
+      path: "/",
+      secure: false,
+      httpOnly: false,
+      sameSite: "Lax" as const,
+    })),
+  );
+
+  await page.goto("/");
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
+
+  const corrupt = {
+    version: 1,
+    exportedAt: Date.now(),
+    notebook: { name: `E2E rollback ${suffix}`, systemPrompt: null },
+    discussions: [
+      { id: "d1", name: "One", createdAt: 1_790_000_000_000, totalTimeMs: 0 },
+    ],
+    cells: [
+      {
+        id: "c1",
+        discussionId: "d1",
+        parentId: null,
+        promptText: "p",
+        response: "r",
+        model: "claude",
+        cellType: "user",
+        createdAt: 1e20,
+      },
+    ],
+  };
+  await page.locator('input[type="file"][accept=".pact"]').setInputFiles({
+    name: "corrupt.pact",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(corrupt)),
+  });
+
+  // The failure is reported...
+  await expect(page.locator("header")).toContainText(/error|wrong|failed/i, {
+    timeout: 15_000,
+  });
+  // ...and nothing it wrote along the way survives.
+  const { count: notebooks } = await admin
+    .from("notebooks")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+  const { count: discussions } = await admin
+    .from("discussions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+  expect(notebooks).toBe(0);
+  expect(discussions).toBe(0);
+});
