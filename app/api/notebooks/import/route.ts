@@ -118,50 +118,69 @@ async function handlePost(request: Request) {
     throw notebookError;
   }
 
-  if (pactExport.discussions.length > 0) {
-    const { error: discussionsError } = await supabase
-      .from("discussions")
-      .insert(
-        pactExport.discussions.map((discussion) => ({
-          id: discussionIdMap.get(discussion.id),
-          notebook_id: newNotebookId,
+  // All or nothing. These are separate inserts, so a failure in the
+  // second or third used to leave a half-imported notebook behind.
+  // Deleting the notebook cascades to whatever discussions and responses
+  // were already written (notebooks -> discussions -> responses are all
+  // ON DELETE CASCADE), and the original error is still what is reported.
+  try {
+    if (pactExport.discussions.length > 0) {
+      const { error: discussionsError } = await supabase
+        .from("discussions")
+        .insert(
+          pactExport.discussions.map((discussion) => ({
+            id: discussionIdMap.get(discussion.id),
+            notebook_id: newNotebookId,
+            user_id: user.id,
+            name: resolvedDiscussionNames.get(discussion.id),
+            total_time_ms: discussion.totalTimeMs,
+            created_at: new Date(discussion.createdAt).toISOString(),
+          })),
+        );
+      if (discussionsError) {
+        throw discussionsError;
+      }
+    }
+
+    if (pactExport.cells.length > 0) {
+      const { error: cellsError } = await supabase.from("responses").insert(
+        pactExport.cells.map((cell) => ({
+          id: cellIdMap.get(cell.id),
+          // Validated up front (validatePactExport) to reference a
+          // discussion present in this same file, so this lookup can
+          // never miss.
+          discussion_id: discussionIdMap.get(cell.discussionId),
+          // A parentId pointing outside this file (shouldn't happen for a
+          // well-formed export, but not guaranteed for a hand-edited one)
+          // degrades to no parent rather than failing the whole import.
+          parent_id: cell.parentId
+            ? (cellIdMap.get(cell.parentId) ?? null)
+            : null,
           user_id: user.id,
-          name: resolvedDiscussionNames.get(discussion.id),
-          total_time_ms: discussion.totalTimeMs,
-          created_at: new Date(discussion.createdAt).toISOString(),
+          prompt_text: cell.promptText,
+          response: cell.response,
+          model: cell.model,
+          resolved_model: cell.resolvedModel ?? null,
+          cell_type: cell.cellType,
+          created_at: new Date(cell.createdAt).toISOString(),
         })),
       );
-    if (discussionsError) {
-      throw discussionsError;
+      if (cellsError) {
+        throw cellsError;
+      }
     }
-  }
-
-  if (pactExport.cells.length > 0) {
-    const { error: cellsError } = await supabase.from("responses").insert(
-      pactExport.cells.map((cell) => ({
-        id: cellIdMap.get(cell.id),
-        // Validated up front (validatePactExport) to reference a
-        // discussion present in this same file, so this lookup can
-        // never miss.
-        discussion_id: discussionIdMap.get(cell.discussionId),
-        // A parentId pointing outside this file (shouldn't happen for a
-        // well-formed export, but not guaranteed for a hand-edited one)
-        // degrades to no parent rather than failing the whole import.
-        parent_id: cell.parentId
-          ? (cellIdMap.get(cell.parentId) ?? null)
-          : null,
-        user_id: user.id,
-        prompt_text: cell.promptText,
-        response: cell.response,
-        model: cell.model,
-        resolved_model: cell.resolvedModel ?? null,
-        cell_type: cell.cellType,
-        created_at: new Date(cell.createdAt).toISOString(),
-      })),
-    );
-    if (cellsError) {
-      throw cellsError;
+  } catch (error) {
+    const { error: rollbackError } = await supabase
+      .from("notebooks")
+      .delete()
+      .eq("id", newNotebookId);
+    if (rollbackError) {
+      console.error(
+        `[notebooks-import] rollback of notebook ${newNotebookId} failed`,
+        rollbackError,
+      );
     }
+    throw error;
   }
 
   return Response.json(insertedNotebook, { status: 201 });
