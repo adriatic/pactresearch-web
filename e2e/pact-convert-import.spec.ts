@@ -91,7 +91,7 @@ const fixture = (name: string) => readFileSync(join(FIXTURES, name));
 const CONVERTER = join(__dirname, "..", "tools", "pact-convert", "convert.mjs");
 function converted(
   name: string,
-  edit?: (file: { cells: { response: string }[] }) => void,
+  edit?: (file: { cells: { response: string; promptText: string }[] }) => void,
 ): Buffer {
   const dir = mkdtempSync(join(tmpdir(), "pact-convert-e2e-"));
   const input = join(dir, "in", name);
@@ -258,4 +258,40 @@ test("a converted referenced-cell prompt shows only its own question", async ({
   await expect(page.getByLabel("Prompt")).toHaveText(
     "Synthetic follow-up three?",
   );
+});
+
+// A never-run entry immediately re-run with the same prompt is dropped by
+// the converter (approved 2026-10-06): the discussion opens with one
+// answered entry, not "never run" followed by the same prompt.
+test("a never-run entry that was re-run right after imports as a single answered entry", async ({
+  page,
+  context,
+}) => {
+  await signIn(page, context);
+  await importFile(
+    page,
+    "rerun.pact",
+    converted("plain-pact-mac-category-mode.pact", (file) => {
+      // Delta's two entries: never run, then the same prompt answered.
+      file.cells[0].response = "";
+      file.cells[1].promptText = file.cells[0].promptText;
+    }),
+  );
+  const notebookRow = page.getByRole("treeitem", {
+    name: "Fixture pact-mac notebook",
+    exact: true,
+  });
+  const delta = page.getByRole("treeitem", { name: "Delta", exact: true });
+  await expect(async () => {
+    if ((await delta.count()) === 0) await notebookRow.locator("h3").click();
+    await expect(delta).toHaveCount(1, { timeout: 1_000 });
+  }).toPass({ timeout: 15_000 });
+  await delta.click();
+  const main = page.locator("main");
+  await expect(main.getByRole("button", { name: "Continue" })).toHaveCount(1, {
+    timeout: 15_000,
+  });
+  await expect(
+    main.getByText("No response — this prompt was never run."),
+  ).toHaveCount(0);
 });

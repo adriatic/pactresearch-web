@@ -240,6 +240,68 @@ function unwrapReferencedContext(body) {
   return { changed, notUnwrapped };
 }
 
+// Never-run entries immediately re-run (approved by Nik, 2026-10-06).
+//
+// Index-mode notebooks often saved a prompt and then ran it as a separate
+// entry, so a discussion reads "never run" followed by the same prompt,
+// answered. The never-run entry carries nothing the answered one does
+// not. Rule: drop a never-run entry (empty response) ONLY when the NEXT
+// entry of the same discussion, in time order, has the identical prompt
+// and is answered. Judged on the file's own order, not cascading: in
+// N, N, A only the second N goes. Every other never-run entry is kept --
+// notebooks made entirely of unanswered prompts still import whole.
+// A parentId that pointed at a dropped entry is moved to that entry's own
+// parent (repeatedly, so it always lands on an entry that still exists,
+// or null). Runs after the referenced-cell unwrap, so prompts are compared
+// in their final form.
+function dropRerunNeverRun(body) {
+  const dropped = [];
+  const byDiscussion = new Map();
+  body.cells.forEach((cell, index) => {
+    const list = byDiscussion.get(cell.discussionId) ?? [];
+    list.push({ cell, index });
+    byDiscussion.set(cell.discussionId, list);
+  });
+  for (const list of byDiscussion.values()) {
+    list.sort(
+      (a, b) => a.cell.createdAt - b.cell.createdAt || a.index - b.index,
+    );
+    for (let i = 0; i < list.length - 1; i++) {
+      const here = list[i].cell;
+      const next = list[i + 1].cell;
+      if (
+        !here.response.trim() &&
+        next.response.trim() &&
+        next.promptText === here.promptText
+      ) {
+        dropped.push(list[i].index);
+      }
+    }
+  }
+  if (!dropped.length) return { dropped, relinked: 0 };
+
+  const droppedIds = new Map(
+    dropped.map((i) => [body.cells[i].id, body.cells[i].parentId ?? null]),
+  );
+  let relinked = 0;
+  const kept = body.cells.filter((_, i) => !dropped.includes(i));
+  for (const cell of kept) {
+    let parent = cell.parentId ?? null;
+    if (parent !== null && droppedIds.has(parent)) {
+      const seen = new Set();
+      while (parent !== null && droppedIds.has(parent) && !seen.has(parent)) {
+        seen.add(parent);
+        parent = droppedIds.get(parent);
+      }
+      cell.parentId = parent;
+      relinked++;
+    }
+  }
+  body.cells = kept;
+  dropped.sort((a, b) => a - b);
+  return { dropped, relinked };
+}
+
 function notesFor(body) {
   const notes = [];
   const unrun = body.cells.filter((c) => !c.response.trim()).length;
@@ -369,6 +431,15 @@ export function convertText(text) {
     notes.push(
       `Not unwrapped, left as written: cells[${n.index}] has legacy referenced-cell context, but ${n.reason}.`,
     );
+  }
+  const before = out.cells.length;
+  const drop = dropRerunNeverRun(out);
+  if (drop.dropped.length) {
+    changed = true;
+    notes.push(
+      `Dropped ${drop.dropped.length} of ${before} entries: never-run entries immediately followed by the same prompt, answered (cells[${drop.dropped.join("], cells[")}] of the input)${drop.relinked ? `; ${drop.relinked} parentId link(s) moved to the nearest remaining ancestor` : ""}.`,
+    );
+    validate(out);
   }
   notes.push(...notesFor(out));
 

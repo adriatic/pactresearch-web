@@ -343,3 +343,128 @@ describe("legacy referenced-cell context", () => {
     expect(twice.notes).toEqual([]);
   });
 });
+
+// Never-run entries immediately re-run (approved 2026-10-06). Built on the
+// chained fixture: discussion "Epsilon", cells c1 <- c2 <- c3 by parentId,
+// in time order, all answered as shipped.
+describe("never-run entries immediately re-run with the same prompt", () => {
+  const chained = () => JSON.parse(read("plain-old-gpt-parent-chain.pact"));
+  const ids = (out) => out.cells.map((c) => c.id);
+  const run1 = (file) => {
+    const r = convertText(JSON.stringify(file));
+    return { r, out: r.output ? JSON.parse(r.output) : file };
+  };
+  const linksResolve = (out) =>
+    out.cells.every(
+      (c) => c.parentId === null || out.cells.some((x) => x.id === c.parentId),
+    );
+
+  test("a never-run entry followed by the same prompt, answered, is dropped and reported", () => {
+    const f = chained();
+    const [c1, c2, c3] = f.cells;
+    c1.response = "";
+    c2.promptText = c1.promptText;
+    const { r, out } = run1(f);
+    expect(r.status).toBe("converted");
+    expect(ids(out)).toEqual([c2.id, c3.id]);
+    expect(r.notes[0]).toBe(
+      "Dropped 1 of 3 entries: never-run entries immediately followed by the same prompt, answered (cells[0] of the input); 1 parentId link(s) moved to the nearest remaining ancestor.",
+    );
+    // c2 pointed at the dropped c1, whose own parent is null.
+    expect(out.cells[0].parentId).toBeNull();
+    expect(out.cells[1].parentId).toBe(c2.id);
+    expect(linksResolve(out)).toBe(true);
+    validatePactExport(out);
+  });
+
+  test("a link through a dropped entry moves to that entry's parent", () => {
+    const f = chained();
+    const [c1, c2, c3] = f.cells;
+    c2.response = "";
+    c3.promptText = c2.promptText;
+    const { out } = run1(f);
+    expect(ids(out)).toEqual([c1.id, c3.id]);
+    expect(out.cells[1].parentId).toBe(c1.id);
+    expect(linksResolve(out)).toBe(true);
+  });
+
+  test("N, N, A with one prompt: only the never-run entry right before the answer goes", () => {
+    const f = chained();
+    const [c1, c2, c3] = f.cells;
+    c1.response = "";
+    c2.response = "";
+    c2.promptText = c1.promptText;
+    c3.promptText = c1.promptText;
+    const { out } = run1(f);
+    expect(ids(out)).toEqual([c1.id, c3.id]);
+    expect(out.cells[1].parentId).toBe(c1.id);
+  });
+
+  test.each([
+    [
+      "the next entry has a different prompt",
+      (f) => {
+        f.cells[0].response = "";
+      },
+    ],
+    [
+      "the next entry is also never run (a notebook of unanswered prompts)",
+      (f) => {
+        f.cells.forEach((c) => {
+          c.response = "";
+          c.promptText = "same";
+        });
+      },
+    ],
+    [
+      "the never-run entry is the last one",
+      (f) => {
+        f.cells[2].response = "";
+        f.cells[2].promptText = f.cells[1].promptText;
+      },
+    ],
+    [
+      "the answered entry comes first",
+      (f) => {
+        f.cells[1].response = "";
+        f.cells[1].promptText = f.cells[0].promptText;
+      },
+    ],
+  ])("kept when %s", (_, edit) => {
+    const f = chained();
+    edit(f);
+    const { r, out } = run1(f);
+    expect(out.cells).toHaveLength(3);
+    expect(r.notes.join(" ")).not.toMatch(/Dropped/);
+  });
+
+  test("the same prompt answered in a different discussion does not count", () => {
+    const f = JSON.parse(read("plain-old-minimal.pact"));
+    // Zeta and Eta each hold one cell.
+    f.cells[0].response = "";
+    f.cells[1].promptText = f.cells[0].promptText;
+    const { r } = run1(f);
+    expect(r.status).toBe("current");
+  });
+
+  test("the never-run count in the notes is taken after the drop", () => {
+    const f = chained();
+    f.cells[0].response = "";
+    f.cells[1].promptText = f.cells[0].promptText;
+    f.cells[2].response = "";
+    const { r } = run1(f);
+    expect(r.notes).toContain(
+      '1 of 2 prompts were never run (empty response); kept as-is, pact-web shows them as "never run".',
+    );
+  });
+
+  test("converting the converted file again drops nothing more", () => {
+    const f = chained();
+    f.cells[0].response = "";
+    f.cells[1].promptText = f.cells[0].promptText;
+    const once = convertText(JSON.stringify(f));
+    const twice = convertText(once.output);
+    expect(twice.status).toBe("current");
+    expect(twice.notes).toEqual([]);
+  });
+});
