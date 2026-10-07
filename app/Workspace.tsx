@@ -13,6 +13,15 @@ import { ModelTierDialog } from "./ModelTierDialog";
 import { NewNotebookDialog } from "./NewNotebookDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 import { useVisibleViewportHeight } from "./useVisibleViewportHeight";
+import { ImportStatus } from "./ImportStatus";
+import { PactDropZone } from "./PactDropZone";
+import {
+  importPactFiles,
+  pickPactFiles,
+  summarizeImport,
+  supportsOpenFilePicker,
+  type ImportSummary,
+} from "@/lib/pactImport";
 import { isEmptyDoc } from "@/lib/richContent";
 import {
   extractFollowUpQuestion,
@@ -91,7 +100,14 @@ export function Workspace({
   // that changes here.
   const [discussionListRefetchToken, setDiscussionListRefetchToken] =
     useState(0);
-  const [importError, setImportError] = useState<string | null>(null);
+  // Task 79: progress while files import, then one short summary.
+  const [importProgress, setImportProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [importSummary, setImportSummary] = useState<ImportSummary | null>(
+    null,
+  );
   const importFileInputRef = useRef<HTMLInputElement>(null);
   const [showSettings, setShowSettings] = useState(false);
 
@@ -120,42 +136,66 @@ export function Workspace({
     setSelectedNotebookId(notebookId);
   }
 
-  // Reads the selected .pact file, POSTs it to /api/notebooks/import (the
-  // server does the real validation regardless of what's parsed here --
-  // this is just an early, friendly error for "not even valid JSON"),
-  // and refetches the tree so the new notebook appears. Resets the input
-  // itself so selecting the exact same file again still fires onChange.
-  async function handleImportFileSelected(
-    e: React.ChangeEvent<HTMLInputElement>,
+  // Task 79. Imports one or more .pact files -- from the Import button,
+  // the newer file chooser, or a drop onto the window -- one after another
+  // through the existing /api/notebooks/import route, unchanged. Each
+  // notebook stays all-or-nothing on the server, and one bad file never
+  // stops the rest (lib/pactImport.ts). The tree refetches once at the end
+  // if anything was imported.
+  async function runImport(
+    files: File[],
+    { fromDrop = false }: { fromDrop?: boolean } = {},
   ) {
-    const file = e.target.files?.[0];
+    if (!files.length || importProgress) return;
+    setImportSummary(null);
+    setImportProgress({ done: 0, total: files.length });
+    const outcomes = await importPactFiles(
+      files,
+      async (parsed) => {
+        const response = await fetch("/api/notebooks/import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(parsed),
+        });
+        let body: unknown = null;
+        try {
+          body = await response.json();
+        } catch {}
+        return { status: response.status, body };
+      },
+      (done, total) => setImportProgress({ done, total }),
+      { requirePactName: fromDrop },
+    );
+    setImportProgress(null);
+    setImportSummary(summarizeImport(outcomes));
+    if (outcomes.some((o) => o.ok)) {
+      setDiscussionListRefetchToken((t) => t + 1);
+    }
+  }
+
+  // Resets the input itself, so choosing the exact same files again still
+  // fires onChange.
+  function handleImportFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file) return;
+    void runImport(files);
+  }
 
-    setImportError(null);
+  // Task 79, part D. Where the browser has the newer file chooser (Chrome
+  // and similar -- checked by feature, never by browser name), use it: it
+  // reopens in the folder used last time. Safari and the iPad do not have
+  // it and keep the plain file input exactly as before. Cancelling shows
+  // nothing; if the newer chooser fails for any other reason, fall back to
+  // the plain input.
+  async function handleImportClick() {
+    if (!supportsOpenFilePicker(window)) {
+      importFileInputRef.current?.click();
+      return;
+    }
     try {
-      const text = await file.text();
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        setImportError("That file isn't valid JSON -- not a .pact file.");
-        return;
-      }
-
-      const response = await fetch("/api/notebooks/import", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(parsed),
-      });
-      const body = await response.json();
-      if (response.ok) {
-        setDiscussionListRefetchToken((t) => t + 1);
-      } else {
-        setImportError(body.error || "Failed to import .pact file.");
-      }
+      void runImport(await pickPactFiles(window));
     } catch {
-      setImportError("Failed to read the selected file.");
+      importFileInputRef.current?.click();
     }
   }
 
@@ -260,6 +300,9 @@ export function Workspace({
       <ModelTierDialog
         open={showModelTier}
         onClose={() => setShowModelTier(false)}
+      />
+      <PactDropZone
+        onFiles={(files) => void runImport(files, { fromDrop: true })}
       />
       {/* Task 75: the visible height, not 100vh -- on an iPad 100vh
           ignores the on-screen keyboard. See useVisibleViewportHeight. */}
@@ -375,16 +418,14 @@ export function Workspace({
             >
               {execution.loading ? "Running..." : "Run"}
             </button>{" "}
-            <button
-              type="button"
-              onClick={() => importFileInputRef.current?.click()}
-            >
+            <button type="button" onClick={() => void handleImportClick()}>
               Import
             </button>{" "}
             <input
               ref={importFileInputRef}
               type="file"
               accept=".pact"
+              multiple
               style={{ display: "none" }}
               onChange={handleImportFileSelected}
             />{" "}
@@ -406,12 +447,11 @@ export function Workspace({
             <button type="button" onClick={() => setShowModelTier(true)}>
               Model
             </button>{" "}
-            {importError && (
-              <span style={{ color: "#a00", fontSize: "0.85em" }}>
-                {" "}
-                {importError}
-              </span>
-            )}
+            <ImportStatus
+              progress={importProgress}
+              summary={importSummary}
+              onDismiss={() => setImportSummary(null)}
+            />
           </header>
           {/* Task 37: pact-mac's discussion-name/run-status row, which sits
               directly above the composer. Deliberately a sibling ABOVE the
