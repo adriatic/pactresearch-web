@@ -174,20 +174,38 @@ export function DiscussionContent({
                     scrolled past it. */}
                   {` — ${new Date(entry.created_at).toLocaleString()}`}:
                 </p>
-                <MarkdownResponse content={entry.response ?? ""} />
-                {/* Task 49. marginTop is roughly two blank lines: a
-                    response that ends on a question would otherwise put
-                    the button directly under the question mark, which is
-                    exactly the case this button exists for and the one
-                    where it reads worst. */}
-                <div style={{ marginTop: "2.5em", marginBottom: "0.5em" }}>
-                  <button
-                    type="button"
-                    onClick={() => onContinue(entry.response ?? "")}
+                {/* Task 77. Older PACT apps saved prompts that were never
+                    run -- 195 of 295 cells in the older .pact files on
+                    record have an empty response. They import as data,
+                    so say so instead of showing a heading over nothing.
+                    pact-web itself only saves completed runs, so this
+                    branch is reached by imported rows alone. Continue is
+                    hidden: there is no response to continue from. */}
+                {entry.response?.trim() ? (
+                  <>
+                    <MarkdownResponse content={entry.response} />
+                    {/* Task 49. marginTop is roughly two blank lines: a
+                        response that ends on a question would otherwise
+                        put the button directly under the question mark,
+                        which is exactly the case this button exists for
+                        and the one where it reads worst. */}
+                    <div style={{ marginTop: "2.5em", marginBottom: "0.5em" }}>
+                      <button
+                        type="button"
+                        onClick={() => onContinue(entry.response ?? "")}
+                      >
+                        Continue
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p
+                    data-no-response
+                    style={{ color: "#666", fontStyle: "italic" }}
                   >
-                    Continue
-                  </button>
-                </div>
+                    No response — this prompt was never run.
+                  </p>
+                )}
               </div>
             );
           })}
