@@ -61,33 +61,43 @@ export async function promptContentToAnthropicBlocks(
       continue;
     }
 
-    const storagePath = storagePathFromPromptImageSrc(segment.src);
-    if (!storagePath) {
-      throw new Error(
-        `Image src "${segment.src}" is not a recognized prompt-images reference.`,
-      );
-    }
-
-    const { data, error } = await supabase.storage
-      .from("prompt-images")
-      .download(storagePath);
-    if (error || !data) {
-      throw new Error(
-        `Failed to fetch prompt image "${storagePath}" from storage: ${error?.message ?? "no data returned"}`,
-      );
-    }
-    const arrayBuffer = await data.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-    blocks.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: mimeTypeForPath(storagePath),
-        data: base64,
-      },
-    });
+    blocks.push(await fetchPromptImageBlock(segment.src, supabase));
   }
 
   return blocks;
+}
+
+// One image, from its Tiptap src to an Anthropic image block. Split out
+// (Task 69) so a discussion's earlier turns fetch their images exactly
+// the way the current turn does -- lib/discussionHistory.ts.
+export async function fetchPromptImageBlock(
+  src: string,
+  supabase: SupabaseClient,
+): Promise<AnthropicImageBlock> {
+  const storagePath = storagePathFromPromptImageSrc(src);
+  if (!storagePath) {
+    throw new Error(
+      `Image src "${src}" is not a recognized prompt-images reference.`,
+    );
+  }
+
+  const { data, error } = await supabase.storage
+    .from("prompt-images")
+    .download(storagePath);
+  if (error || !data) {
+    throw new Error(
+      `Failed to fetch prompt image "${storagePath}" from storage: ${error?.message ?? "no data returned"}`,
+    );
+  }
+  const arrayBuffer = await data.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
+
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: mimeTypeForPath(storagePath),
+      data: base64,
+    },
+  };
 }

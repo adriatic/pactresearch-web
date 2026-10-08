@@ -1,6 +1,11 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { promptContentToAnthropicBlocks } from "@/lib/promptContentToAnthropicBlocks";
+import {
+  countImageBlocks,
+  historyToAnthropicMessages,
+  type PriorTurn,
+} from "@/lib/discussionHistory";
 import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
@@ -329,7 +334,7 @@ async function handlePost(request: Request) {
         try {
           return await supabase
             .from("responses")
-            .select("prompt_text, response, created_at, id")
+            .select("prompt_text, prompt_content, response, created_at, id")
             .eq("discussion_id", discussionId)
             .order("created_at", { ascending: true })
             .order("id", { ascending: true });
@@ -349,25 +354,41 @@ async function handlePost(request: Request) {
       .getActiveSpan()
       ?.setAttribute("pact.history_read_ms", Date.now() - historyReadStart);
 
-    // Only COMPLETED turns. A row whose response is still null or empty
-    // is an in-flight or failed run, and including its prompt would put
-    // two user messages back to back -- which Anthropic rejects
-    // outright ("roles must alternate"). Dropping the pair keeps the
-    // sequence valid and keeps a failed run from poisoning every later
-    // turn in that discussion.
-    const priorMessages = (priorTurns ?? [])
-      .filter(
-        (turn) =>
-          (turn.prompt_text ?? "").trim().length > 0 &&
-          (turn.response ?? "").trim().length > 0,
-      )
-      .flatMap((turn) => [
-        { role: "user" as const, content: turn.prompt_text as string },
-        { role: "assistant" as const, content: turn.response as string },
-      ]);
-    trace
-      .getActiveSpan()
-      ?.setAttribute("pact.history_turn_count", priorMessages.length / 2);
+    // Only completed turns, in order, with alternating roles (Task 62);
+    // since Task 69 a turn's images come along too, within the request's
+    // image limits -- see lib/discussionHistory.ts.
+    const historyImagesStart = Date.now();
+    const { messages: priorMessages, stats: historyStats } =
+      await historyToAnthropicMessages(
+        (priorTurns ?? []) as PriorTurn[],
+        supabase,
+        countImageBlocks(anthropicContent),
+      );
+    const activeSpan = trace.getActiveSpan();
+    activeSpan?.setAttribute(
+      "pact.history_turn_count",
+      priorMessages.length / 2,
+    );
+    activeSpan?.setAttribute(
+      "pact.history_images_sent",
+      historyStats.imagesSent,
+    );
+    activeSpan?.setAttribute(
+      "pact.history_image_bytes",
+      historyStats.imageBytesSent,
+    );
+    activeSpan?.setAttribute(
+      "pact.history_images_omitted",
+      historyStats.imagesOmittedForSize,
+    );
+    activeSpan?.setAttribute(
+      "pact.history_images_missing",
+      historyStats.imagesMissing,
+    );
+    activeSpan?.setAttribute(
+      "pact.history_images_ms",
+      Date.now() - historyImagesStart,
+    );
 
     const anthropicConnectStart = Date.now();
     const anthropicResponse = await context.with(ttftCtx, () =>
