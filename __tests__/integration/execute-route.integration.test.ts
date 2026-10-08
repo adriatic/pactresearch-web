@@ -642,6 +642,192 @@ describe("POST /api/execute", () => {
     await admin.from("responses").delete().eq("discussion_id", discussionId);
   });
 
+  // Task 69. Earlier turns' images are carried forward, fetched from the
+  // real local prompt-images bucket through the user's own session (RLS),
+  // exactly as the current turn's are.
+  test("a later turn carries every earlier image, in order, from real storage", async () => {
+    currentCookies = await signInAsTestUser();
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+
+    const shot1 = Buffer.from("first-screenshot-bytes");
+    const shot2 = Buffer.from("second-screenshot-bytes");
+    const path1 = `${userId}/${discussionId}/history-1-${Date.now()}.png`;
+    const path2 = `${userId}/${discussionId}/history-2-${Date.now()}.jpg`;
+    for (const [path, bytes, type] of [
+      [path1, shot1, "image/png"],
+      [path2, shot2, "image/jpeg"],
+    ] as const) {
+      const { error } = await admin.storage
+        .from("prompt-images")
+        .upload(path, bytes, { contentType: type });
+      expect(error).toBeNull();
+    }
+    const doc = (text: string, path: string) => ({
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text }] },
+        {
+          type: "image",
+          attrs: { src: `/api/prompt-images/${path}`, alt: "shot" },
+        },
+      ],
+    });
+
+    await admin.from("responses").insert([
+      {
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: "Here is my first screenshot.",
+        prompt_content: doc("Here is my first screenshot.", path1),
+        response: "I see the first one.",
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: "2026-09-01T10:00:00Z",
+      },
+      {
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: "No picture this time.",
+        response: "Understood.",
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: "2026-09-01T10:02:00Z",
+      },
+      {
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: "And a second screenshot.",
+        prompt_content: doc("And a second screenshot.", path2),
+        response: "I see the second one.",
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: "2026-09-01T10:05:00Z",
+      },
+    ]);
+
+    let sent: { role: string; content: unknown }[] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            messages: { role: string; content: unknown }[];
+          };
+          sent = body.messages;
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+
+    const response = await POST(
+      makeRequest({
+        discussionId,
+        promptContent: plainTextToDoc("Compare the two screenshots."),
+      }),
+    );
+    expect(response.status).toBe(200);
+
+    expect(sent.map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+    ]);
+    // Same block shape the current turn uses.
+    expect(sent[0].content).toEqual([
+      { type: "text", text: "Here is my first screenshot." },
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/png",
+          data: shot1.toString("base64"),
+        },
+      },
+    ]);
+    // A text-only turn is still a plain string, as in Task 62.
+    expect(sent[2].content).toBe("No picture this time.");
+    expect(sent[4].content).toEqual([
+      { type: "text", text: "And a second screenshot." },
+      {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: "image/jpeg",
+          data: shot2.toString("base64"),
+        },
+      },
+    ]);
+    expect(sent[6].content).toEqual([
+      { type: "text", text: "Compare the two screenshots." },
+    ]);
+
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+    await admin.storage.from("prompt-images").remove([path1, path2]);
+  });
+
+  test("an earlier image that is gone from storage does not stop the run", async () => {
+    currentCookies = await signInAsTestUser();
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+    await admin.from("responses").insert({
+      discussion_id: discussionId,
+      user_id: userId,
+      prompt_text: "A picture that was later lost.",
+      prompt_content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [{ type: "text", text: "A picture that was later lost." }],
+          },
+          {
+            type: "image",
+            attrs: {
+              src: `/api/prompt-images/${userId}/${discussionId}/never-uploaded.png`,
+            },
+          },
+        ],
+      },
+      response: "Noted.",
+      model: "m",
+      resolved_model: "claude-sonnet-4-6",
+      created_at: "2026-09-01T10:00:00Z",
+    });
+
+    let sent: { role: string; content: unknown }[] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          sent = ((await request.json()) as { messages: typeof sent }).messages;
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+    const response = await POST(
+      makeRequest({
+        discussionId,
+        promptContent: plainTextToDoc("Still there?"),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(sent[0].content).toEqual([
+      { type: "text", text: "A picture that was later lost." },
+      {
+        type: "text",
+        text: "[An image was attached here, but it is no longer stored.]",
+      },
+    ]);
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  });
+
   test("a brand-new discussion's first turn still sends exactly one message", async () => {
     currentCookies = await signInAsTestUser();
 
