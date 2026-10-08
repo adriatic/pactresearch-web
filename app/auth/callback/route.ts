@@ -14,8 +14,22 @@ import {
 // Logged by error code only: never the auth code itself, and never the
 // user's email. Vercel's runtime logs are where a failure on a real device
 // can be traced after the fact.
+//
+// Task 76 follow-up C1. A link in the new form carries a token_hash. It is
+// only passed on to /auth/confirm, which shows a Sign in button -- nothing
+// is spent here, so a link preview or mail scanner that loads this address
+// cannot use the link up. Links in the old form (?code=..., the PKCE
+// exchange) keep working exactly as before.
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
+
+  const tokenHash = searchParams.get("token_hash");
+  if (tokenHash) {
+    const confirm = new URL("/auth/confirm", origin);
+    confirm.searchParams.set("token_hash", tokenHash);
+    confirm.searchParams.set("type", searchParams.get("type") ?? "email");
+    return NextResponse.redirect(confirm);
+  }
 
   const rejected = problemFromCallbackParams(searchParams);
   if (rejected) {
