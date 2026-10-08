@@ -9,6 +9,7 @@ import {
 import { useTree } from "@headless-tree/react";
 import { RowMenu } from "./RowMenu";
 import { RenameDialog, type RenameTarget } from "./RenameDialog";
+import { DeleteDialog, type DeleteTarget } from "./DeleteDialog";
 import {
   AddDiscussionDialog,
   type AddDiscussionTarget,
@@ -160,6 +161,7 @@ export function Explorer({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   // Task 60. Which notebook the "Add discussion" dialog is open for.
   const [addTarget, setAddTarget] = useState<AddDiscussionTarget | null>(null);
   // Task 55c. Per-notebook rollups, keyed by notebook id. Fetched in one
@@ -250,46 +252,47 @@ export function Explorer({
     };
   }, []);
 
-  async function handleDeleteNotebook(notebookId: string, name: string) {
-    // Computed BEFORE the prompt so the message can state the blast
-    // radius. "and all its discussions" was true but vague: deleting a
-    // notebook with eleven discussions and one with none read
-    // identically, and the number is the part that makes someone stop
-    // and think.
-    //
-    // Counted from the tree's own loaded state, the same source the
-    // callback below already uses for deletedDiscussionIds. That can
-    // lag a discussion added in another tab, so this is an honest
-    // indication of scale rather than a guarantee -- the server
-    // deletes whatever is actually there, via ON DELETE CASCADE.
+  // Task 68: opens the in-app DeleteDialog instead of window.confirm.
+  //
+  // The count is computed BEFORE the dialog so the message can state the
+  // blast radius (Task 61). "and all its discussions" was true but vague:
+  // deleting a notebook with eleven discussions and one with none read
+  // identically, and the number is the part that makes someone stop and
+  // think.
+  //
+  // Counted from the tree's own loaded state, the same source
+  // deleteNotebook below uses for deletedDiscussionIds. That can lag a
+  // discussion added in another tab, so this is an honest indication of
+  // scale rather than a guarantee -- the server deletes whatever is
+  // actually there, via ON DELETE CASCADE.
+  function handleDeleteNotebook(notebookId: string, name: string) {
+    setDeleteError(null);
+    setDeleteTarget({
+      kind: "notebook",
+      id: notebookId,
+      name,
+      discussionCount: discussions.filter((d) => d.notebook_id === notebookId)
+        .length,
+    });
+  }
+
+  async function deleteNotebook(notebookId: string, name: string) {
     const deletedDiscussionIds = discussions
       .filter((d) => d.notebook_id === notebookId)
       .map((d) => d.id);
-    const count = deletedDiscussionIds.length;
-    const blastRadius =
-      count === 0
-        ? "It has no discussions."
-        : `This will also delete its ${count} discussion${count === 1 ? "" : "s"}.`;
-
-    const confirmed = window.confirm(
-      `Delete notebook "${name}"?\n\n${blastRadius} This cannot be undone.`,
-    );
-    if (!confirmed) return;
-
-    setDeleteError(null);
     const response = await fetch(`/api/notebooks?id=${notebookId}`, {
       method: "DELETE",
     });
 
     if (response.ok) {
+      setDeleteTarget(null);
       onNotebookDeleted(notebookId, deletedDiscussionIds);
-    } else if (response.status === 409) {
-      setDeleteError(
-        `"${name}" can't be deleted right now — a discussion in it is actively executing. Try again once that finishes.`,
-      );
-    } else {
-      setDeleteError(`Failed to delete "${name}".`);
+      return null;
     }
+    if (response.status === 409) {
+      return `"${name}" can't be deleted right now — a discussion in it is actively executing. Try again once that finishes.`;
+    }
+    return `Failed to delete "${name}".`;
   }
 
   // Downloads the notebook as a .pact file -- a plain JSON file (ported
@@ -398,26 +401,25 @@ export function Explorer({
   // (DELETE /api/discussions), not the notebook-level "some discussion in
   // here is executing" check — deleting one discussion is never blocked
   // by a sibling's run.
-  async function handleDeleteDiscussion(discussionId: string, name: string) {
-    const confirmed = window.confirm(
-      `Delete discussion "${name}" and all its responses? This cannot be undone.`,
-    );
-    if (!confirmed) return;
-
+  function handleDeleteDiscussion(discussionId: string, name: string) {
     setDeleteError(null);
+    setDeleteTarget({ kind: "discussion", id: discussionId, name });
+  }
+
+  async function deleteDiscussion(discussionId: string, name: string) {
     const response = await fetch(`/api/discussions?id=${discussionId}`, {
       method: "DELETE",
     });
 
     if (response.ok) {
+      setDeleteTarget(null);
       onDiscussionDeleted(discussionId);
-    } else if (response.status === 409) {
-      setDeleteError(
-        `"${name}" can't be deleted right now — it's actively executing. Try again once that finishes.`,
-      );
-    } else {
-      setDeleteError(`Failed to delete "${name}".`);
+      return null;
     }
+    if (response.status === 409) {
+      return `"${name}" can't be deleted right now — it's actively executing. Try again once that finishes.`;
+    }
+    return `Failed to delete "${name}".`;
   }
 
   // Tracks the tree's own last-seen state so setState below can resolve
@@ -616,6 +618,15 @@ export function Explorer({
         target={renameTarget}
         onCancel={() => setRenameTarget(null)}
         onRename={handleRename}
+      />
+      <DeleteDialog
+        target={deleteTarget}
+        onCancel={() => setDeleteTarget(null)}
+        onDelete={(target) =>
+          target.kind === "notebook"
+            ? deleteNotebook(target.id, target.name)
+            : deleteDiscussion(target.id, target.name)
+        }
       />
       <AddDiscussionDialog
         target={addTarget}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { DialogFrame } from "./DialogFrame";
 
 // Task 60. Adding a discussion to an existing notebook, from that
 // notebook's own row menu.
@@ -120,71 +121,48 @@ export function AddDiscussionDialog({
   }
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0, 0, 0, 0.3)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
-    >
-      <section
-        role="dialog"
-        aria-label="Add discussion"
-        style={{
-          background: "#fff",
-          border: "1px solid #999",
-          padding: 16,
-          width: 420,
-          maxWidth: "90vw",
-          boxSizing: "border-box",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Add discussion</h2>
-        <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
-          It will be added to <strong>{target.notebookName}</strong>, after the
-          discussions already there.
-        </p>
+    <DialogFrame label="Add discussion" onCancel={onCancel} busy={saving}>
+      <h2 style={{ marginTop: 0 }}>Add discussion</h2>
+      <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
+        It will be added to <strong>{target.notebookName}</strong>, after the
+        discussions already there.
+      </p>
 
-        <label>
-          Name:
-          <br />
-          <input
-            type="text"
-            value={name}
-            autoFocus
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              // In a dialog, not a form, so Enter has nothing to submit
-              // -- wire it to the obvious action.
-              if (e.key === "Enter" && trimmed) {
-                e.preventDefault();
-                void handleCreate();
-              }
-            }}
-            disabled={saving}
-            style={{ width: "100%", boxSizing: "border-box" }}
-          />
-        </label>
+      <label>
+        Name:
+        <br />
+        <input
+          type="text"
+          value={name}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            // In a dialog, not a form, so Enter has nothing to submit
+            // -- wire it to the obvious action.
+            if (e.key === "Enter" && trimmed) {
+              e.preventDefault();
+              void handleCreate();
+            }
+          }}
+          disabled={saving}
+          style={{ width: "100%", boxSizing: "border-box" }}
+        />
+      </label>
 
-        {error && <p style={{ color: "#a00" }}>{error}</p>}
+      {error && <p style={{ color: "#a00" }}>{error}</p>}
 
-        <div style={{ marginTop: 12 }}>
-          <button type="button" onClick={onCancel} disabled={saving}>
-            Cancel
-          </button>{" "}
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={saving || !trimmed}
-          >
-            {saving ? "Adding..." : "Add discussion"}
-          </button>
-        </div>
-      </section>
-    </div>
+      <div style={{ marginTop: 12 }}>
+        <button type="button" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>{" "}
+        <button
+          type="button"
+          onClick={() => void handleCreate()}
+          disabled={saving || !trimmed}
+        >
+          {saving ? "Adding..." : "Add discussion"}
+        </button>
+      </div>
+    </DialogFrame>
   );
 }

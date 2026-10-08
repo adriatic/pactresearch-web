@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { DialogFrame } from "./DialogFrame";
 
 // Task 54. Renames a notebook or a discussion from the row menu.
 //
@@ -77,70 +78,47 @@ export function RenameDialog({
   const noun = target.kind === "notebook" ? "notebook" : "discussion";
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0, 0, 0, 0.3)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-      }}
-    >
-      <section
-        role="dialog"
-        aria-label={`Rename ${noun}`}
-        style={{
-          background: "#fff",
-          border: "1px solid #999",
-          padding: 16,
-          width: 420,
-          maxWidth: "90vw",
-          boxSizing: "border-box",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Rename {noun}</h2>
+    <DialogFrame label={`Rename ${noun}`} onCancel={onCancel} busy={saving}>
+      <h2 style={{ marginTop: 0 }}>Rename {noun}</h2>
 
-        <label>
-          Name:
-          <br />
-          <input
-            type="text"
-            value={name}
-            autoFocus
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              // This input sits in a dialog, not a form, so Enter has
-              // nothing to submit -- wire it to the obvious action.
-              if (e.key === "Enter" && trimmed && !unchanged) {
-                e.preventDefault();
-                void handleSave();
-              }
-            }}
-            disabled={saving}
-            style={{ width: "100%", boxSizing: "border-box" }}
-          />
-        </label>
+      <label>
+        Name:
+        <br />
+        <input
+          type="text"
+          value={name}
+          autoFocus
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            // This input sits in a dialog, not a form, so Enter has
+            // nothing to submit -- wire it to the obvious action.
+            if (e.key === "Enter" && trimmed && !unchanged) {
+              e.preventDefault();
+              void handleSave();
+            }
+          }}
+          disabled={saving}
+          style={{ width: "100%", boxSizing: "border-box" }}
+        />
+      </label>
 
-        {error && <p style={{ color: "#a00" }}>{error}</p>}
+      {error && <p style={{ color: "#a00" }}>{error}</p>}
 
-        <div style={{ marginTop: 12 }}>
-          <button type="button" onClick={onCancel} disabled={saving}>
-            Cancel
-          </button>{" "}
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            // Unchanged is disabled as well as empty: a "Save" that
-            // fires a PATCH writing the name it already has is just a
-            // way to fail for no reason.
-            disabled={saving || !trimmed || unchanged}
-          >
-            {saving ? "Renaming..." : "Rename"}
-          </button>
-        </div>
-      </section>
-    </div>
+      <div style={{ marginTop: 12 }}>
+        <button type="button" onClick={onCancel} disabled={saving}>
+          Cancel
+        </button>{" "}
+        <button
+          type="button"
+          onClick={() => void handleSave()}
+          // Unchanged is disabled as well as empty: a "Save" that
+          // fires a PATCH writing the name it already has is just a
+          // way to fail for no reason.
+          disabled={saving || !trimmed || unchanged}
+        >
+          {saving ? "Renaming..." : "Rename"}
+        </button>
+      </div>
+    </DialogFrame>
   );
 }

@@ -35,7 +35,8 @@ import { useEffect, useState } from "react";
 // existing modal/overlay pattern exists anywhere else in this app to
 // reuse (confirmed by searching the whole app directory before writing
 // this; the only other "are you sure" UI in the codebase is a native
-// window.confirm(), in Explorer.tsx). This establishes the simplest
+// window.confirm(), in Explorer.tsx -- since replaced by DeleteDialog,
+// Task 68). This establishes the simplest
 // thing that reads as a dialog — a fixed backdrop plus a centered plain
 // box — kept deliberately unstyled beyond that, consistent with the rest
 // of the app's plain-HTML aesthetic (no CSS framework, no design system).

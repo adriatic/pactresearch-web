@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
-import { chooseRowAction } from "./rowMenuActions";
+import { chooseRowAction, confirmDeleteDialog } from "./rowMenuActions";
 
 // Covers the per-discussion delete control in the Explorer tree and the
 // DELETE /api/discussions route behind it, through the real UI: a real
@@ -155,8 +155,6 @@ test("each discussion row has its own delete control, and using it removes exact
   await expect(doomedRow).toHaveCount(1);
   await expect(page.getByRole("treeitem", { name: keptName })).toHaveCount(1);
 
-  page.once("dialog", (dialog) => dialog.accept());
-
   const deleteResponsePromise = page.waitForResponse(
     (response) =>
       response.url().includes("/api/discussions") &&
@@ -164,6 +162,8 @@ test("each discussion row has its own delete control, and using it removes exact
   );
 
   await chooseRowAction(doomedRow, doomedName, "Delete discussion");
+
+  await confirmDeleteDialog(page);
 
   const deleteResponse = await deleteResponsePromise;
   expect(deleteResponse.status()).toBe(200);
@@ -203,7 +203,6 @@ test("a discussion holding its own active execution lock can't be deleted, but i
   });
   expect(lockError).toBeNull();
 
-  page.once("dialog", (dialog) => dialog.accept());
   const blockedResponsePromise = page.waitForResponse(
     (response) =>
       response.url().includes("/api/discussions") &&
@@ -216,12 +215,21 @@ test("a discussion holding its own active execution lock can't be deleted, but i
     "Delete discussion",
   );
 
+  await confirmDeleteDialog(page);
+
   expect((await blockedResponsePromise).status()).toBe(409);
   await expect(
     page.getByText(
       `"${doomedName}" can't be deleted right now — it's actively executing.`,
     ),
   ).toBeVisible();
+
+  // Task 68: the refusal is shown inside the delete dialog, which stays
+  // open (as Rename does on an error) until it is cancelled.
+  const deleteDialog = page.getByRole("dialog", { name: "Delete discussion" });
+  await expect(deleteDialog).toContainText("it's actively executing");
+  await deleteDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deleteDialog).toHaveCount(0);
 
   // Still present, in the tree and in the database.
   await expect(page.getByRole("treeitem", { name: doomedName })).toHaveCount(1);
@@ -233,7 +241,6 @@ test("a discussion holding its own active execution lock can't be deleted, but i
 
   // The sibling is not blocked by that lock — deleting a discussion is
   // only ever gated on its own execution, never a neighbour's.
-  page.once("dialog", (dialog) => dialog.accept());
   const siblingResponsePromise = page.waitForResponse(
     (response) =>
       response.url().includes("/api/discussions") &&
@@ -244,6 +251,7 @@ test("a discussion holding its own active execution lock can't be deleted, but i
     keptName,
     "Delete discussion",
   );
+  await confirmDeleteDialog(page);
 
   expect((await siblingResponsePromise).status()).toBe(200);
   await expect(page.getByRole("treeitem", { name: keptName })).toHaveCount(0, {
