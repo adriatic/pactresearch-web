@@ -245,7 +245,30 @@ export function AccountDialog({
           boxSizing: "border-box",
         }}
       >
-        <h2 style={{ marginTop: 0 }}>Account</h2>
+        {/* Task 80. Sign out was a link in the old dashboard header
+            (87acbbc, June); the August placeholder removed the dashboard,
+            and when the app came back only the /logout route returned.
+            It sits next to the heading so it is in reach on both tabs and
+            stays near the top when the iPad keyboard shortens the dialog.
+            A real form POST, not a link: nothing can prefetch it, and the
+            route answers with a redirect to the sign-in page. 44px is
+            Apple's minimum comfortable tap height. */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            marginBottom: 12,
+          }}
+        >
+          <h2 style={{ margin: 0 }}>Account</h2>
+          <form method="post" action="/logout" style={{ margin: 0 }}>
+            <button type="submit" style={{ minHeight: 44, minWidth: 96 }}>
+              Sign out
+            </button>
+          </form>
+        </div>
 
         <div
           role="tablist"
