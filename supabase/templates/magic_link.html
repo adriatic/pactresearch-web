@@ -1,0 +1,13 @@
+<!--
+  LOCAL DEVELOPMENT ONLY (Task 76 follow-up C1). Production's template is
+  set in the Supabase dashboard and holds only the first link.
+
+  The first link is the new one: it lands on /auth/callback with a
+  token_hash, which only redirects to the /auth/confirm page; the Sign in
+  button there spends the token. The second link is Supabase's default
+  (/auth/v1/verify -> /auth/callback?code=...), kept so the E2E suite can
+  still prove that links in the old form keep working.
+-->
+<h2>Sign in to PACT</h2>
+<p><a id="confirm" href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=email">Sign in</a></p>
+<p><a id="legacy" href="{{ .ConfirmationURL }}">Old-style link</a></p>
