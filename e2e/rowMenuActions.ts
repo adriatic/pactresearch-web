@@ -1,4 +1,4 @@
-import { expect, type Locator } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 // Task 54 moved every per-row action in the Explorer tree -- Export,
 // Delete, and the new Rename -- behind a "⋮" menu on the row itself,
@@ -71,4 +71,16 @@ export async function addDiscussionViaRowMenu(
   await dialog.getByLabel("Name:").fill(discussionName);
   await dialog.getByRole("button", { name: "Add discussion" }).click();
   await expect(dialog).toBeHidden({ timeout: 15_000 });
+}
+
+// Task 68: Delete notebook / Delete discussion now open an in-app
+// dialog instead of the browser's window.confirm. Presses its Delete
+// button -- what `page.once("dialog", (d) => d.accept())` used to do.
+export async function confirmDeleteDialog(page: Page) {
+  const dialog = page.getByRole("dialog", {
+    name: /^Delete (notebook|discussion)$/,
+  });
+  await dialog
+    .getByRole("button", { name: /^Delete (notebook|discussion)$/ })
+    .click();
 }
