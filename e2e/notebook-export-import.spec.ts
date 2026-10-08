@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
-import { chooseRowAction } from "./rowMenuActions";
+import { chooseRowAction, confirmDeleteDialog } from "./rowMenuActions";
 
 // Verifies the real UI round trip: export a notebook to a real downloaded
 // .pact file, feed that exact file back into the Import flow, and confirm
@@ -397,13 +397,13 @@ test("after export, delete, and re-import, each discussion's composer shows its 
   expect(downloadedPath).toBeTruthy();
 
   // 2. Delete the notebook via the real Delete notebook button.
-  page.once("dialog", (dialog) => dialog.accept());
   const deleteResponsePromise = page.waitForResponse(
     (response) =>
       response.url().includes("/api/notebooks") &&
       response.request().method() === "DELETE",
   );
   await chooseRowAction(notebookRow, notebookName, "Delete notebook");
+  await confirmDeleteDialog(page);
   expect((await deleteResponsePromise).status()).toBe(200);
   await expect(notebookRow).toHaveCount(0, { timeout: 15_000 });
 
