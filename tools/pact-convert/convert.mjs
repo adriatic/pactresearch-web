@@ -36,7 +36,16 @@ import { fileURLToPath } from "node:url";
 
 export const CURRENT_VERSION = 1;
 
-const KNOWN_TOP = ["version", "exportedAt", "notebook", "discussions", "cells"];
+// exportedFrom: Task 70's build stamp. Kept, so a current file passes
+// through as "already current" instead of losing it.
+const KNOWN_TOP = [
+  "version",
+  "exportedAt",
+  "exportedFrom",
+  "notebook",
+  "discussions",
+  "cells",
+];
 const KNOWN_NOTEBOOK = ["name", "systemPrompt", "category", "totalTimeMs"];
 const KNOWN_DISCUSSION = ["id", "name", "createdAt", "totalTimeMs"];
 const KNOWN_CELL = [

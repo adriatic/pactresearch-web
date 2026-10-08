@@ -5,8 +5,10 @@ import {
   type PactExport,
   type PactExportCell,
   type PactExportDiscussion,
+  exportedFromBuildInfo,
 } from "@/lib/pactExport";
 import { sumDiscussionTotalTimeMs } from "@/lib/activityRollup";
+import { getBuildInfo } from "@/lib/buildInfo";
 
 async function handleGet(request: Request) {
   const supabase = await createClient();
@@ -93,6 +95,7 @@ async function handleGet(request: Request) {
   const pactExport: PactExport = {
     version: PACT_EXPORT_VERSION,
     exportedAt: Date.now(),
+    exportedFrom: exportedFromBuildInfo(getBuildInfo()),
     notebook: {
       name: notebook.name,
       systemPrompt: notebook.system_prompt,
