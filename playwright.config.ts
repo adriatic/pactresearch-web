@@ -51,7 +51,8 @@ export default defineConfig({
       },
       // Task 76: the magic-link sign-in spec runs here too, so the flow
       // is checked in WebKit (Nik's failure was Safari) as well as Chromium.
-      testMatch: /(ipad-.*|magic-link-.*|sign-out|history-cap-note)\.spec\.ts/,
+      testMatch:
+        /(ipad-.*|magic-link-.*|sign-out|history-choice|history-cap-note)\.spec\.ts/,
     },
   ],
   webServer: {

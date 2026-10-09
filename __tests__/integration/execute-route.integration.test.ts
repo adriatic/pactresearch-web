@@ -1093,6 +1093,186 @@ describe("POST /api/execute", () => {
     await admin.from("responses").delete().eq("discussion_id", discussionId);
   });
 
+  // ---- Task 71 Stage 2: choosing what goes with one question ----
+
+  async function seedThreePictureTurns(): Promise<{
+    ids: string[];
+    paths: string[];
+  }> {
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+    const paths: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const path = `${userId}/${discussionId}/stage2-${i}-${Date.now()}.png`;
+      const { error } = await admin.storage
+        .from("prompt-images")
+        .upload(path, Buffer.from(`picture-${i}`), {
+          contentType: "image/png",
+        });
+      expect(error).toBeNull();
+      paths.push(path);
+    }
+    const { data, error } = await admin
+      .from("responses")
+      .insert(
+        paths.map((path, i) => ({
+          discussion_id: discussionId,
+          user_id: userId,
+          prompt_text: `Picture ${i + 1}`,
+          prompt_content: {
+            type: "doc",
+            content: [
+              {
+                type: "paragraph",
+                content: [{ type: "text", text: `Picture ${i + 1}` }],
+              },
+              { type: "image", attrs: { src: `/api/prompt-images/${path}` } },
+            ],
+          },
+          response: `Seen ${i + 1}`,
+          model: "m",
+          resolved_model: "claude-sonnet-4-6",
+          created_at: new Date(Date.UTC(2026, 8, 2, 10, i)).toISOString(),
+        })),
+      )
+      .select("id, created_at")
+      .order("created_at", { ascending: true });
+    expect(error).toBeNull();
+    return { ids: data!.map((r) => r.id), paths };
+  }
+
+  async function planFor(context?: unknown) {
+    const { POST: PLAN } = await import("@/app/api/history-plan/route");
+    const response = await PLAN(
+      new Request("http://localhost/api/history-plan", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          discussionId,
+          promptContent: plainTextToDoc("Which picture was red?"),
+          ...(context ? { context } : {}),
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    return response.json();
+  }
+
+  function imageBlocks(messages: { content: unknown }[]) {
+    return messages.flatMap((m) =>
+      Array.isArray(m.content)
+        ? (m.content as { type: string; source?: { data: string } }[]).filter(
+            (b) => b.type === "image",
+          )
+        : [],
+    );
+  }
+
+  test("with three pictures, the hint matches what is sent, for every kind of choice", async () => {
+    currentCookies = await signInAsTestUser();
+    const { ids, paths } = await seedThreePictureTurns();
+
+    const cases: { context?: unknown; turns: number; pictures: number }[] = [
+      { context: undefined, turns: 3, pictures: 3 },
+      { context: { picturesOff: [ids[1]] }, turns: 3, pictures: 2 },
+      { context: { turnIds: [ids[2]] }, turns: 1, pictures: 1 },
+      {
+        context: { turnIds: [ids[0], ids[2]], picturesOff: [ids[0]] },
+        turns: 2,
+        pictures: 1,
+      },
+      { context: { turnIds: [] }, turns: 0, pictures: 0 },
+    ];
+    for (const c of cases) {
+      const plan = await planFor(c.context);
+      expect(plan.turnsSent).toBe(c.turns);
+      expect(plan.picturesSent).toBe(c.pictures);
+      expect(plan.picturesInHistory).toBe(3);
+      expect(plan.showHint).toBe(true);
+
+      const { calls } = captureAnthropic();
+      const response = await POST(
+        makeRequest({
+          discussionId,
+          promptContent: plainTextToDoc("Which picture was red?"),
+          ...(c.context ? { context: c.context } : {}),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const sent = calls[0];
+      // The request itself, not the screen: turns and pictures as hinted.
+      expect((sent.length - 1) / 2).toBe(plan.turnsSent);
+      expect(imageBlocks(sent)).toHaveLength(plan.picturesSent);
+      // The run just added a turn; remove it so the next case starts equal.
+      await admin
+        .from("responses")
+        .delete()
+        .eq("discussion_id", discussionId)
+        .eq("prompt_text", "Which picture was red?");
+    }
+
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+    await admin.storage.from("prompt-images").remove(paths);
+  }, 60_000);
+
+  test("leaving one turn's pictures out removes exactly those bytes from the request, with a note in their place", async () => {
+    currentCookies = await signInAsTestUser();
+    const { ids, paths } = await seedThreePictureTurns();
+    const { calls } = captureAnthropic();
+    const response = await POST(
+      makeRequest({
+        discussionId,
+        promptContent: plainTextToDoc("Compare them."),
+        context: { picturesOff: [ids[1]] },
+      }),
+    );
+    expect(response.status).toBe(200);
+    const sent = calls[0];
+    const data = imageBlocks(sent).map((b) => b.source!.data);
+    expect(data).toEqual([
+      Buffer.from("picture-0").toString("base64"),
+      Buffer.from("picture-2").toString("base64"),
+    ]);
+    expect(sent[2].content).toEqual([
+      { type: "text", text: "Picture 2" },
+      {
+        type: "text",
+        text: "[An image was attached here. It was left out of this question by choice.]",
+      },
+    ]);
+    // Nothing deleted: still three picture turns stored.
+    const { data: stored } = await admin
+      .from("responses")
+      .select("id")
+      .in("id", ids);
+    expect(stored).toHaveLength(3);
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+    await admin.storage.from("prompt-images").remove(paths);
+  });
+
+  test("a short text-only discussion shows no hint", async () => {
+    currentCookies = await signInAsTestUser();
+    await seedTurns([
+      { prompt: "one", response: "1" },
+      { prompt: "two", response: "2" },
+    ]);
+    const plan = await planFor();
+    expect(plan.showHint).toBe(false);
+    expect(plan.turnsSent).toBe(2);
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  });
+
+  test("a malformed choice is refused", async () => {
+    currentCookies = await signInAsTestUser();
+    const response = await POST(
+      makeRequest({
+        discussionId,
+        promptContent: plainTextToDoc("x"),
+        context: { turnIds: "not a list" },
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
+
   test("a brand-new discussion's first turn still sends exactly one message", async () => {
     currentCookies = await signInAsTestUser();
 

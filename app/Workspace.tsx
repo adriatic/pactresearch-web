@@ -1,5 +1,9 @@
 "use client";
 
+import { ContextDialog } from "./ContextDialog";
+import { contextSummary } from "./contextSummary";
+import { useHistoryPlan } from "./useHistoryPlan";
+import type { ContextChoice } from "@/lib/historyPlan";
 import { useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { NotebookCreator } from "./NotebookCreator";
@@ -256,14 +260,35 @@ export function Workspace({
   // (an effect calling setState in its body trips
   // react-hooks/set-state-in-effect).
   const [hintDiscussionId, setHintDiscussionId] = useState(activeDiscussionId);
+  // Task 71 Stage 2. Which earlier turns go with the NEXT question only;
+  // undefined is all of them, today's behaviour. Reset after a run and on
+  // a discussion switch.
+  const [contextChoice, setContextChoice] = useState<ContextChoice | undefined>(
+    undefined,
+  );
+  const [showContextDialog, setShowContextDialog] = useState(false);
   if (activeDiscussionId !== hintDiscussionId) {
     setHintDiscussionId(activeDiscussionId);
     setFollowUpHint(null);
+    setContextChoice(undefined);
   }
 
   // Task 49. Clear the composer and point it at this response's own
   // follow-up question. Per response cell, so an older entry's Continue
   // surfaces that entry's question rather than the newest one.
+  // Task 71 Stage 2. Continue, with the next question carrying only this
+  // one earlier turn.
+  function handleAskAbout(responseId: string, responseText: string) {
+    setContextChoice({ turnIds: [responseId] });
+    handleContinue(responseText);
+  }
+
+  function runWithChoice() {
+    void execution.run(contextChoice).then((succeeded) => {
+      if (succeeded) setContextChoice(undefined);
+    });
+  }
+
   function handleContinue(responseText: string) {
     const question = extractFollowUpQuestion(responseText);
     // Null when nothing question-like was found, which restores the
@@ -278,6 +303,19 @@ export function Workspace({
   // about whether a run is allowed -- the shortcut is inert in exactly
   // the cases the button is disabled, rather than being a second, subtly
   // different rule that drifts.
+  // Task 71 Stage 2. The earlier turns a question can carry (completed
+  // ones; never-run imports are never sent), and what the next question
+  // would send, for the line under the prompt box.
+  const completedTurns = execution.history.filter(
+    (e) => (e.prompt_text ?? "").trim() && (e.response ?? "").trim(),
+  );
+  const historyPlan = useHistoryPlan(
+    activeDiscussionId,
+    execution.content,
+    contextChoice,
+    execution.history.length,
+  );
+
   const canRun =
     !execution.loading &&
     !!activeDiscussionId &&
@@ -297,6 +335,18 @@ export function Workspace({
         onDiscussionCreated={handleDiscussionCreated}
       />
       <AccountDialog open={showAccount} onClose={() => setShowAccount(false)} />
+      <ContextDialog
+        open={showContextDialog}
+        turns={completedTurns}
+        choice={contextChoice}
+        discussionId={activeDiscussionId}
+        content={execution.content}
+        onCancel={() => setShowContextDialog(false)}
+        onDone={(choice) => {
+          setContextChoice(choice);
+          setShowContextDialog(false);
+        }}
+      />
       <ModelTierDialog
         open={showModelTier}
         onClose={() => setShowModelTier(false)}
@@ -411,11 +461,7 @@ export function Workspace({
                 restored draft with no separate wiring. This is the sole
                 run trigger — see Composer.tsx for why the composer no
                 longer has one of its own. */}
-            <button
-              type="button"
-              onClick={() => execution.run()}
-              disabled={!canRun}
-            >
+            <button type="button" onClick={runWithChoice} disabled={!canRun}>
               {execution.loading ? "Running..." : "Run"}
             </button>{" "}
             <button type="button" onClick={() => void handleImportClick()}>
@@ -479,21 +525,64 @@ export function Workspace({
               content height. */}
           <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
             <Panel defaultSize={140} minSize={64} maxSize={480}>
-              <Composer
-                discussionId={activeDiscussionId}
-                content={execution.content}
-                contentVersion={execution.contentVersion}
-                onContentChange={execution.setContent}
-                // Guarded by the same `canRun` as the Run button, so a
-                // Cmd+Enter with an empty composer, no discussion, or a
-                // run already in flight does nothing -- it does not queue
-                // a second run or fight the execution lock.
-                onSubmit={() => {
-                  if (canRun) execution.run();
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  height: "100%",
                 }}
-                placeholderOverride={followUpHint}
-                focusToken={composerFocusToken}
-              />
+              >
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <Composer
+                    discussionId={activeDiscussionId}
+                    content={execution.content}
+                    contentVersion={execution.contentVersion}
+                    onContentChange={execution.setContent}
+                    // Guarded by the same `canRun` as the Run button, so a
+                    // Cmd+Enter with an empty composer, no discussion, or a
+                    // run already in flight does nothing -- it does not queue
+                    // a second run or fight the execution lock.
+                    onSubmit={() => {
+                      if (canRun) runWithChoice();
+                    }}
+                    placeholderOverride={followUpHint}
+                    focusToken={composerFocusToken}
+                  />
+                </div>
+                {historyPlan?.showHint && (
+                  <div
+                    data-context-line
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      padding: "4px 8px",
+                      fontSize: "0.85em",
+                      color: "#444",
+                    }}
+                  >
+                    <span data-context-summary>
+                      {contextChoice ? "Your choice. " : ""}
+                      {contextSummary(historyPlan)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowContextDialog(true)}
+                    >
+                      Choose…
+                    </button>
+                    {contextChoice && (
+                      <button
+                        type="button"
+                        onClick={() => setContextChoice(undefined)}
+                      >
+                        Send all turns
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </Panel>
             <Separator
               style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
@@ -513,6 +602,7 @@ export function Workspace({
                   // introducing a third source of truth for "is it running".
                   isRunning={execution.loading}
                   onContinue={handleContinue}
+                  onAskAbout={handleAskAbout}
                   executionError={execution.executionError}
                 />
               </TouchScroll>
