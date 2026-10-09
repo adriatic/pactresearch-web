@@ -6,6 +6,11 @@ import {
   historyToAnthropicMessages,
   type PriorTurn,
 } from "@/lib/discussionHistory";
+import {
+  contextWindowFor,
+  historyTokenBudget,
+  promptTooLongOvershoot,
+} from "@/lib/historyBudget";
 import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
@@ -36,6 +41,22 @@ class AnthropicRequestError extends Error {
 }
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+
+// Task 71. Browser tests need the WHOLE chain -- page, this route, the
+// model's reply, the page again -- and cannot call the real model. A test
+// that stores a key "sk-ant-e2e-mock-<port>" is answered by a local
+// stand-in on that port, at PACT_E2E_ANTHROPIC_URL (set only by
+// playwright.config.ts, with "{port}" in it). Never on Vercel: VERCEL_ENV
+// is set on every Vercel deployment, and then this always returns the
+// real address.
+function anthropicUrlFor(apiKey: string): string {
+  const mock = process.env.PACT_E2E_ANTHROPIC_URL;
+  const port = /^sk-ant-e2e-mock-(\d{4,5})$/.exec(apiKey)?.[1];
+  if (!process.env.VERCEL_ENV && mock && port) {
+    return mock.replace("{port}", port);
+  }
+  return ANTHROPIC_API_URL;
+}
 // Task 50 item C: the model is chosen per user from their selected tier
 // rather than fixed here. modelForTier falls back to Standard --
 // claude-sonnet-5 -- for a user who has never picked one.
@@ -357,72 +378,99 @@ async function handlePost(request: Request) {
     // Only completed turns, in order, with alternating roles (Task 62);
     // since Task 69 a turn's images come along too, within the request's
     // image limits -- see lib/discussionHistory.ts.
-    const historyImagesStart = Date.now();
-    const { messages: priorMessages, stats: historyStats } =
-      await historyToAnthropicMessages(
+    //
+    // Task 71: and only as many of the NEWEST whole turns as fit the
+    // model's window, pictures counted (lib/historyBudget.ts). The
+    // estimate leans high; if Anthropic still answers "prompt is too
+    // long", the budget is cut by the reported overshoot (or halved) and
+    // the request is built and sent once more. Left-out turns are only
+    // left out of the request: nothing stored or exported changes.
+    const currentImages = countImageBlocks(anthropicContent);
+    let tokenBudget = historyTokenBudget({
+      model: requestedModel,
+      maxTokens: maxTokens ?? FALLBACK_MAX_TOKENS,
+      systemPrompt,
+      currentPrompt: anthropicContent,
+    });
+    let historyStats!: Awaited<
+      ReturnType<typeof historyToAnthropicMessages>
+    >["stats"];
+    let anthropicResponse!: Response;
+    for (let attempt = 1; ; attempt++) {
+      const historyImagesStart = Date.now();
+      const built = await historyToAnthropicMessages(
         (priorTurns ?? []) as PriorTurn[],
         supabase,
-        countImageBlocks(anthropicContent),
+        currentImages,
+        tokenBudget,
       );
-    const activeSpan = trace.getActiveSpan();
-    activeSpan?.setAttribute(
-      "pact.history_turn_count",
-      priorMessages.length / 2,
-    );
-    activeSpan?.setAttribute(
-      "pact.history_images_sent",
-      historyStats.imagesSent,
-    );
-    activeSpan?.setAttribute(
-      "pact.history_image_bytes",
-      historyStats.imageBytesSent,
-    );
-    activeSpan?.setAttribute(
-      "pact.history_images_omitted",
-      historyStats.imagesOmittedForSize,
-    );
-    activeSpan?.setAttribute(
-      "pact.history_images_missing",
-      historyStats.imagesMissing,
-    );
-    activeSpan?.setAttribute(
-      "pact.history_images_ms",
-      Date.now() - historyImagesStart,
-    );
+      const priorMessages = built.messages;
+      historyStats = built.stats;
+      const activeSpan = trace.getActiveSpan();
+      activeSpan?.setAttribute(
+        "pact.history_turn_count",
+        historyStats.turnsSent,
+      );
+      activeSpan?.setAttribute(
+        "pact.history_turns_left_out",
+        historyStats.turnsLeftOut,
+      );
+      activeSpan?.setAttribute("pact.history_token_budget", tokenBudget);
+      activeSpan?.setAttribute("pact.history_attempt", attempt);
+      activeSpan?.setAttribute(
+        "pact.history_images_sent",
+        historyStats.imagesSent,
+      );
+      activeSpan?.setAttribute(
+        "pact.history_image_bytes",
+        historyStats.imageBytesSent,
+      );
+      activeSpan?.setAttribute(
+        "pact.history_images_omitted",
+        historyStats.imagesOmittedForSize,
+      );
+      activeSpan?.setAttribute(
+        "pact.history_images_missing",
+        historyStats.imagesMissing,
+      );
+      activeSpan?.setAttribute(
+        "pact.history_images_ms",
+        Date.now() - historyImagesStart,
+      );
 
-    const anthropicConnectStart = Date.now();
-    const anthropicResponse = await context.with(ttftCtx, () =>
-      tracer.startActiveSpan("anthropic-connect", async (span) => {
-        try {
-          return await fetch(ANTHROPIC_API_URL, {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-api-key": apiKey,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify({
-              model: requestedModel,
-              max_tokens: maxTokens,
-              stream: true,
-              ...(systemPrompt ? { system: systemPrompt } : {}),
-              messages: [
-                ...priorMessages,
-                { role: "user", content: anthropicContent },
-              ],
-            }),
-          });
-        } finally {
-          span.end();
-        }
-      }),
-    );
-    anthropicConnectMs = Date.now() - anthropicConnectStart;
+      const anthropicConnectStart = Date.now();
+      anthropicResponse = await context.with(ttftCtx, () =>
+        tracer.startActiveSpan("anthropic-connect", async (span) => {
+          try {
+            return await fetch(anthropicUrlFor(apiKey), {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-api-key": apiKey,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify({
+                model: requestedModel,
+                max_tokens: maxTokens,
+                stream: true,
+                ...(systemPrompt ? { system: systemPrompt } : {}),
+                messages: [
+                  ...priorMessages,
+                  { role: "user", content: anthropicContent },
+                ],
+              }),
+            });
+          } finally {
+            span.end();
+          }
+        }),
+      );
+      anthropicConnectMs = Date.now() - anthropicConnectStart;
 
-    if (!anthropicResponse.ok || !anthropicResponse.body) {
-      endTtft();
-      // Anthropic's error responses are a JSON body describing exactly what
-      // went wrong (bad/expired key, invalid_request_error for a bad
+      if (anthropicResponse.ok && anthropicResponse.body) break;
+
+      // Anthropic's error responses are a JSON body describing exactly
+      // what went wrong (bad/expired key, invalid_request_error for a bad
       // param, rate limit, etc.) -- read it now, while the response is
       // still available, so the real cause ends up in the thrown error's
       // own message rather than just a bare status code. Whatever this
@@ -430,6 +478,22 @@ async function handlePost(request: Request) {
       const errorBody = await anthropicResponse
         .text()
         .catch(() => "<failed to read response body>");
+      const overshoot = promptTooLongOvershoot(
+        anthropicResponse.status,
+        errorBody,
+      );
+      if (attempt === 1 && overshoot !== null && historyStats.turnsSent > 0) {
+        const cushion = Math.floor(contextWindowFor(requestedModel) * 0.05);
+        tokenBudget =
+          overshoot > 0
+            ? Math.max(0, tokenBudget - overshoot - cushion)
+            : Math.floor(tokenBudget / 2);
+        console.warn(
+          `[history-cap] prompt too long by ${overshoot} tokens; retrying with a history budget of ${tokenBudget}.`,
+        );
+        continue;
+      }
+      endTtft();
       throw new AnthropicRequestError(anthropicResponse.status, errorBody);
     }
 
@@ -662,6 +726,17 @@ async function handlePost(request: Request) {
     return Response.json({
       response: accumulatedText,
       resolved_model: resolvedModel,
+      // Task 71. How many of the oldest turns were left out of this
+      // request to fit the model's window -- the client says so, quietly,
+      // under this answer. 0 for almost every run.
+      history_turns_left_out: historyStats.turnsLeftOut,
+      history_turns_sent: historyStats.turnsSent,
+      // Numbers only, never content: what the cap worked with, so a
+      // "Report a problem" capture can say why a note did or did not
+      // appear (Nik's Preview test, 2026-10-09).
+      history_budget: tokenBudget,
+      history_max_tokens: maxTokens,
+      history_model: requestedModel,
       // The real, persisted responses row this run produced -- lets the
       // client append this exact entry directly to its in-memory history
       // instead of only ever learning about it on a future discussion

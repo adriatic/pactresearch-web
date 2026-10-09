@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
+import { rememberLeftOut, withRememberedLeftOut } from "@/lib/leftOutMemory";
 import {
   EMPTY_DOC,
   isEmptyDoc,
@@ -34,6 +35,10 @@ export interface PastResponse {
   response: string | null;
   resolved_model: string | null;
   created_at: string;
+  // Task 71. Client-only, set on the run that just finished: how many of
+  // the oldest turns were left out of that request to fit the model's
+  // window. Not stored, so it shows for this session only.
+  turns_left_out?: number;
 }
 
 interface DiscussionRow {
@@ -388,7 +393,7 @@ export function useDiscussionExecution(discussionId: string | null) {
 
       if (cancelled) return;
 
-      setHistory(historyBody);
+      setHistory(withRememberedLeftOut(historyBody));
       const loadedDiscussion = (discussionsBody as DiscussionRow[])[0];
       // An actual unsent draft always wins — it may well differ from any
       // cell's prompt (the user started typing something new). Absent
@@ -651,6 +656,12 @@ export function useDiscussionExecution(discussionId: string | null) {
       const body = await response.json();
 
       if (response.ok) {
+        // Task 71. One line for "Report a problem" captures, numbers
+        // only, no content. console.log, not .info: the capture's ring
+        // buffer (app/layout.tsx) records log, warn and error only.
+        console.log(
+          `[history] turns sent ${body.history_turns_sent ?? "?"}, left out ${body.history_turns_left_out ?? "?"}, budget ${body.history_budget ?? "?"}, max_tokens ${body.history_max_tokens ?? "?"}, model ${body.history_model ?? "?"}, row ${body.response_row_id ? "yes" : "no"}`,
+        );
         // Authoritative final content, independent of whether the
         // Realtime preview above ever delivered anything.
         setStreamedResponse(body.response ?? "");
@@ -684,8 +695,13 @@ export function useDiscussionExecution(discussionId: string | null) {
               response: body.response ?? "",
               resolved_model: body.resolved_model ?? null,
               created_at: body.response_created_at,
+              turns_left_out: body.history_turns_left_out ?? 0,
             },
           ]);
+          rememberLeftOut(
+            body.response_row_id,
+            body.history_turns_left_out ?? 0,
+          );
           // Now permanently folded into history -- clear the transient
           // "Live response" display so the same just-completed response
           // isn't rendered a second time right below History showing the
