@@ -6,11 +6,14 @@ import {
   historyToAnthropicMessages,
   type PriorTurn,
 } from "@/lib/discussionHistory";
+import { contextWindowFor, promptTooLongOvershoot } from "@/lib/historyBudget";
 import {
-  contextWindowFor,
-  historyTokenBudget,
-  promptTooLongOvershoot,
-} from "@/lib/historyBudget";
+  FALLBACK_MAX_TOKENS,
+  parseContextChoice,
+  planHistory,
+  type ContextChoice,
+  type PlanTurn,
+} from "@/lib/historyPlan";
 import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
@@ -51,7 +54,8 @@ const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 // Same fallback decision the clone already made (task 14) -- ported as
 // a decision, not re-derived: a request shouldn't fail outright over a
 // settings-read hiccup when a known-safe default exists.
-const FALLBACK_MAX_TOKENS = 1000;
+// FALLBACK_MAX_TOKENS lives in lib/historyPlan.ts (Task 71), shared with
+// the hint under the prompt box.
 
 // Minimum time between UPDATEs to the responses row while content streams
 // in. Anthropic's content_block_delta events can arrive many times a
@@ -79,6 +83,9 @@ const STREAM_WRITE_THROTTLE_MS = 2000;
 interface ExecuteRequestBody {
   discussionId: string;
   promptContent: RichContent;
+  // Task 71 Stage 2: which earlier turns (and pictures) go with this one
+  // question. Absent means all, as before.
+  context?: unknown;
 }
 
 async function handlePost(request: Request) {
@@ -126,10 +133,14 @@ async function handlePost(request: Request) {
 
   let discussionId: string;
   let promptContent: RichContent;
+  let contextChoice: ContextChoice | undefined;
   try {
     const body = (await request.json()) as ExecuteRequestBody;
     discussionId = body.discussionId;
     promptContent = body.promptContent;
+    const parsed = parseContextChoice(body.context);
+    if (parsed === null) throw new Error("bad context");
+    contextChoice = parsed;
   } catch {
     return Response.json({ error: "Malformed request body." }, { status: 400 });
   }
@@ -369,27 +380,48 @@ async function handlePost(request: Request) {
     // long", the budget is cut by the reported overshoot (or halved) and
     // the request is built and sent once more. Left-out turns are only
     // left out of the request: nothing stored or exported changes.
+    //
+    // Task 71 Stage 2: the user's choice for this one question (which
+    // turns, which turns' pictures) is applied first, by the same plan the
+    // hint under the prompt box shows -- lib/historyPlan.ts.
     const currentImages = countImageBlocks(anthropicContent);
-    let tokenBudget = historyTokenBudget({
-      model: requestedModel,
-      maxTokens: maxTokens ?? FALLBACK_MAX_TOKENS,
-      systemPrompt,
-      currentPrompt: anthropicContent,
-    });
+    let budgetOverride: number | undefined;
+    let plan!: ReturnType<typeof planHistory<PlanTurn>>;
+    let tokenBudget = 0;
     let historyStats!: Awaited<
       ReturnType<typeof historyToAnthropicMessages>
     >["stats"];
     let anthropicResponse!: Response;
     for (let attempt = 1; ; attempt++) {
       const historyImagesStart = Date.now();
+      plan = planHistory({
+        turns: (priorTurns ?? []) as PlanTurn[],
+        choice: contextChoice,
+        model: requestedModel,
+        maxTokens: maxTokens ?? FALLBACK_MAX_TOKENS,
+        systemPrompt,
+        currentPrompt: anthropicContent,
+        budgetOverride,
+      });
+      tokenBudget = plan.budget;
       const built = await historyToAnthropicMessages(
-        (priorTurns ?? []) as PriorTurn[],
+        plan.kept as PriorTurn[],
         supabase,
         currentImages,
-        tokenBudget,
+        undefined,
+        { picturesOff: plan.picturesOff },
       );
       const priorMessages = built.messages;
-      historyStats = built.stats;
+      historyStats = {
+        ...built.stats,
+        turnsLeftOut: plan.leftOutByCap,
+      };
+      trace
+        .getActiveSpan()
+        ?.setAttribute(
+          "pact.history_turns_left_out_by_choice",
+          plan.leftOutByChoice,
+        );
       const activeSpan = trace.getActiveSpan();
       activeSpan?.setAttribute(
         "pact.history_turn_count",
@@ -468,12 +500,12 @@ async function handlePost(request: Request) {
       );
       if (attempt === 1 && overshoot !== null && historyStats.turnsSent > 0) {
         const cushion = Math.floor(contextWindowFor(requestedModel) * 0.05);
-        tokenBudget =
+        budgetOverride =
           overshoot > 0
             ? Math.max(0, tokenBudget - overshoot - cushion)
             : Math.floor(tokenBudget / 2);
         console.warn(
-          `[history-cap] prompt too long by ${overshoot} tokens; retrying with a history budget of ${tokenBudget}.`,
+          `[history-cap] prompt too long by ${overshoot} tokens; retrying with a history budget of ${budgetOverride}.`,
         );
         continue;
       }

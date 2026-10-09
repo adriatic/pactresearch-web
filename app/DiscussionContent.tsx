@@ -113,6 +113,7 @@ export function DiscussionContent({
   isStreaming,
   isRunning,
   onContinue,
+  onAskAbout,
   executionError,
 }: {
   discussionId: string | null;
@@ -124,6 +125,9 @@ export function DiscussionContent({
   // Task 49. Called with that response's own text when its Continue
   // button is used.
   onContinue: (responseText: string) => void;
+  // Task 71 Stage 2. Like Continue, and the next question sends only this
+  // earlier turn.
+  onAskAbout?: (responseId: string, responseText: string) => void;
   executionError: string | null;
 }) {
   return (
@@ -205,6 +209,21 @@ export function DiscussionContent({
                       >
                         Continue
                       </button>
+                      {/* Task 71 Stage 2. Continue, but the next question
+                          carries only this one earlier turn. */}
+                      {onAskAbout && (
+                        <>
+                          {" "}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onAskAbout(entry.id, entry.response ?? "")
+                            }
+                          >
+                            Ask about this answer only
+                          </button>
+                        </>
+                      )}
                     </div>
                   </>
                 ) : (

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
+import type { ContextChoice } from "@/lib/historyPlan";
 import {
   EMPTY_DOC,
   isEmptyDoc,
@@ -512,8 +513,12 @@ export function useDiscussionExecution(discussionId: string | null) {
   // Takes no event: the Run control lives in the global header
   // (Workspace.tsx), not inside the composer's form, so there is no
   // submit event to preventDefault here.
-  async function run() {
-    if (!discussionId) return;
+  // Task 71 Stage 2: `context` is the user's choice of earlier turns for
+  // this one run. Resolves true when the run succeeded, so the caller can
+  // reset that choice.
+  async function run(context?: ContextChoice): Promise<boolean> {
+    if (!discussionId) return false;
+    let succeeded = false;
     // Fixed for this call — read once, up front, distinct from
     // contentRef.current below, which keeps tracking live edits made
     // while this run is in flight (the composer isn't disabled during a
@@ -650,11 +655,16 @@ export function useDiscussionExecution(discussionId: string | null) {
       const response = await fetch("/api/execute", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ discussionId, promptContent: submittedContent }),
+        body: JSON.stringify({
+          discussionId,
+          promptContent: submittedContent,
+          ...(context ? { context } : {}),
+        }),
       });
       const body = await response.json();
 
       if (response.ok) {
+        succeeded = true;
         // Authoritative final content, independent of whether the
         // Realtime preview above ever delivered anything.
         setStreamedResponse(body.response ?? "");
@@ -753,6 +763,7 @@ export function useDiscussionExecution(discussionId: string | null) {
       setIsStreaming(false);
       await supabase.removeChannel(channel);
     }
+    return succeeded;
   }
 
   return {

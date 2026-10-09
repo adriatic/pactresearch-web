@@ -45,8 +45,13 @@ export const IMAGE_OMITTED_NOTE =
   "[An image was attached here. It was left out of this request to keep it within the size limit.]";
 export const IMAGE_MISSING_NOTE =
   "[An image was attached here, but it is no longer stored.]";
+// Task 71 Stage 2: the user chose to leave this turn's pictures out of
+// this one question.
+export const IMAGE_LEFT_OUT_BY_CHOICE_NOTE =
+  "[An image was attached here. It was left out of this question by choice.]";
 
 export interface PriorTurn {
+  id?: string;
   prompt_text: string | null;
   prompt_content: RichContent | null;
   response: string | null;
@@ -65,6 +70,7 @@ export interface HistoryStats {
   imageBytesSent: number;
   imagesOmittedForSize: number;
   imagesMissing: number;
+  imagesLeftOutByChoice: number;
 }
 
 export function countImageBlocks(blocks: AnthropicContentBlock[]): {
@@ -98,6 +104,7 @@ export async function historyToAnthropicMessages(
   supabase: SupabaseClient,
   used: { count: number; bytes: number } = { count: 0, bytes: 0 },
   tokenBudget?: number,
+  options: { picturesOff?: Set<string> } = {},
 ): Promise<{ messages: HistoryMessage[]; stats: HistoryStats }> {
   // Only COMPLETED turns (Task 62): a row whose response is still null or
   // empty is an in-flight or failed run, and its prompt would put two
@@ -119,6 +126,7 @@ export async function historyToAnthropicMessages(
     imageBytesSent: 0,
     imagesOmittedForSize: 0,
     imagesMissing: 0,
+    imagesLeftOutByChoice: 0,
   };
   let count = used.count;
   let bytes = used.bytes;
@@ -143,6 +151,11 @@ export async function historyToAnthropicMessages(
       const segment = segments[j];
       if (segment.type === "text") {
         blocks[j] = { type: "text", text: segment.text };
+        continue;
+      }
+      if (turn.id && options.picturesOff?.has(turn.id)) {
+        stats.imagesLeftOutByChoice += 1;
+        blocks[j] = { type: "text", text: IMAGE_LEFT_OUT_BY_CHOICE_NOTE };
         continue;
       }
       if (full || count >= MAX_IMAGES_PER_REQUEST) {
