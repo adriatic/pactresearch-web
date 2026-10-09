@@ -44,6 +44,22 @@ class AnthropicRequestError extends Error {
 }
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+
+// Task 71. Browser tests need the WHOLE chain -- page, this route, the
+// model's reply, the page again -- and cannot call the real model. A test
+// that stores a key "sk-ant-e2e-mock-<port>" is answered by a local
+// stand-in on that port, at PACT_E2E_ANTHROPIC_URL (set only by
+// playwright.config.ts, with "{port}" in it). Never on Vercel: VERCEL_ENV
+// is set on every Vercel deployment, and then this always returns the
+// real address.
+function anthropicUrlFor(apiKey: string): string {
+  const mock = process.env.PACT_E2E_ANTHROPIC_URL;
+  const port = /^sk-ant-e2e-mock-(\d{4,5})$/.exec(apiKey)?.[1];
+  if (!process.env.VERCEL_ENV && mock && port) {
+    return mock.replace("{port}", port);
+  }
+  return ANTHROPIC_API_URL;
+}
 // Task 50 item C: the model is chosen per user from their selected tier
 // rather than fixed here. modelForTier falls back to Standard --
 // claude-sonnet-5 -- for a user who has never picked one.
@@ -458,7 +474,7 @@ async function handlePost(request: Request) {
       anthropicResponse = await context.with(ttftCtx, () =>
         tracer.startActiveSpan("anthropic-connect", async (span) => {
           try {
-            return await fetch(ANTHROPIC_API_URL, {
+            return await fetch(anthropicUrlFor(apiKey), {
               method: "POST",
               headers: {
                 "content-type": "application/json",
@@ -747,6 +763,12 @@ async function handlePost(request: Request) {
       // under this answer. 0 for almost every run.
       history_turns_left_out: historyStats.turnsLeftOut,
       history_turns_sent: historyStats.turnsSent,
+      // Numbers only, never content: what the cap worked with, so a
+      // "Report a problem" capture can say why a note did or did not
+      // appear (Nik's Preview test, 2026-10-09).
+      history_budget: tokenBudget,
+      history_max_tokens: maxTokens,
+      history_model: requestedModel,
       // The real, persisted responses row this run produced -- lets the
       // client append this exact entry directly to its in-memory history
       // instead of only ever learning about it on a future discussion
