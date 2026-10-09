@@ -113,6 +113,21 @@ describe("files already in the current format", () => {
     validatePactExport(JSON.parse(read(name)));
   });
 
+  // Task 70. pact-web now stamps exports with exportedFrom; the converter
+  // must pass such a file through untouched rather than strip the stamp.
+  test("a file stamped with the build that wrote it is current, and keeps its stamp", () => {
+    const stamped = JSON.parse(read("plain-old-minimal.pact"));
+    stamped.exportedFrom = {
+      app: "pact-web",
+      environment: "production",
+      commit: "d337c4239a1b8c7e5f6a0b1c2d3e4f5a6b7c8d9e",
+      build: "Production · d337c42",
+    };
+    const r = convertText(JSON.stringify(stamped));
+    expect(r.status).toBe("current");
+    expect(r.notCarriedOver).toEqual([]);
+  });
+
   test("converting a converted file changes nothing", () => {
     const once = convertText(read("signed-pact-local-with-xmstate.pact"));
     const twice = convertText(once.output);

@@ -133,6 +133,15 @@ test("exporting a notebook and importing it back creates a second, content-ident
   const downloadedPath = await download.path();
   expect(downloadedPath).toBeTruthy();
 
+  // Task 70. The file names the build that wrote it, in the very words
+  // of the build badge on the page at the same moment.
+  const badgeText = (
+    await page.locator("[data-build-label]").textContent()
+  )?.trim();
+  const exported = JSON.parse(readFileSync(downloadedPath!, "utf-8"));
+  expect(exported.exportedFrom.build).toBe(badgeText);
+  expect(exported.exportedFrom.app).toBe("pact-web");
+
   // The hidden file input behind the header's "Import" button -- setting
   // files directly on it is the standard Playwright pattern for file
   // inputs (works even when the input itself is display:none).

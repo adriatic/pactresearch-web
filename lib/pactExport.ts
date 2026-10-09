@@ -52,9 +52,41 @@ export interface PactExportDiscussion {
   totalTimeMs: number;
 }
 
+// Task 70. Which build wrote the file -- so a .pact shared as proof of a
+// fix answers "tested against what?" by itself. Filled from
+// lib/buildInfo.ts, the same source as the build badge in the corner of
+// every page, so the file and the badge can never disagree.
+export interface PactExportedFrom {
+  app: "pact-web";
+  /** Vercel's name: "production" | "preview"; null on a developer's machine. */
+  environment: string | null;
+  /** Full commit SHA; null when the build has none. */
+  commit: string | null;
+  /** Exactly the badge's text, e.g. "Production · d337c42". */
+  build: string;
+}
+
+export function exportedFromBuildInfo(info: {
+  environment: string | null;
+  fullSha: string | null;
+  label: string;
+}): PactExportedFrom {
+  return {
+    app: "pact-web",
+    environment: info.environment,
+    commit: info.fullSha,
+    build: info.label,
+  };
+}
+
 export interface PactExport {
   version: number;
   exportedAt: number;
+  // Task 70. Optional, so PACT_EXPORT_VERSION stays at 1: files written
+  // before it simply lack it, import ignores it either way (it describes
+  // the file, not the notebook), and pact-mac reads only the fields it
+  // knows.
+  exportedFrom?: PactExportedFrom;
   notebook: {
     name: string;
     systemPrompt: string | null;
