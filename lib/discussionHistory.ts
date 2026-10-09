@@ -5,6 +5,7 @@ import {
 } from "./promptContentToAnthropicBlocks";
 import { docToContentSegments } from "./promptContentToMarkdownBlocks";
 import type { RichContent } from "./richContent";
+import { newestTurnsWithinBudget } from "./historyBudget";
 
 // Task 69. A discussion's earlier turns as Anthropic messages, images
 // included.
@@ -56,6 +57,10 @@ export type HistoryMessage =
   | { role: "assistant"; content: string };
 
 export interface HistoryStats {
+  // Task 71: completed turns sent, and the oldest ones left out of this
+  // request to fit the model's window (still stored, still exported).
+  turnsSent: number;
+  turnsLeftOut: number;
   imagesSent: number;
   imageBytesSent: number;
   imagesOmittedForSize: number;
@@ -85,21 +90,31 @@ function hasImage(content: RichContent | null): boolean {
 }
 
 // `used` is what the current turn already takes from the limits.
+// `tokenBudget` (Task 71, lib/historyBudget.ts) is the room left for
+// history; the oldest whole turns that do not fit are left out before
+// any picture is fetched. Omitted, every completed turn is sent.
 export async function historyToAnthropicMessages(
   turns: PriorTurn[],
   supabase: SupabaseClient,
   used: { count: number; bytes: number } = { count: 0, bytes: 0 },
+  tokenBudget?: number,
 ): Promise<{ messages: HistoryMessage[]; stats: HistoryStats }> {
   // Only COMPLETED turns (Task 62): a row whose response is still null or
   // empty is an in-flight or failed run, and its prompt would put two
   // user messages back to back, which Anthropic rejects.
-  const complete = turns.filter(
+  const allComplete = turns.filter(
     (turn) =>
       (turn.prompt_text ?? "").trim().length > 0 &&
       (turn.response ?? "").trim().length > 0,
   );
+  const { kept: complete, leftOut } =
+    tokenBudget === undefined
+      ? { kept: allComplete, leftOut: 0 }
+      : newestTurnsWithinBudget(allComplete, tokenBudget);
 
   const stats: HistoryStats = {
+    turnsSent: complete.length,
+    turnsLeftOut: leftOut,
     imagesSent: 0,
     imageBytesSent: 0,
     imagesOmittedForSize: 0,

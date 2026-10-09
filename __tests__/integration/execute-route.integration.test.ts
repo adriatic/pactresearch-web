@@ -828,6 +828,271 @@ describe("POST /api/execute", () => {
     await admin.from("responses").delete().eq("discussion_id", discussionId);
   });
 
+  // ---- Task 71: the history cap ----
+
+  function captureAnthropic(replies: (() => Response)[] = []): {
+    calls: { role: string; content: unknown }[][];
+  } {
+    const calls: { role: string; content: unknown }[][] = [];
+    server.use(
+      http.post(
+        "https://api.anthropic.com/v1/messages",
+        async ({ request }) => {
+          const body = (await request.json()) as {
+            messages: { role: string; content: unknown }[];
+          };
+          calls.push(body.messages);
+          const reply = replies[calls.length - 1];
+          if (reply) return reply();
+          return new HttpResponse(buildTinySseStream("ok"), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      ),
+    );
+    return { calls };
+  }
+
+  async function seedTurns(
+    turns: { prompt: string; response: string; images?: number }[],
+  ) {
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+    const { error } = await admin.from("responses").insert(
+      turns.map((t, i) => ({
+        discussion_id: discussionId,
+        user_id: userId,
+        prompt_text: t.prompt,
+        prompt_content: {
+          type: "doc",
+          content: [
+            { type: "paragraph", content: [{ type: "text", text: t.prompt }] },
+            ...Array.from({ length: t.images ?? 0 }, (_, j) => ({
+              type: "image",
+              attrs: {
+                src: `/api/prompt-images/${userId}/${discussionId}/cap-${i}-${j}.png`,
+              },
+            })),
+          ],
+        },
+        response: t.response,
+        model: "m",
+        resolved_model: "claude-sonnet-4-6",
+        created_at: new Date(Date.UTC(2026, 8, 1, 10, i)).toISOString(),
+      })),
+    );
+    expect(error).toBeNull();
+  }
+
+  const firstText = (m: { content: unknown }) =>
+    typeof m.content === "string"
+      ? m.content
+      : (m.content as { type: string; text?: string }[])[0]?.text;
+
+  test("a discussion too long for the model's window drops its oldest whole turns, and keeps everything stored and exported", async () => {
+    currentCookies = await signInAsTestUser();
+    // Eight turns of about 22,000 estimated tokens each -- far more than
+    // the room left with max_tokens at 40,000.
+    const turns = Array.from({ length: 8 }, (_, i) => ({
+      prompt: `TURN-${i} ` + "p".repeat(33_000),
+      response: `ANSWER-${i} ` + "r".repeat(33_000),
+    }));
+    await seedTurns(turns);
+    const { calls } = captureAnthropic();
+
+    const response = await POST(
+      makeRequest({
+        discussionId,
+        promptContent: plainTextToDoc("What did we conclude last?"),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+
+    expect(calls).toHaveLength(1);
+    const sent = calls[0];
+    const keptTurns = (sent.length - 1) / 2;
+    expect(keptTurns).toBeGreaterThan(0);
+    expect(keptTurns).toBeLessThan(8);
+    expect(body.history_turns_left_out).toBe(8 - keptTurns);
+    expect(body.history_turns_sent).toBe(keptTurns);
+
+    // The newest turns, in order, whole, ending right before the question.
+    const expectedFirst = 8 - keptTurns;
+    for (let k = 0; k < keptTurns; k++) {
+      expect(sent[2 * k].role).toBe("user");
+      expect(sent[2 * k].content).toBe(turns[expectedFirst + k].prompt);
+      expect(sent[2 * k + 1].role).toBe("assistant");
+      expect(sent[2 * k + 1].content).toBe(turns[expectedFirst + k].response);
+    }
+    expect(sent[sent.length - 1].role).toBe("user");
+
+    // Nothing was removed from storage...
+    const { data: stored } = await admin
+      .from("responses")
+      .select("id")
+      .eq("discussion_id", discussionId);
+    expect(stored).toHaveLength(8 + 1);
+
+    // ...or from either export.
+    const { GET: exportNotebook } =
+      await import("@/app/api/notebooks/export/route");
+    const pact = await (
+      await exportNotebook(
+        new Request(`http://localhost/api/notebooks/export?id=${notebookId}`),
+      )
+    ).json();
+    const pactCells = (pact.cells as { discussionId: string }[]).filter(
+      (c) => c.discussionId === discussionId,
+    );
+    expect(pactCells).toHaveLength(9);
+
+    const { GET: exportDiscussion } =
+      await import("@/app/api/discussions/export/route");
+    const md = await (
+      await exportDiscussion(
+        new Request(
+          `http://localhost/api/discussions/export?id=${discussionId}`,
+        ),
+      )
+    ).json();
+    for (let i = 0; i < 8; i++) expect(md.markdown).toContain(`TURN-${i} `);
+
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  }, 60_000);
+
+  test("pictures are counted: three picture turns fill a budget that the same turns without pictures do not", async () => {
+    currentCookies = await signInAsTestUser();
+    // Leaves roughly 5,000 tokens for history: room for three turns with
+    // one picture each (about 1,630 tokens apiece), not four.
+    await admin
+      .from("app_settings")
+      .update({ max_tokens: 175_000 })
+      .eq("id", 1);
+    try {
+      await seedTurns(
+        ["a", "b", "c", "d"].map((p) => ({
+          prompt: p,
+          response: "ok",
+          images: 1,
+        })),
+      );
+      const withPictures = captureAnthropic();
+      const r1 = await POST(
+        makeRequest({ discussionId, promptContent: plainTextToDoc("q") }),
+      );
+      expect(r1.status).toBe(200);
+      expect((await r1.json()).history_turns_left_out).toBe(1);
+      const sent = withPictures.calls[0];
+      expect(sent).toHaveLength(7);
+      expect(
+        sent
+          .filter((m) => m.role === "user")
+          .slice(0, 3)
+          .map(firstText),
+      ).toEqual(["b", "c", "d"]);
+
+      await seedTurns(
+        ["a", "b", "c", "d"].map((p) => ({ prompt: p, response: "ok" })),
+      );
+      const withoutPictures = captureAnthropic();
+      const r2 = await POST(
+        makeRequest({ discussionId, promptContent: plainTextToDoc("q") }),
+      );
+      expect((await r2.json()).history_turns_left_out).toBe(0);
+      expect(withoutPictures.calls[0]).toHaveLength(9);
+    } finally {
+      await admin
+        .from("app_settings")
+        .update({ max_tokens: 40000 })
+        .eq("id", 1);
+      await admin.from("responses").delete().eq("discussion_id", discussionId);
+    }
+  });
+
+  test("if Anthropic still says the prompt is too long, older turns are dropped and it is sent once more", async () => {
+    currentCookies = await signInAsTestUser();
+    await seedTurns(
+      Array.from({ length: 6 }, (_, i) => ({
+        prompt: `T${i} ` + "x".repeat(3_000),
+        response: "y".repeat(3_000),
+      })),
+    );
+    const { calls } = captureAnthropic([
+      () =>
+        HttpResponse.json(
+          {
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              // The first budget is 180,000 - 40,000 - 10 = 139,990; this
+              // overshoot (124,990) less a 10,000 cushion leaves 5,000,
+              // room for the two newest turns (about 2,017 each).
+              message: "prompt is too long: 324990 tokens > 200000 maximum",
+            },
+          },
+          { status: 400 },
+        ),
+    ]);
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("again") }),
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toHaveLength(13);
+    expect(calls[1]).toHaveLength(5);
+    // Still the newest turns, whole.
+    expect(firstText(calls[1][calls[1].length - 3])).toBe(
+      `T5 ` + "x".repeat(3_000),
+    );
+    expect((await response.json()).history_turns_left_out).toBe(
+      6 - (calls[1].length - 1) / 2,
+    );
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  });
+
+  test("any other 400 is not retried", async () => {
+    currentCookies = await signInAsTestUser();
+    await seedTurns([{ prompt: "one", response: "1" }]);
+    const { calls } = captureAnthropic([
+      () =>
+        HttpResponse.json(
+          {
+            type: "error",
+            error: { type: "invalid_request_error", message: "bad request" },
+          },
+          { status: 400 },
+        ),
+    ]);
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("x") }),
+    );
+    expect(response.status).not.toBe(200);
+    expect(calls).toHaveLength(1);
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  });
+
+  test("a short discussion is sent whole, with nothing left out", async () => {
+    currentCookies = await signInAsTestUser();
+    await seedTurns([
+      { prompt: "one", response: "1" },
+      { prompt: "two", response: "2" },
+    ]);
+    const { calls } = captureAnthropic();
+    const response = await POST(
+      makeRequest({ discussionId, promptContent: plainTextToDoc("three") }),
+    );
+    const body = await response.json();
+    expect(body.history_turns_left_out).toBe(0);
+    expect(body.history_turns_sent).toBe(2);
+    expect(calls[0].map((m) => m.content).slice(0, 4)).toEqual([
+      "one",
+      "1",
+      "two",
+      "2",
+    ]);
+    await admin.from("responses").delete().eq("discussion_id", discussionId);
+  });
+
   test("a brand-new discussion's first turn still sends exactly one message", async () => {
     currentCookies = await signInAsTestUser();
 

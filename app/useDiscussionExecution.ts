@@ -34,6 +34,10 @@ export interface PastResponse {
   response: string | null;
   resolved_model: string | null;
   created_at: string;
+  // Task 71. Client-only, set on the run that just finished: how many of
+  // the oldest turns were left out of that request to fit the model's
+  // window. Not stored, so it shows for this session only.
+  turns_left_out?: number;
 }
 
 interface DiscussionRow {
@@ -684,6 +688,7 @@ export function useDiscussionExecution(discussionId: string | null) {
               response: body.response ?? "",
               resolved_model: body.resolved_model ?? null,
               created_at: body.response_created_at,
+              turns_left_out: body.history_turns_left_out ?? 0,
             },
           ]);
           // Now permanently folded into history -- clear the transient

@@ -184,6 +184,15 @@ export function DiscussionContent({
                 {entry.response?.trim() ? (
                   <>
                     <MarkdownResponse content={entry.response} />
+                    {/* Task 71. Quiet, and only when it happened. */}
+                    {(entry.turns_left_out ?? 0) > 0 && (
+                      <p
+                        data-history-left-out
+                        style={{ color: "#666", fontSize: "0.85em" }}
+                      >
+                        {historyLeftOutNote(entry.turns_left_out!)}
+                      </p>
+                    )}
                     {/* Task 49. marginTop is roughly two blank lines: a
                         response that ends on a question would otherwise
                         put the button directly under the question mark,
@@ -256,4 +265,12 @@ export function DiscussionContent({
       )}
     </main>
   );
+}
+
+// Task 71. Plain words, for the note under an answer whose request left
+// out the oldest turns.
+export function historyLeftOutNote(count: number): string {
+  return count === 1
+    ? "To fit the model's size limit, this answer did not see the oldest turn of this discussion. It is still saved here and in exports."
+    : `To fit the model's size limit, this answer did not see the ${count} oldest turns of this discussion. They are still saved here and in exports.`;
 }
