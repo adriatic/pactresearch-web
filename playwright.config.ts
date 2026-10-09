@@ -51,7 +51,7 @@ export default defineConfig({
       },
       // Task 76: the magic-link sign-in spec runs here too, so the flow
       // is checked in WebKit (Nik's failure was Safari) as well as Chromium.
-      testMatch: /(ipad-.*|magic-link-.*|sign-out)\.spec\.ts/,
+      testMatch: /(ipad-.*|magic-link-.*|sign-out|history-cap-note)\.spec\.ts/,
     },
   ],
   webServer: {
@@ -65,5 +65,8 @@ export default defineConfig({
     // otherwise be picked up and quietly reintroduce Fast Refresh.
     reuseExistingServer: false,
     timeout: 180_000,
+    // Task 71: the local stand-in for the model, used only by tests that
+    // store a key "sk-ant-e2e-mock-<port>" (see app/api/execute).
+    env: { PACT_E2E_ANTHROPIC_URL: "http://127.0.0.1:{port}/v1/messages" },
   },
 });
