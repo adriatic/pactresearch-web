@@ -35,9 +35,24 @@ const apiHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
 const isAutomatedBrowser =
   typeof navigator !== "undefined" && navigator.webdriver === true;
 
+// Task 72 follow-up 2 (Nik, 2026-10-10): PostHog does not start at all on
+// the sign-in pages. /auth/confirm carries the one-time sign-in token in
+// its address and in a hidden field; a recording keeps both, and every
+// event carries the address. /login is switched off with it. Not starting
+// is the whole switch: there is no recording and no event to scrub.
+//
+// The other sign-in addresses (/auth/callback, /auth/confirm/verify,
+// /logout) are server redirects that never show a page, so PostHog never
+// runs there anyway. Checked once, at page start, which is enough: nothing
+// in the app moves to these pages client-side (they are reached by server
+// redirects, an email link and a plain <a href="/login">).
+const isSignInPage =
+  typeof location !== "undefined" &&
+  /^\/(login|auth)(\/|$)/.test(location.pathname);
+
 // Init only when a token is actually configured, so a missing var is a
 // silent no-op rather than posthog.init being called with `undefined`.
-if (token && !isAutomatedBrowser) {
+if (token && !isAutomatedBrowser && !isSignInPage) {
   posthog.init(token, {
     api_host: apiHost,
 

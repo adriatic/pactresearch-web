@@ -1,9 +1,17 @@
+import type { Metadata } from "next";
+
 // Task 76 follow-up C1. Where a sign-in link from the email lands. Loading
 // this page spends nothing: only the Sign in button (a POST to
 // /auth/confirm/verify) redeems the link. So a link preview, a mail scanner
 // or Mail opening the link in another browser cannot use it up, and the
 // link works in any browser -- a token_hash needs nothing stored in the
 // browser that asked for it.
+// Task 72 follow-up 2. The Sign in button lands on / with this page as its
+// referrer, and PostHog on / records the referrer. "origin" sends only the
+// site address, never ?token_hash=. Not "no-referrer": that would make the
+// browser send `Origin: null` with the POST, and verify rejects that.
+export const metadata: Metadata = { referrer: "origin" };
+
 export default async function ConfirmPage({
   searchParams,
 }: {
