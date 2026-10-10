@@ -55,3 +55,37 @@ test("the badge does not cover the sign-in controls", async ({ page }) => {
   await emailField.fill("someone@example.com");
   await expect(emailField).toHaveValue("someone@example.com");
 });
+
+// Task 73. Readable at a glance: at least the usual 4.5:1 contrast for
+// small text, measured as the browser draws it, opacity included.
+test("the badge is readable: contrast at least 4.5 to 1 against its background", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  const badge = page.locator("[data-build-label]");
+  const ratio = await badge.evaluate((el) => {
+    const s = getComputedStyle(el);
+    const rgb = (v: string) => v.match(/[\d.]+/g)!.map(Number);
+    const [r, g, b] = rgb(s.color);
+    const [br, bg, bb, ba = 1] = rgb(s.backgroundColor);
+    const opacity = Number(s.opacity);
+    // Background over the white page, then the text over that, faded by
+    // the element's opacity.
+    const back = [br, bg, bb].map((c) => c * ba + 255 * (1 - ba));
+    const text = [r, g, b].map((c, i) => c * opacity + back[i] * (1 - opacity));
+    const lum = (c: number[]) => {
+      const [R, G, B] = c.map((v) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+    };
+    const [hi, lo] = [lum(back), lum(text)].sort((a, b) => b - a);
+    return (hi + 0.05) / (lo + 0.05);
+  });
+  expect(ratio).toBeGreaterThanOrEqual(4.5);
+  await expect(badge).toHaveAttribute(
+    "title",
+    /^The version of pact-web you are using\./,
+  );
+});

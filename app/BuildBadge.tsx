@@ -12,7 +12,7 @@ import { getBuildInfo } from "@/lib/buildInfo";
 // a Preview deploy gets checked at all.
 //
 // Bottom-left, because "Report a problem" already occupies the
-// bottom-right. Small, dim, and out of the way -- and deliberately not
+// bottom-right. Small, quiet, and out of the way -- and deliberately not
 // a dialog: the task asked for something you can glance at, not
 // something you have to dismiss.
 export function BuildBadge() {
@@ -23,13 +23,16 @@ export function BuildBadge() {
     left: 6,
     bottom: 4,
     zIndex: 900,
-    fontSize: "0.7em",
+    // Task 73. Was #888 at opacity 0.65 and 0.7em: about rgb(178,178,178)
+    // on white, a contrast of roughly 2:1 at 11px -- easy to miss even
+    // when you know where to look (the comment here said it "lifts on
+    // hover", but inline styles cannot, so it never did). Now #666 at
+    // full strength, 5.7:1 (the usual floor for small text is 4.5:1),
+    // and a little larger. Still grey, small and in the corner: it is
+    // readable at a glance, not competing with the controls.
+    fontSize: "0.75em",
     fontFamily: "monospace",
-    color: "#888",
-    // Unobtrusive until wanted: it sits over the sidebar's lower
-    // panel, so it stays faint and lifts on hover rather than
-    // competing with the controls underneath.
-    opacity: 0.65,
+    color: "#666",
     background: "rgba(255, 255, 255, 0.85)",
     padding: "1px 4px",
     borderRadius: 3,
@@ -37,9 +40,12 @@ export function BuildBadge() {
 
   // The title carries the FULL sha: the short one is for reading, the
   // full one is what gets pasted into a bug report or git command.
+  // Task 73: says what the badge is, for anyone who notices it without
+  // being told. Hover text only on a Mac; the label itself must stand
+  // on its own on an iPad.
   const title = fullSha
-    ? `Build ${fullSha}${environment ? ` (${environment})` : ""}`
-    : "No build commit available";
+    ? `The version of pact-web you are using. Build ${fullSha}${environment ? ` (${environment})` : ""}`
+    : "The version of pact-web you are using. No build commit available";
 
   if (!commitUrl) {
     // Still rendered, still selectable and copyable -- only the link is
