@@ -375,6 +375,15 @@ export function AccountDialog({
                   // Masked by default. type="password" rather than a
                   // hand-rolled mask so browsers and password managers
                   // treat it as a secret.
+                  //
+                  // Task 72: never in a Session Replay recording. Replay
+                  // records inputs unmasked (Nik, Task 40) and keeps only
+                  // password fields masked -- but Show turns this into a
+                  // text field, which would then be recorded in plain
+                  // text. ph-no-capture is the recorder's blockClass: the
+                  // field becomes an empty box in every recording, shown
+                  // or hidden, and autocapture ignores it too.
+                  className="ph-no-capture"
                   type={showKey ? "text" : "password"}
                   value={keyInput}
                   onChange={(e) => {

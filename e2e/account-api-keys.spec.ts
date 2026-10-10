@@ -159,6 +159,9 @@ test("a key saves, is stored ENCRYPTED at rest, and reveals only on request", as
   await reopened.getByRole("button", { name: "Show" }).click();
   await expect(reopenedField).toHaveAttribute("type", "text");
   await expect(reopenedField).toHaveValue(FAKE_KEY);
+  // Task 72: shown or not, the key field is blocked from Session Replay.
+  await expect(reopenedField).toHaveAttribute("type", "text");
+  await expect(reopenedField).toHaveClass(/(^|\s)ph-no-capture(\s|$)/);
 
   await reopened.getByRole("button", { name: "Hide" }).click();
   await expect(reopenedField).toHaveAttribute("type", "password");

@@ -157,7 +157,7 @@ test("a successful run never shows the raw JSON result block", async ({
 
   const composer = page.getByLabel("Prompt");
   await composer.fill("Trigger a mocked successful run");
-  const runButton = page.getByRole("button", { name: "Run" });
+  const runButton = page.getByRole("button", { name: "Run", exact: true });
   await Promise.all([
     page.waitForResponse((r) => r.url().includes("/api/execute")),
     runButton.click(),
@@ -210,7 +210,7 @@ test("a failed run shows the generic message and errorId, never the raw JSON bod
 
   const composer = page.getByLabel("Prompt");
   await composer.fill("Trigger a mocked failed run");
-  const runButton = page.getByRole("button", { name: "Run" });
+  const runButton = page.getByRole("button", { name: "Run", exact: true });
   await Promise.all([
     page.waitForResponse((r) => r.url().includes("/api/execute")),
     runButton.click(),
