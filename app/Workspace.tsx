@@ -26,7 +26,9 @@ import {
   supportsOpenFilePicker,
   type ImportSummary,
 } from "@/lib/pactImport";
-import { isEmptyDoc } from "@/lib/richContent";
+import { docToPlainText, isEmptyDoc } from "@/lib/richContent";
+import { DISCUSSION_GONE, NOTEBOOK_GONE } from "@/lib/goneMessages";
+import { GoneNotice, type GoneNoticeState } from "./GoneNotice";
 import {
   extractFollowUpQuestion,
   followUpPlaceholder,
@@ -116,9 +118,17 @@ export function Workspace({
   const [showSettings, setShowSettings] = useState(false);
 
   const execution = useDiscussionExecution(activeDiscussionId);
+
+  // Task 84. Set when a reload of the tree shows that the open discussion
+  // (or, with none open, the selected notebook) is gone -- deleted in
+  // another tab or window. The work area then shows only this notice in
+  // place of the title line, the prompt box and the prompt and response
+  // panel. Cleared by picking anything else.
+  const [goneNotice, setGoneNotice] = useState<GoneNoticeState | null>(null);
   useVisibleViewportHeight();
 
   function handleDiscussionCreated(discussionId: string) {
+    setGoneNotice(null);
     setActiveDiscussionId(discussionId);
     setDiscussionListRefetchToken((t) => t + 1);
   }
@@ -127,6 +137,7 @@ export function Workspace({
   // target for "Add a discussion to this notebook", without requiring a
   // separate click on its own row first.
   function handleNotebookCreated(notebookId: string) {
+    setGoneNotice(null);
     setSelectedNotebookId(notebookId);
     setDiscussionListRefetchToken((t) => t + 1);
   }
@@ -136,6 +147,7 @@ export function Workspace({
   // discussion" (without separately clicking B's own row) must target B,
   // not whatever was selected before.
   function handleDiscussionSelected(discussionId: string, notebookId: string) {
+    setGoneNotice(null);
     setActiveDiscussionId(discussionId);
     setSelectedNotebookId(notebookId);
   }
@@ -237,6 +249,35 @@ export function Workspace({
   // any other discussion changes nothing here, so this deliberately
   // does not bump the refetch token -- a full refetch would reload the
   // tree to apply a change the tree has already made.
+  function handleNotebookSelected(notebookId: string) {
+    setGoneNotice(null);
+    setSelectedNotebookId(notebookId);
+  }
+
+  // Task 84. The same clearing a delete in THIS tab does (the open
+  // discussion and the selection set to none -- useDiscussionExecution
+  // then empties the title, the prompt box and the history), plus the
+  // notice, which a delete in this tab does not need: the user just did it.
+  //
+  // Unsent text is kept for the notice to offer, read before the clear
+  // empties it. "Unsent" means different from the last prompt actually
+  // run: after a run the prompt box keeps that prompt, and offering it
+  // back as unsent would be wrong.
+  function handleOpenItemGone(kind: "discussion" | "notebook") {
+    let unsentText: string | null = null;
+    if (kind === "discussion" && !isEmptyDoc(execution.content)) {
+      const text = docToPlainText(execution.content).trim();
+      const lastRun = (execution.history.at(-1)?.prompt_text ?? "").trim();
+      if (text && text !== lastRun) unsentText = text;
+    }
+    setGoneNotice({
+      message: kind === "discussion" ? DISCUSSION_GONE : NOTEBOOK_GONE,
+      unsentText,
+    });
+    setActiveDiscussionId(null);
+    setSelectedNotebookId(null);
+  }
+
   function handleDiscussionRenamed(discussionId: string, name: string) {
     if (activeDiscussionId === discussionId) {
       execution.setDiscussionName(name);
@@ -386,13 +427,14 @@ export function Workspace({
                   activeDiscussionId={activeDiscussionId}
                   selectedNotebookId={selectedNotebookId}
                   onSelect={handleDiscussionSelected}
-                  onNotebookSelected={setSelectedNotebookId}
+                  onNotebookSelected={handleNotebookSelected}
                   onNotebookDeleted={handleNotebookDeleted}
                   onDiscussionDeleted={handleDiscussionDeleted}
                   onDiscussionRenamed={handleDiscussionRenamed}
                   onDiscussionCreated={handleDiscussionCreated}
                   isRunning={execution.loading}
                   refetchToken={discussionListRefetchToken}
+                  onOpenItemGone={handleOpenItemGone}
                 />
               </TouchScroll>
             </Panel>
@@ -506,15 +548,19 @@ export function Workspace({
               draggable 140px and could be dragged out of existence
               entirely, and it isn't itself resizable content. flexShrink
               comes from the component's own root. */}
-          <ComposerHeader
-            discussionId={activeDiscussionId}
-            discussionName={execution.discussionName}
-            // The same `loading` that already gates the Run button above,
-            // so the status dot and the Run button can never disagree
-            // about whether this discussion is running.
-            isRunning={execution.loading}
-          />
-          {/* The composer and the discussion content are their own
+          {goneNotice ? (
+            <GoneNotice notice={goneNotice} />
+          ) : (
+            <>
+              <ComposerHeader
+                discussionId={activeDiscussionId}
+                discussionName={execution.discussionName}
+                // The same `loading` that already gates the Run button above,
+                // so the status dot and the Run button can never disagree
+                // about whether this discussion is running.
+                isRunning={execution.loading}
+              />
+              {/* The composer and the discussion content are their own
               vertical Group so the boundary between them is a real
               draggable divider, replacing the textarea's native corner
               resize grip (see Composer.tsx). Same library and same
@@ -523,91 +569,97 @@ export function Workspace({
               minHeight: 0 is what lets this Group actually shrink inside
               the surrounding flex column rather than being floored at its
               content height. */}
-          <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
-            <Panel defaultSize={140} minSize={64} maxSize={480}>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  height: "100%",
-                }}
-              >
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <Composer
-                    discussionId={activeDiscussionId}
-                    content={execution.content}
-                    contentVersion={execution.contentVersion}
-                    onContentChange={execution.setContent}
-                    // Guarded by the same `canRun` as the Run button, so a
-                    // Cmd+Enter with an empty composer, no discussion, or a
-                    // run already in flight does nothing -- it does not queue
-                    // a second run or fight the execution lock.
-                    onSubmit={() => {
-                      if (canRun) runWithChoice();
-                    }}
-                    placeholderOverride={followUpHint}
-                    focusToken={composerFocusToken}
-                  />
-                </div>
-                {historyPlan?.showHint && (
+              <Group orientation="vertical" style={{ flex: 1, minHeight: 0 }}>
+                <Panel defaultSize={140} minSize={64} maxSize={480}>
                   <div
-                    data-context-line
                     style={{
                       display: "flex",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: 8,
-                      padding: "4px 8px",
-                      fontSize: "0.85em",
-                      color: "#444",
+                      flexDirection: "column",
+                      height: "100%",
                     }}
                   >
-                    <span data-context-summary>
-                      {contextChoice ? "Your choice. " : ""}
-                      {contextSummary(historyPlan)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowContextDialog(true)}
-                    >
-                      Choose…
-                    </button>
-                    {contextChoice && (
-                      <button
-                        type="button"
-                        onClick={() => setContextChoice(undefined)}
+                    <div style={{ flex: 1, minHeight: 0 }}>
+                      <Composer
+                        discussionId={activeDiscussionId}
+                        content={execution.content}
+                        contentVersion={execution.contentVersion}
+                        onContentChange={execution.setContent}
+                        // Guarded by the same `canRun` as the Run button, so a
+                        // Cmd+Enter with an empty composer, no discussion, or a
+                        // run already in flight does nothing -- it does not queue
+                        // a second run or fight the execution lock.
+                        onSubmit={() => {
+                          if (canRun) runWithChoice();
+                        }}
+                        placeholderOverride={followUpHint}
+                        focusToken={composerFocusToken}
+                      />
+                    </div>
+                    {historyPlan?.showHint && (
+                      <div
+                        data-context-line
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                          gap: 8,
+                          padding: "4px 8px",
+                          fontSize: "0.85em",
+                          color: "#444",
+                        }}
                       >
-                        Send all turns
-                      </button>
+                        <span data-context-summary>
+                          {contextChoice ? "Your choice. " : ""}
+                          {contextSummary(historyPlan)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowContextDialog(true)}
+                        >
+                          Choose…
+                        </button>
+                        {contextChoice && (
+                          <button
+                            type="button"
+                            onClick={() => setContextChoice(undefined)}
+                          >
+                            Send all turns
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            </Panel>
-            <Separator
-              style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
-            />
-            <Panel>
-              <TouchScroll>
-                <DiscussionContent
-                  discussionId={activeDiscussionId}
-                  history={execution.history}
-                  streamedResponse={execution.streamedResponse}
-                  streamedResponseCreatedAt={
-                    execution.streamedResponseCreatedAt
-                  }
-                  isStreaming={execution.isStreaming}
-                  // Same `loading` as the Run button and ComposerHeader's
-                  // status dot -- task 42 Part C reuses it rather than
-                  // introducing a third source of truth for "is it running".
-                  isRunning={execution.loading}
-                  onContinue={handleContinue}
-                  onAskAbout={handleAskAbout}
-                  executionError={execution.executionError}
+                </Panel>
+                <Separator
+                  style={{
+                    height: 4,
+                    cursor: "row-resize",
+                    background: "#ccc",
+                  }}
                 />
-              </TouchScroll>
-            </Panel>
-          </Group>
+                <Panel>
+                  <TouchScroll>
+                    <DiscussionContent
+                      discussionId={activeDiscussionId}
+                      history={execution.history}
+                      streamedResponse={execution.streamedResponse}
+                      streamedResponseCreatedAt={
+                        execution.streamedResponseCreatedAt
+                      }
+                      isStreaming={execution.isStreaming}
+                      // Same `loading` as the Run button and ComposerHeader's
+                      // status dot -- task 42 Part C reuses it rather than
+                      // introducing a third source of truth for "is it running".
+                      isRunning={execution.loading}
+                      onContinue={handleContinue}
+                      onAskAbout={handleAskAbout}
+                      executionError={execution.executionError}
+                    />
+                  </TouchScroll>
+                </Panel>
+              </Group>
+            </>
+          )}
         </Panel>
       </Group>
     </>

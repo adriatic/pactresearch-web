@@ -9,6 +9,7 @@ import {
 } from "@/lib/pactExport";
 import { sumDiscussionTotalTimeMs } from "@/lib/activityRollup";
 import { getBuildInfo } from "@/lib/buildInfo";
+import { NOTEBOOK_GONE } from "@/lib/goneMessages";
 
 async function handleGet(request: Request) {
   const supabase = await createClient();
@@ -38,7 +39,7 @@ async function handleGet(request: Request) {
     throw notebookError;
   }
   if (!notebook) {
-    return Response.json({ error: "Notebook not found." }, { status: 404 });
+    return Response.json({ error: NOTEBOOK_GONE }, { status: 404 });
   }
 
   const { data: discussionRows, error: discussionsError } = await supabase

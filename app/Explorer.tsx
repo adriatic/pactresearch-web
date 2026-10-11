@@ -122,6 +122,7 @@ export function Explorer({
   onDiscussionCreated,
   isRunning,
   refetchToken,
+  onOpenItemGone,
 }: {
   activeDiscussionId: string | null;
   // The notebook NotebookCreator's "Add a discussion to this notebook"
@@ -155,6 +156,10 @@ export function Explorer({
   // moment they change and the one moment nothing told this tree.
   isRunning: boolean;
   refetchToken: number;
+  // Task 84. Called when a reload of the tree no longer contains what the
+  // work area shows: the open discussion, or -- with no discussion open --
+  // the selected notebook. Usually deleted in another tab or window.
+  onOpenItemGone: (kind: "discussion" | "notebook") => void;
 }) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
@@ -197,6 +202,12 @@ export function Explorer({
   // the page was actually left (`away`): one refetch per return, and
   // nothing at all while the user stays on the page. No polling.
   const [returnToken, setReturnToken] = useState(0);
+
+  // Task 84. Counts completed loads of the tree, so the check below runs
+  // once per load -- the normal one, task 63's after a run, task 74's on
+  // coming back -- and never against the empty lists before the first
+  // load has arrived.
+  const [treeLoadVersion, setTreeLoadVersion] = useState(0);
   useEffect(() => {
     let away = false;
     function leave() {
@@ -229,6 +240,7 @@ export function Explorer({
         if (!cancelled) {
           setNotebooks(notebooksBody);
           setDiscussions(discussionsBody);
+          setTreeLoadVersion((v) => v + 1);
         }
       },
     );
@@ -266,6 +278,31 @@ export function Explorer({
     // returnToken (task 74): the same refetch when the user comes back
     // from another tab or window, where a run may have finished.
   }, [refetchToken, isRunning, returnToken]);
+
+  // Task 84. After each load: is what the work area shows still there?
+  // Reuses the load above; no request of its own. Reads the current
+  // props at that moment. A discussion created in this tab cannot be
+  // reported missing by an older, in-flight load: creating one bumps
+  // refetchToken, which cancels that load before it is applied.
+  useEffect(() => {
+    if (treeLoadVersion === 0) return;
+    // A failed load (an error body, not a list) says nothing about what
+    // exists, so it never counts as a deletion.
+    if (!Array.isArray(discussions) || !Array.isArray(notebooks)) return;
+    if (activeDiscussionId) {
+      if (!discussions.some((d) => d.id === activeDiscussionId)) {
+        onOpenItemGone("discussion");
+      }
+    } else if (
+      selectedNotebookId &&
+      !notebooks.some((n) => n.id === selectedNotebookId)
+    ) {
+      onOpenItemGone("notebook");
+    }
+    // Only a completed load triggers this check; a selection change on
+    // its own is always to something the tree has just shown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeLoadVersion]);
 
   // 3s poll: frequent enough that "still running" feels live without
   // hammering the DB for what's ultimately a single small row read,

@@ -7,6 +7,7 @@ import {
 } from "@/lib/discussionMarkdown";
 import { promptToMarkdown } from "@/lib/discussionPromptMarkdown";
 import type { RichContent } from "@/lib/richContent";
+import { DISCUSSION_GONE } from "@/lib/goneMessages";
 
 // Task 65. Per-discussion export, markdown rather than .pact -- see
 // lib/discussionMarkdown.ts for why the format differs from the
@@ -48,7 +49,7 @@ async function handleGet(request: Request) {
     throw discussionError;
   }
   if (!discussion) {
-    return Response.json({ error: "Discussion not found." }, { status: 404 });
+    return Response.json({ error: DISCUSSION_GONE }, { status: 404 });
   }
 
   // Scoped to this discussionId alone. A notebook's other discussions

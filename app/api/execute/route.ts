@@ -25,6 +25,7 @@ import {
   resolveUserAnthropicKey,
 } from "@/lib/userAnthropicKey";
 import { trace, context } from "@opentelemetry/api";
+import { DISCUSSION_GONE } from "@/lib/goneMessages";
 
 const tracer = trace.getTracer("pact-api");
 
@@ -204,6 +205,15 @@ async function handlePost(request: Request) {
   const lockAcquireMs = Date.now() - lockAcquireStart;
 
   if (lockError) {
+    // Task 84. 23503 (foreign_key_violation): the lock row must point at
+    // an existing discussion, and this one is gone -- typically deleted
+    // in another tab while this one still showed it. Refused by the
+    // database before anything is written; this only turns the bare
+    // "Internal server error." it used to produce into the plain words.
+    // No extra lookup on every run: the lock insert already is the check.
+    if (lockError.code === "23503") {
+      return Response.json({ error: DISCUSSION_GONE }, { status: 404 });
+    }
     throw lockError;
   }
 

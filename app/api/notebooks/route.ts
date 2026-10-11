@@ -1,6 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { removePromptImagesForDiscussion } from "@/lib/promptImagesCleanup";
+import { NOTEBOOK_GONE } from "@/lib/goneMessages";
 
 // "Samples" was cut from pact-web entirely (see 3.13) — not a valid category
 // here even though the old pact-mac dialog offered it.
@@ -156,7 +157,7 @@ async function handleDelete(request: Request) {
   }
 
   if (deleted.length === 0) {
-    return Response.json({ error: "Notebook not found." }, { status: 404 });
+    return Response.json({ error: NOTEBOOK_GONE }, { status: 404 });
   }
 
   return Response.json(deleted[0]);
@@ -298,7 +299,7 @@ async function handlePatch(request: Request) {
   }
 
   if (updated.length === 0) {
-    return Response.json({ error: "Notebook not found." }, { status: 404 });
+    return Response.json({ error: NOTEBOOK_GONE }, { status: 404 });
   }
 
   return Response.json(updated[0]);
