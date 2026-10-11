@@ -3,6 +3,7 @@ import { withRouteErrorHandling } from "@/lib/withRouteErrorHandling";
 import { removePromptImagesForDiscussion } from "@/lib/promptImagesCleanup";
 import type { RichContent } from "@/lib/richContent";
 import { trace } from "@opentelemetry/api";
+import { DISCUSSION_GONE, NOTEBOOK_GONE } from "@/lib/goneMessages";
 
 const tracer = trace.getTracer("pact-api");
 
@@ -59,7 +60,7 @@ async function handlePost(request: Request) {
   }
 
   if (!notebook) {
-    return Response.json({ error: "Notebook not found." }, { status: 404 });
+    return Response.json({ error: NOTEBOOK_GONE }, { status: 404 });
   }
 
   const { data: discussion, error: insertError } = await supabase
@@ -278,7 +279,7 @@ async function handlePatch(request: Request) {
   }
 
   if (updated.length === 0) {
-    return Response.json({ error: "Discussion not found." }, { status: 404 });
+    return Response.json({ error: DISCUSSION_GONE }, { status: 404 });
   }
 
   return Response.json(updated[0]);
@@ -360,7 +361,7 @@ async function handleDelete(request: Request) {
   }
 
   if (deleted.length === 0) {
-    return Response.json({ error: "Discussion not found." }, { status: 404 });
+    return Response.json({ error: DISCUSSION_GONE }, { status: 404 });
   }
 
   return Response.json(deleted[0]);
