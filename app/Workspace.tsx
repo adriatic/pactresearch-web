@@ -547,29 +547,52 @@ export function Workspace({
             <button type="button" onClick={() => setShowAccount(true)}>
               Account
             </button>{" "}
-            <button type="button" onClick={() => setShowModelTier(true)}>
-              Model
-            </button>{" "}
             {/* Task 81 Stage 2. Which service answers the next run, with
                 the model the tier means there, as in pact-mac's composer
                 toolbar. Claude is the default; the choice is saved on the
-                user, like the tier. */}
-            <select
-              aria-label="Provider"
-              value={llm.provider}
-              disabled={llm.saving}
-              onChange={(e) => {
-                if (isLlmProviderId(e.target.value)) {
-                  void llm.choose(e.target.value);
-                }
+                user, like the tier.
+
+                Model and the dropdown are one unit that wraps as a whole
+                (Nik's Preview test, 0675cf1): as plain inline siblings, a
+                window under about 1,075px wide left Model at the end of the
+                first line and moved the dropdown alone to the start of a
+                second one, under PACT, where it was not found. The visible
+                "Provider:" says what the box is. */}
+            <span
+              data-model-controls
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                whiteSpace: "nowrap",
+                verticalAlign: "middle",
               }}
             >
-              {(["anthropic", "openai"] as const).map((id) => (
-                <option key={id} value={id}>
-                  {LLM_PROVIDERS[id].label} · {tierModel(llm.tier, id)}
-                </option>
-              ))}
-            </select>{" "}
+              <button type="button" onClick={() => setShowModelTier(true)}>
+                Model
+              </button>
+              <label
+                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                Provider:
+                <select
+                  aria-label="Provider"
+                  value={llm.provider}
+                  disabled={llm.saving}
+                  onChange={(e) => {
+                    if (isLlmProviderId(e.target.value)) {
+                      void llm.choose(e.target.value);
+                    }
+                  }}
+                >
+                  {(["anthropic", "openai"] as const).map((id) => (
+                    <option key={id} value={id}>
+                      {LLM_PROVIDERS[id].label} · {tierModel(llm.tier, id)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </span>{" "}
             {llm.error && (
               <span role="alert" style={{ color: "#a00" }}>
                 {llm.error}
