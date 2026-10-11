@@ -15,6 +15,8 @@ import {
   OPENAI_RATE_LIMITED_MESSAGE,
   OPENAI_REJECTED_KEY_CODE,
   OPENAI_REJECTED_KEY_MESSAGE,
+  OPENAI_SPEND_LIMIT_CODE,
+  OPENAI_SPEND_LIMIT_MESSAGE,
   resolveUserOpenAiKey,
 } from "@/lib/userOpenAiKey";
 import { anthropicProvider } from "./anthropic";
@@ -37,6 +39,10 @@ export interface ProviderEntry {
   // Messages for ProviderRequestError.reason. A reason with no message
   // here keeps the generic "Execution failed" and its error id.
   refusals: Partial<Record<ProviderRefusalReason, UserMessage>>;
+  // Shown after every refusal message as "(<label>: <code>)", with the
+  // service's own short reason (ProviderRequestError.providerCode). Null
+  // keeps the messages as they are: Claude's, unchanged by Task 81.
+  reasonLabel: string | null;
 }
 
 export const PROVIDER_ENTRIES: Record<LlmProviderId, ProviderEntry> = {
@@ -46,6 +52,7 @@ export const PROVIDER_ENTRIES: Record<LlmProviderId, ProviderEntry> = {
     rejectedKey: { error: REJECTED_KEY_MESSAGE, code: REJECTED_KEY_CODE },
     // None: Claude's messages are unchanged by Task 81.
     refusals: {},
+    reasonLabel: null,
   },
   openai: {
     provider: openaiProvider,
@@ -59,6 +66,10 @@ export const PROVIDER_ENTRIES: Record<LlmProviderId, ProviderEntry> = {
         error: OPENAI_NO_CREDIT_MESSAGE,
         code: OPENAI_NO_CREDIT_CODE,
       },
+      spend_limit: {
+        error: OPENAI_SPEND_LIMIT_MESSAGE,
+        code: OPENAI_SPEND_LIMIT_CODE,
+      },
       rate_limited: {
         error: OPENAI_RATE_LIMITED_MESSAGE,
         code: OPENAI_RATE_LIMITED_CODE,
@@ -68,5 +79,6 @@ export const PROVIDER_ENTRIES: Record<LlmProviderId, ProviderEntry> = {
         code: OPENAI_ATTACHMENT_REFUSED_CODE,
       },
     },
+    reasonLabel: "OpenAI",
   },
 };

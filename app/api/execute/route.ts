@@ -761,29 +761,64 @@ async function handlePost(request: Request) {
     // line for a failure the user cannot act on; this one needs no
     // support round trip, and an opaque id would only make an
     // actionable message look like a crash report.
+    // Task 81 Stage 2. For ChatGPT every refusal also names OpenAI's own
+    // short reason, "(OpenAI: credit_balance_exhausted)", beside the plain
+    // words, so a refusal is never guessed at again: Nik's first Preview
+    // run was refused for no credit and shown as a rate limit. Only the
+    // code (letters, digits, _), never OpenAI's message or the key.
+    // Claude's messages are unchanged (reasonLabel null).
+    const providerCode =
+      error instanceof ProviderRequestError && providerEntry.reasonLabel
+        ? error.providerCode
+        : null;
+    const withReason = (message: string) =>
+      providerCode
+        ? `${message} (${providerEntry.reasonLabel}: ${providerCode})`
+        : message;
+    const reasonField = providerCode ? { providerCode } : {};
+
     if (error instanceof ProviderRequestError && error.keyRejected) {
-      return Response.json(providerEntry.rejectedKey, { status: 400 });
+      return Response.json(
+        {
+          error: withReason(providerEntry.rejectedKey.error),
+          code: providerEntry.rejectedKey.code,
+          ...reasonField,
+        },
+        { status: 400 },
+      );
     }
     // Task 81 Stage 2. ChatGPT's other refusals the user can act on: no
-    // API credit, a rate limit, a picture it would not take. Plain words
-    // and no error id, for the same reason as the refused key above. The
-    // status says whose move it is: 429 to wait, 400 to change something.
+    // API credit, a spend limit, a rate limit, a picture it would not
+    // take. Plain words and no error id, for the same reason as the
+    // refused key above. The status says whose move it is: 429 to wait,
+    // 400 to change something.
     const refusal =
       error instanceof ProviderRequestError && error.reason
         ? providerEntry.refusals[error.reason]
         : undefined;
     if (refusal) {
-      return Response.json(refusal, {
-        status:
-          (error as ProviderRequestError).reason === "rate_limited" ? 429 : 400,
-      });
+      return Response.json(
+        {
+          error: withReason(refusal.error),
+          code: refusal.code,
+          ...reasonField,
+        },
+        {
+          status:
+            (error as ProviderRequestError).reason === "rate_limited"
+              ? 429
+              : 400,
+        },
+      );
     }
 
     return Response.json(
       {
-        error:
+        error: withReason(
           "Execution failed. Please try again or contact support if this persists.",
+        ),
         errorId,
+        ...reasonField,
       },
       { status: 500 },
     );

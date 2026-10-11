@@ -14,6 +14,7 @@ import {
   OPENAI_NO_CREDIT_MESSAGE,
   OPENAI_RATE_LIMITED_MESSAGE,
   OPENAI_REJECTED_KEY_MESSAGE,
+  OPENAI_SPEND_LIMIT_MESSAGE,
 } from "@/lib/userOpenAiKey";
 import { server } from "../mocks/server";
 
@@ -349,6 +350,13 @@ describe("a run on ChatGPT", () => {
     }
   }
 
+  // Every OpenAI refusal names OpenAI's own short reason after the plain
+  // words, and in providerCode, so a refusal is never guessed at.
+  const shown = (message: string, providerCode: string) => ({
+    error: `${message} (OpenAI: ${providerCode})`,
+    providerCode,
+  });
+
   test("a key OpenAI refuses: the Claude-style message, pointing to Account → Keys", async () => {
     const result = await refusedWith(401, {
       message: "Incorrect API key provided: sk-proj-************1234.",
@@ -357,11 +365,37 @@ describe("a run on ChatGPT", () => {
     });
     expect(result).toEqual({
       status: 400,
-      body: { error: OPENAI_REJECTED_KEY_MESSAGE, code: "openai_rejected_key" },
+      body: {
+        ...shown(OPENAI_REJECTED_KEY_MESSAGE, "invalid_api_key"),
+        code: "openai_rejected_key",
+      },
     });
   });
 
-  test("no API credit on the OpenAI account", async () => {
+  test("Nik's Preview run: no credits remaining is the no-credit message, not a rate limit", async () => {
+    // OpenAI's body for that run, verbatim from the Preview's log.
+    const result = await refusedWith(429, {
+      message:
+        "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.",
+      type: "insufficient_quota",
+      param: null,
+      code: "credit_balance_exhausted",
+    });
+    expect(result).toEqual({
+      status: 400,
+      body: {
+        ...shown(OPENAI_NO_CREDIT_MESSAGE, "credit_balance_exhausted"),
+        code: "openai_no_credit",
+      },
+    });
+    expect(result.body.error).toBe(
+      "Your OpenAI account has no API credit left. Add credit on OpenAI's " +
+        "billing page (platform.openai.com), then run again. " +
+        "(OpenAI: credit_balance_exhausted)",
+    );
+  });
+
+  test("no API credit, older code", async () => {
     const result = await refusedWith(429, {
       message: "You exceeded your current quota.",
       type: "insufficient_quota",
@@ -369,7 +403,25 @@ describe("a run on ChatGPT", () => {
     });
     expect(result).toEqual({
       status: 400,
-      body: { error: OPENAI_NO_CREDIT_MESSAGE, code: "openai_no_credit" },
+      body: {
+        ...shown(OPENAI_NO_CREDIT_MESSAGE, "insufficient_quota"),
+        code: "openai_no_credit",
+      },
+    });
+  });
+
+  test("a spend limit", async () => {
+    const result = await refusedWith(429, {
+      message: "Your project reached its spend limit.",
+      type: "requests",
+      code: "project_spend_limit_exceeded",
+    });
+    expect(result).toEqual({
+      status: 400,
+      body: {
+        ...shown(OPENAI_SPEND_LIMIT_MESSAGE, "project_spend_limit_exceeded"),
+        code: "openai_spend_limit",
+      },
     });
   });
 
@@ -381,7 +433,10 @@ describe("a run on ChatGPT", () => {
     });
     expect(result).toEqual({
       status: 429,
-      body: { error: OPENAI_RATE_LIMITED_MESSAGE, code: "openai_rate_limited" },
+      body: {
+        ...shown(OPENAI_RATE_LIMITED_MESSAGE, "rate_limit_exceeded"),
+        code: "openai_rate_limited",
+      },
     });
   });
 
@@ -394,18 +449,23 @@ describe("a run on ChatGPT", () => {
     expect(result).toEqual({
       status: 400,
       body: {
-        error: OPENAI_ATTACHMENT_REFUSED_MESSAGE,
+        ...shown(OPENAI_ATTACHMENT_REFUSED_MESSAGE, "invalid_image_format"),
         code: "openai_attachment_refused",
       },
     });
   });
 
-  test("any other failure keeps the generic message with an error id", async () => {
+  test("any other failure keeps the generic message with an error id, and OpenAI's reason", async () => {
     const result = await refusedWith(500, {
       message: "The server had an error.",
+      type: "server_error",
+      code: null,
     });
     expect(result.status).toBe(500);
-    expect(result.body.error).toMatch(/^Execution failed/);
+    expect(result.body.error).toBe(
+      "Execution failed. Please try again or contact support if this persists. (OpenAI: server_error)",
+    );
+    expect(result.body.providerCode).toBe("server_error");
     expect(result.body.errorId).toBeTruthy();
   });
 });

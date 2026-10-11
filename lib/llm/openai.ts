@@ -82,7 +82,43 @@ export function openAiRequestBody(request: StreamRequest) {
 }
 
 interface OpenAiErrorBody {
-  error?: { message?: string; code?: string | null; param?: string | null };
+  error?: {
+    message?: string;
+    type?: string | null;
+    code?: string | null;
+    param?: string | null;
+  };
+}
+
+// OpenAI's documented 429s (developers.openai.com/api/docs/guides/
+// error-codes, read 2026-10-11). Only "Rate limit reached" and "Slow
+// down" pass by waiting; the others need a change in the OpenAI account.
+// "insufficient_quota" is the older code and still the error type of
+// credit_balance_exhausted.
+const NO_CREDIT_CODES = new Set([
+  "credit_balance_exhausted",
+  "insufficient_quota",
+]);
+const SPEND_LIMIT_CODES = new Set([
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+]);
+
+// The short reason the user sees: OpenAI's code, else its type, else the
+// HTTP status. Only letters, digits and _, at most 60 characters, so it
+// can never carry the key or OpenAI's longer message.
+export function openAiReasonCode(status: number, body: string): string {
+  const error = parseError(body) ?? {};
+  for (const candidate of [error.code, error.type]) {
+    if (
+      typeof candidate === "string" &&
+      /^[A-Za-z0-9_]{1,60}$/.test(candidate)
+    ) {
+      return candidate;
+    }
+  }
+  return `HTTP ${status}`;
 }
 
 function parseError(body: string): OpenAiErrorBody["error"] {
@@ -113,6 +149,7 @@ export function openAiRefusal(
 } {
   const error = parseError(body) ?? {};
   const code = error.code ?? "";
+  const type = error.type ?? "";
   const message = error.message ?? "";
 
   let promptTooLongBy: number | null = null;
@@ -126,7 +163,12 @@ export function openAiRefusal(
 
   let reason: ProviderRefusalReason | null = null;
   if (status === 429) {
-    reason = code === "insufficient_quota" ? "no_credit" : "rate_limited";
+    reason =
+      NO_CREDIT_CODES.has(code) || type === "insufficient_quota"
+        ? "no_credit"
+        : SPEND_LIMIT_CODES.has(code)
+          ? "spend_limit"
+          : "rate_limited";
   } else if (
     status === 400 &&
     promptTooLongBy === null &&
@@ -170,6 +212,7 @@ export const openaiProvider: LlmProvider = {
         refusal.keyRejected,
         refusal.promptTooLongBy,
         refusal.reason,
+        openAiReasonCode(response.status, body),
       );
     }
 

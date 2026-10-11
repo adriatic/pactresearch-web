@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+  openAiReasonCode,
   redactKeys,
   openAiEvents,
   openAiRefusal,
@@ -256,6 +257,96 @@ describe("openAiRefusal", () => {
       ).keyRejected,
     ).toBe(false);
     expect(openAiRefusal(500, "").reason).toBeNull();
+  });
+});
+
+describe("OpenAI's 429s, as documented (Nik's Preview run, 2026-10-11)", () => {
+  // The body OpenAI sent Nik's first Preview run, verbatim from the
+  // Preview's log. It was shown as a rate limit.
+  const NIK_PREVIEW_429 = JSON.stringify({
+    error: {
+      message:
+        "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.",
+      type: "insufficient_quota",
+      param: null,
+      code: "credit_balance_exhausted",
+    },
+  });
+
+  test("credit_balance_exhausted is no credit, not a rate limit", () => {
+    expect(openAiRefusal(429, NIK_PREVIEW_429).reason).toBe("no_credit");
+    expect(openAiReasonCode(429, NIK_PREVIEW_429)).toBe(
+      "credit_balance_exhausted",
+    );
+  });
+
+  test("any 429 of type insufficient_quota is no credit, whatever its code", () => {
+    const body = JSON.stringify({
+      error: {
+        message: "x",
+        type: "insufficient_quota",
+        code: "some_future_code",
+      },
+    });
+    expect(openAiRefusal(429, body).reason).toBe("no_credit");
+  });
+
+  test("the spend and usage limit codes are spend_limit", () => {
+    for (const code of [
+      "organization_spend_limit_exceeded",
+      "project_spend_limit_exceeded",
+      "organization_usage_limit_exceeded",
+    ]) {
+      const body = JSON.stringify({
+        error: { message: "x", type: "requests", code },
+      });
+      expect(openAiRefusal(429, body).reason).toBe("spend_limit");
+    }
+  });
+
+  test("only rate_limit_exceeded, slow-down and unknown 429s are a rate limit", () => {
+    for (const code of ["rate_limit_exceeded", "slow_down", null]) {
+      const body = JSON.stringify({
+        error: { message: "x", type: "requests", code },
+      });
+      expect(openAiRefusal(429, body).reason).toBe("rate_limited");
+    }
+  });
+});
+
+describe("openAiReasonCode", () => {
+  test("the code, else the type, else the HTTP status", () => {
+    expect(
+      openAiReasonCode(
+        401,
+        JSON.stringify({
+          error: { code: "invalid_api_key", type: "invalid_request_error" },
+        }),
+      ),
+    ).toBe("invalid_api_key");
+    expect(
+      openAiReasonCode(
+        500,
+        JSON.stringify({ error: { code: null, type: "server_error" } }),
+      ),
+    ).toBe("server_error");
+    expect(openAiReasonCode(502, "<html>Bad gateway</html>")).toBe("HTTP 502");
+  });
+
+  test("never anything but a short code: no spaces, no key, no message", () => {
+    const body = JSON.stringify({
+      error: {
+        code: "sk-proj-abc def",
+        type: "Incorrect API key provided: sk-proj-***1234",
+      },
+    });
+    expect(openAiReasonCode(401, body)).toBe("HTTP 401");
+    expect(
+      openAiReasonCode(
+        400,
+        JSON.stringify({ error: { code: "x".repeat(61) } }),
+      ),
+    ).toBe("HTTP 400");
   });
 });
 

@@ -11,7 +11,8 @@ import { createServerClient } from "@supabase/ssr";
 //
 // The stand-in is reached through the stored key "sk-e2e-mock-openai-
 // <port>" (lib/llm/openai.ts, openaiUrlFor). What it answers depends on
-// the prompt: "please 401" and "please 429" get those refusals, anything
+// the prompt: "please 401", "please 429" and "please no credit" get those
+// refusals (the last is OpenAI's body for Nik's first Preview run), anything
 // else a streamed answer quoting the prompt.
 
 let MOCK_KEY = "";
@@ -43,6 +44,21 @@ test.beforeAll(async ({}, workerInfo) => {
               message: "Incorrect API key provided: sk-e2e-************.",
               type: "invalid_request_error",
               code: "invalid_api_key",
+            },
+          }),
+        );
+        return;
+      }
+      if (last.includes("please no credit")) {
+        res.writeHead(429, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            error: {
+              message:
+                "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.",
+              type: "insufficient_quota",
+              param: null,
+              code: "credit_balance_exhausted",
             },
           }),
         );
@@ -317,13 +333,13 @@ test("a key OpenAI refuses, and a rate limit, each get their plain message", asy
 
   await run(page, "please 401");
   await expect(alert(page)).toHaveText(
-    "OpenAI rejected your API key. Check it in Account → Keys.",
+    "OpenAI rejected your API key. Check it in Account → Keys. (OpenAI: invalid_api_key)",
     { timeout: 20_000 },
   );
 
   await run(page, "please 429");
   await expect(alert(page)).toHaveText(
-    "OpenAI is limiting requests on your key right now. Wait a minute, then run again.",
+    "OpenAI is limiting requests on your key right now. Wait a minute, then run again. (OpenAI: rate_limit_exceeded)",
     { timeout: 20_000 },
   );
   // Neither shows OpenAI's own words, the key, or an error id.
@@ -349,4 +365,19 @@ test("switching back to Claude: the next run goes to Claude, not OpenAI", async 
     { timeout: 20_000 },
   );
   expect(received).toHaveLength(0);
+});
+
+test("Nik's Preview run: an account with no credits gets the no-credit message and OpenAI's own reason", async ({
+  page,
+  context,
+}) => {
+  await seed(page, context);
+  await saveOpenAiKey(page, MOCK_KEY);
+  await chooseChatGpt(page);
+  await run(page, "please no credit");
+  await expect(alert(page)).toHaveText(
+    "Your OpenAI account has no API credit left. Add credit on OpenAI's billing page (platform.openai.com), then run again. (OpenAI: credit_balance_exhausted)",
+    { timeout: 20_000 },
+  );
+  await expect(alert(page)).not.toContainText(/limiting requests|sk-|error id/);
 });

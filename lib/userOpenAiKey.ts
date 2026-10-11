@@ -36,6 +36,14 @@ export const OPENAI_NO_CREDIT_MESSAGE =
   "billing page (platform.openai.com), then run again.";
 export const OPENAI_NO_CREDIT_CODE = "openai_no_credit";
 
+// 429 with a spend or usage limit code: the account's own limit, or
+// OpenAI's limit for it, is reached. Waiting does not help.
+export const OPENAI_SPEND_LIMIT_MESSAGE =
+  "Your OpenAI account has reached a spending or usage limit. Raise it " +
+  "under Limits in your OpenAI settings (platform.openai.com), then run " +
+  "again.";
+export const OPENAI_SPEND_LIMIT_CODE = "openai_spend_limit";
+
 // Any other 429: too many requests or tokens per minute on this key.
 export const OPENAI_RATE_LIMITED_MESSAGE =
   "OpenAI is limiting requests on your key right now. Wait a minute, " +

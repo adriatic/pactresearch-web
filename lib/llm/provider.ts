@@ -55,11 +55,18 @@ export interface LlmProvider {
 // are neither of those (null for anything else, and always null from
 // Anthropic, whose messages are unchanged):
 //   reason -- "rate_limited", "no_credit" (the account has no API
-//             credit), or "attachment_refused" (a picture was refused).
+//             credit), "spend_limit" (a spend or usage limit is
+//             reached), or "attachment_refused" (a picture was refused).
+// And the service's own short reason, for the user to see beside the
+// plain words so a refusal is never guessed at (Nik's Preview run, where
+// OpenAI's "credit_balance_exhausted" was shown as a rate limit):
+//   providerCode -- its error code (else its error type, else
+//             "HTTP <status>"), letters, digits and _ only; never any
+//             part of the key.
 // The message keeps the service's own error body for the log line only;
 // it is never shown to the user.
 export type ProviderRefusalReason =
-  "rate_limited" | "no_credit" | "attachment_refused";
+  "rate_limited" | "no_credit" | "spend_limit" | "attachment_refused";
 
 export class ProviderRequestError extends Error {
   constructor(
@@ -69,6 +76,7 @@ export class ProviderRequestError extends Error {
     readonly keyRejected: boolean,
     readonly promptTooLongBy: number | null,
     readonly reason: ProviderRefusalReason | null = null,
+    readonly providerCode: string | null = null,
   ) {
     super(`${provider} API request failed with status ${status}: ${body}`);
     this.name = "ProviderRequestError";
