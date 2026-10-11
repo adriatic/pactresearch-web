@@ -107,8 +107,11 @@ test("a key saves, is stored ENCRYPTED at rest, and reveals only on request", as
   const { admin, userId } = await seed(page, context);
   const dialog = await openKeysTab(page);
 
-  // No OpenAI field anywhere -- explicitly out of scope.
-  await expect(dialog.getByText(/openai/i)).toHaveCount(0);
+  // Task 81 Stage 2: the OpenAI key is optional and waits in a closed
+  // "ChatGPT (optional)" section; its field is not shown until opened
+  // (e2e/chatgpt-provider.spec.ts covers it).
+  await expect(dialog.getByText("ChatGPT (optional)")).toBeVisible();
+  await expect(dialog.getByLabel("OpenAI API key:")).toBeHidden();
   await expect(
     dialog.getByRole("link", { name: /console\.anthropic\.com/ }),
   ).toBeVisible();

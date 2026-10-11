@@ -18,14 +18,10 @@ import { isEmptyDoc, docToPlainText } from "@/lib/richContent";
 import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
 import { modelForTier } from "@/lib/modelTiers";
-import {
-  REJECTED_KEY_CODE,
-  REJECTED_KEY_MESSAGE,
-  resolveUserAnthropicKey,
-} from "@/lib/userAnthropicKey";
+import { providerFrom } from "@/lib/llmProviders";
 import { trace, context } from "@opentelemetry/api";
 import { DISCUSSION_GONE } from "@/lib/goneMessages";
-import { anthropicProvider } from "@/lib/llm/anthropic";
+import { PROVIDER_ENTRIES } from "@/lib/llm/registry";
 import { ProviderRequestError, type StreamEvent } from "@/lib/llm/provider";
 
 const tracer = trace.getTracer("pact-api");
@@ -37,6 +33,9 @@ const tracer = trace.getTracer("pact-api");
 // Task 50 item C: the model is chosen per user from their selected tier
 // rather than fixed here. modelForTier falls back to Standard --
 // claude-sonnet-5 -- for a user who has never picked one.
+// Task 81 Stage 2: and from their chosen provider (user_metadata
+// llm_provider, Claude unless they picked ChatGPT), whose key, model and
+// refusal messages come from lib/llm/registry.ts.
 
 // Used only if app_settings can't be read for some reason (empty table,
 // query error) -- the previous hardcoded value, so a settings-table
@@ -107,7 +106,13 @@ async function handlePost(request: Request) {
   // Checked here, before the execution lock is acquired and before any
   // execution_timings row could be written: a run blocked for want of a
   // key never happened, so it should leave no trace and hold nothing.
-  const keyResult = await resolveUserAnthropicKey(supabase, user.id);
+  //
+  // Task 81 Stage 2: the key for the provider this user has chosen. With
+  // ChatGPT chosen and no OpenAI key saved, the run stops here, the same
+  // way it does for a missing Anthropic key.
+  const providerId = providerFrom(user.user_metadata?.llm_provider);
+  const providerEntry = PROVIDER_ENTRIES[providerId];
+  const keyResult = await providerEntry.resolveKey(supabase, user.id);
   if ("failure" in keyResult) {
     // Covers "no key saved", "saved key can't be decrypted", and "this
     // server has no usable encryption secret" -- each with its own
@@ -158,7 +163,10 @@ async function handlePost(request: Request) {
   // Resolved once per request, after auth: the tier lives in the user's
   // own metadata, which the auth call above already fetched, so this
   // costs no extra query.
-  const requestedModel = modelForTier(user.user_metadata?.model_tier);
+  const requestedModel = modelForTier(
+    user.user_metadata?.model_tier,
+    providerId,
+  );
 
   const lockAcquireStart = Date.now();
   const { acquired, lockError } = await tracer.startActiveSpan(
@@ -458,7 +466,7 @@ async function handlePost(request: Request) {
         events = await context.with(ttftCtx, () =>
           tracer.startActiveSpan("anthropic-connect", async (span) => {
             try {
-              return await anthropicProvider.stream({
+              return await providerEntry.provider.stream({
                 apiKey,
                 model: requestedModel,
                 maxTokens: maxTokens ?? FALLBACK_MAX_TOKENS,
@@ -754,10 +762,21 @@ async function handlePost(request: Request) {
     // support round trip, and an opaque id would only make an
     // actionable message look like a crash report.
     if (error instanceof ProviderRequestError && error.keyRejected) {
-      return Response.json(
-        { error: REJECTED_KEY_MESSAGE, code: REJECTED_KEY_CODE },
-        { status: 400 },
-      );
+      return Response.json(providerEntry.rejectedKey, { status: 400 });
+    }
+    // Task 81 Stage 2. ChatGPT's other refusals the user can act on: no
+    // API credit, a rate limit, a picture it would not take. Plain words
+    // and no error id, for the same reason as the refused key above. The
+    // status says whose move it is: 429 to wait, 400 to change something.
+    const refusal =
+      error instanceof ProviderRequestError && error.reason
+        ? providerEntry.refusals[error.reason]
+        : undefined;
+    if (refusal) {
+      return Response.json(refusal, {
+        status:
+          (error as ProviderRequestError).reason === "rate_limited" ? 429 : 400,
+      });
     }
 
     return Response.json(

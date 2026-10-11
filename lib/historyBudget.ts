@@ -16,11 +16,18 @@ import type { RichContent } from "./richContent";
 // too low (a "prompt is too long" 400 from Anthropic) -- see
 // app/api/execute/route.ts.
 
-// Both tiers' models (lib/modelTiers.ts) have a 200,000-token window;
-// an unknown model is assumed to have the same.
+// Both Claude tiers' models (lib/modelTiers.ts) have a 200,000-token
+// window; an unknown model is assumed to have the same.
+//
+// Task 81 Stage 2. Both ChatGPT models take 1,050,000 tokens, but OpenAI
+// bills a request over 272,000 input tokens at twice the input price. The
+// cap counts them as 272,000 so a long discussion never quietly doubles
+// its price; OpenAI's "too long" answer still gets the one retry.
 export const CONTEXT_WINDOW_TOKENS: Record<string, number> = {
   "claude-sonnet-5": 200_000,
   "claude-haiku-4-5": 200_000,
+  "gpt-6.1-sol": 272_000,
+  "gpt-6-luna": 272_000,
 };
 export const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
 

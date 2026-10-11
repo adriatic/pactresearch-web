@@ -14,6 +14,9 @@ import { DiscussionContent } from "./DiscussionContent";
 import { SettingsDialog } from "./SettingsDialog";
 import { AccountDialog } from "./AccountDialog";
 import { ModelTierDialog } from "./ModelTierDialog";
+import { useLlmChoice } from "./useLlmChoice";
+import { LLM_PROVIDERS, isLlmProviderId } from "@/lib/llmProviders";
+import { tierModel } from "@/lib/modelTiers";
 import { NewNotebookDialog } from "./NewNotebookDialog";
 import { useDiscussionExecution } from "./useDiscussionExecution";
 import { useVisibleViewportHeight } from "./useVisibleViewportHeight";
@@ -350,15 +353,23 @@ export function Workspace({
   const completedTurns = execution.history.filter(
     (e) => (e.prompt_text ?? "").trim() && (e.response ?? "").trim(),
   );
+  // Task 81 Stage 2: Claude or ChatGPT, and the tier.
+  const llm = useLlmChoice();
+
   const historyPlan = useHistoryPlan(
     activeDiscussionId,
     execution.content,
     contextChoice,
     execution.history.length,
+    true,
+    `${llm.provider}:${llm.tier}`,
   );
 
   const canRun =
     !execution.loading &&
+    // A provider switch is saved before the next run, so the run goes
+    // where the dropdown says.
+    !llm.saving &&
     !!activeDiscussionId &&
     !isEmptyDoc(execution.content);
 
@@ -390,7 +401,11 @@ export function Workspace({
       />
       <ModelTierDialog
         open={showModelTier}
-        onClose={() => setShowModelTier(false)}
+        provider={llm.provider}
+        onClose={() => {
+          setShowModelTier(false);
+          llm.reread();
+        }}
       />
       <PactDropZone
         onFiles={(files) => void runImport(files, { fromDrop: true })}
@@ -535,6 +550,31 @@ export function Workspace({
             <button type="button" onClick={() => setShowModelTier(true)}>
               Model
             </button>{" "}
+            {/* Task 81 Stage 2. Which service answers the next run, with
+                the model the tier means there, as in pact-mac's composer
+                toolbar. Claude is the default; the choice is saved on the
+                user, like the tier. */}
+            <select
+              aria-label="Provider"
+              value={llm.provider}
+              disabled={llm.saving}
+              onChange={(e) => {
+                if (isLlmProviderId(e.target.value)) {
+                  void llm.choose(e.target.value);
+                }
+              }}
+            >
+              {(["anthropic", "openai"] as const).map((id) => (
+                <option key={id} value={id}>
+                  {LLM_PROVIDERS[id].label} · {tierModel(llm.tier, id)}
+                </option>
+              ))}
+            </select>{" "}
+            {llm.error && (
+              <span role="alert" style={{ color: "#a00" }}>
+                {llm.error}
+              </span>
+            )}{" "}
             <ImportStatus
               progress={importProgress}
               summary={importSummary}

@@ -67,7 +67,12 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 180_000,
     // Task 71: the local stand-in for the model, used only by tests that
-    // store a key "sk-ant-e2e-mock-<port>" (see app/api/execute).
-    env: { PACT_E2E_ANTHROPIC_URL: "http://127.0.0.1:{port}/v1/messages" },
+    // store a key "sk-ant-e2e-mock-<port>" (see lib/llm/anthropic.ts).
+    // Task 81: the same for OpenAI, "sk-e2e-mock-openai-<port>"
+    // (lib/llm/openai.ts).
+    env: {
+      PACT_E2E_ANTHROPIC_URL: "http://127.0.0.1:{port}/v1/messages",
+      PACT_E2E_OPENAI_URL: "http://127.0.0.1:{port}/v1/chat/completions",
+    },
   },
 });
