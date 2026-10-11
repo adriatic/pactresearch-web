@@ -183,6 +183,44 @@ export function Explorer({
     string | null
   >(null);
 
+  // Task 74. Bumped each time the user comes back to this page after
+  // leaving it, so the tree refetches below. Task 63's isRunning only
+  // sees runs in THIS tab: a run finished in another tab or window left
+  // this tree stale until a reload (Task 55b keeps the rollups computed
+  // per tab rather than synced). Coming back is when a stale tree would
+  // be seen, so that is when it is refreshed.
+  //
+  // "Coming back" is either the tab becoming visible again (switching
+  // tabs, un-minimising) or the window getting focus back (another
+  // window or app was in front -- two windows side by side never hide
+  // either one). A tab switch fires both, so a return counts only after
+  // the page was actually left (`away`): one refetch per return, and
+  // nothing at all while the user stays on the page. No polling.
+  const [returnToken, setReturnToken] = useState(0);
+  useEffect(() => {
+    let away = false;
+    function leave() {
+      away = true;
+    }
+    function back() {
+      if (!away) return;
+      away = false;
+      setReturnToken((token) => token + 1);
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === "hidden") leave();
+      else back();
+    }
+    window.addEventListener("blur", leave);
+    window.addEventListener("focus", back);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", leave);
+      window.removeEventListener("focus", back);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -224,7 +262,10 @@ export function Explorer({
     //
     // ComposerHeader already keyed its own rollup on isRunning for
     // exactly this reason (task 55c); the tree was left behind.
-  }, [refetchToken, isRunning]);
+    //
+    // returnToken (task 74): the same refetch when the user comes back
+    // from another tab or window, where a run may have finished.
+  }, [refetchToken, isRunning, returnToken]);
 
   // 3s poll: frequent enough that "still running" feels live without
   // hammering the DB for what's ultimately a single small row read,

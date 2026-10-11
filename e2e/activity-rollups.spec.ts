@@ -85,12 +85,16 @@ async function seed(page: Page, context: BrowserContext) {
     .insert({ user_id: userId, name: withoutData, category: "Dev Test" })
     .select()
     .single();
-  await admin.from("discussions").insert({
-    notebook_id: nbEmpty!.id,
-    user_id: userId,
-    name: `E2E rollup never-run ${suffix}`,
-    total_time_ms: 0,
-  });
+  const { data: neverRun } = await admin
+    .from("discussions")
+    .insert({
+      notebook_id: nbEmpty!.id,
+      user_id: userId,
+      name: `E2E rollup never-run ${suffix}`,
+      total_time_ms: 0,
+    })
+    .select()
+    .single();
 
   const jar: { name: string; value: string }[] = [];
   const jarClient = createServerClient(API_URL, ANON_KEY, {
@@ -123,7 +127,16 @@ async function seed(page: Page, context: BrowserContext) {
 
   await page.goto("/");
   await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
-  return { withData, withoutData, busyDiscussion, quietDiscussion, suffix };
+  return {
+    withData,
+    withoutData,
+    busyDiscussion,
+    quietDiscussion,
+    suffix,
+    admin,
+    userId,
+    neverRunDiscussionId: neverRun!.id as string,
+  };
 }
 
 // A discussion row only exists once its notebook is expanded. Same
@@ -316,6 +329,123 @@ test("the tree re-queries its rollups when a run finishes", async ({
   await expect
     .poll(() => treeRollupRequests, { timeout: 15_000 })
     .toBeGreaterThan(0);
+});
+
+// Task 74. What a browser sends when the user switches to another tab or
+// window and back: blur and "hidden" on leaving, "visible" and focus on
+// returning. Sent by hand because a headless browser sends none of them
+// when a tab is brought to the front (checked in Chromium and WebKit).
+async function leavePage(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    window.dispatchEvent(new Event("blur"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
+async function returnToPage(page: Page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+  });
+}
+
+// Counts the TREE's rollup requests only (no query string); the status
+// line's carry ?discussionId= -- see the task 63 test above.
+function countTreeRollupRequests(page: Page) {
+  const counter = { n: 0 };
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      url.pathname === "/api/activity-rollups" &&
+      !url.searchParams.has("discussionId")
+    ) {
+      counter.n += 1;
+    }
+  });
+  return counter;
+}
+
+test("a run that finished in another tab shows when you come back to this one", async ({
+  page,
+  context,
+}) => {
+  const { withoutData, admin, userId, neverRunDiscussionId } = await seed(
+    page,
+    context,
+  );
+  const row = page.getByRole("treeitem", { name: withoutData, exact: true });
+  await expect(row).toContainText("No runs yet", { timeout: 15_000 });
+
+  // The other tab: same user, the workspace open there too.
+  await leavePage(page);
+  const otherTab = await context.newPage();
+  await otherTab.goto("/");
+  await otherTab.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
+
+  // A run finishing there, written the way a finished run is stored: a
+  // timing row plus the discussion's total. (A mocked run writes no
+  // timing rows, so the run itself is not driven through the UI.)
+  await admin.from("execution_timings").insert({
+    user_id: userId,
+    discussion_id: neverRunDiscussionId,
+    resolved_model: "claude-sonnet-4-6",
+    max_tokens: 1024,
+    total_ms: 75_000,
+  });
+  await admin
+    .from("discussions")
+    .update({ total_time_ms: 75_000 })
+    .eq("id", neverRunDiscussionId);
+  // In the tab that ran it, task 63's isRunning refetch shows it; a
+  // reload stands in for that here.
+  await otherTab.reload();
+  await expect(
+    otherTab.getByRole("treeitem", { name: withoutData, exact: true }),
+  ).toContainText("1m 15s", { timeout: 15_000 });
+
+  // Before task 74 this tab stayed on "No runs yet" until a reload.
+  await page.waitForTimeout(1_000);
+  await expect(row).toContainText("No runs yet");
+  await returnToPage(page);
+  await expect(row).toContainText("1m 15s", { timeout: 15_000 });
+});
+
+test("coming back refetches the tree once; staying on the page refetches nothing", async ({
+  page,
+  context,
+}) => {
+  const { withoutData } = await seed(page, context);
+  await expect(
+    page.getByRole("treeitem", { name: withoutData, exact: true }),
+  ).toContainText("No runs yet", { timeout: 15_000 });
+  const requests = countTreeRollupRequests(page);
+
+  // Focus without having left (e.g. clicking around the page): nothing.
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.waitForTimeout(1_500);
+  expect(requests.n).toBe(0);
+
+  // A tab switch sends BOTH "visible" and focus on return: still one.
+  await leavePage(page);
+  await returnToPage(page);
+  await expect.poll(() => requests.n, { timeout: 10_000 }).toBe(1);
+  await page.waitForTimeout(1_500);
+  expect(requests.n).toBe(1);
+
+  // A window switch (blur and focus only, the tab never hidden): one more.
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => requests.n, { timeout: 10_000 }).toBe(2);
+  await page.waitForTimeout(1_500);
+  expect(requests.n).toBe(2);
 });
 
 // The reported repro, and the checklist's rename cases -- asserted
