@@ -6,7 +6,7 @@ import {
   historyToAnthropicMessages,
   type PriorTurn,
 } from "@/lib/discussionHistory";
-import { contextWindowFor, promptTooLongOvershoot } from "@/lib/historyBudget";
+import { contextWindowFor } from "@/lib/historyBudget";
 import {
   FALLBACK_MAX_TOKENS,
   parseContextChoice,
@@ -19,48 +19,21 @@ import type { RichContent } from "@/lib/richContent";
 import { after } from "next/server";
 import { modelForTier } from "@/lib/modelTiers";
 import {
-  isAnthropicKeyRejection,
   REJECTED_KEY_CODE,
   REJECTED_KEY_MESSAGE,
   resolveUserAnthropicKey,
 } from "@/lib/userAnthropicKey";
 import { trace, context } from "@opentelemetry/api";
 import { DISCUSSION_GONE } from "@/lib/goneMessages";
+import { anthropicProvider } from "@/lib/llm/anthropic";
+import { ProviderRequestError, type StreamEvent } from "@/lib/llm/provider";
 
 const tracer = trace.getTracer("pact-api");
 
-// Task 58. Carries Anthropic's HTTP status alongside the message, so
-// the catch below can tell "your key was refused" from "the model
-// failed" without re-parsing the formatted message it used to throw.
-// String-matching an error message to make a user-facing decision is a
-// coupling that breaks silently the first time the wording changes.
-class AnthropicRequestError extends Error {
-  constructor(
-    readonly status: number,
-    body: string,
-  ) {
-    super(`Anthropic API request failed with status ${status}: ${body}`);
-    this.name = "AnthropicRequestError";
-  }
-}
-
-const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
-
-// Task 71. Browser tests need the WHOLE chain -- page, this route, the
-// model's reply, the page again -- and cannot call the real model. A test
-// that stores a key "sk-ant-e2e-mock-<port>" is answered by a local
-// stand-in on that port, at PACT_E2E_ANTHROPIC_URL (set only by
-// playwright.config.ts, with "{port}" in it). Never on Vercel: VERCEL_ENV
-// is set on every Vercel deployment, and then this always returns the
-// real address.
-function anthropicUrlFor(apiKey: string): string {
-  const mock = process.env.PACT_E2E_ANTHROPIC_URL;
-  const port = /^sk-ant-e2e-mock-(\d{4,5})$/.exec(apiKey)?.[1];
-  if (!process.env.VERCEL_ENV && mock && port) {
-    return mock.replace("{port}", port);
-  }
-  return ANTHROPIC_API_URL;
-}
+// Task 81 Stage 1. The model call itself lives behind the provider seam
+// (lib/llm/): this route builds the request, hands it to the provider,
+// and stores what streams back. Anthropic's URL, headers, event parsing
+// and Task 58's typed error moved there unchanged.
 // Task 50 item C: the model is chosen per user from their selected tier
 // rather than fixed here. modelForTier falls back to Standard --
 // claude-sonnet-5 -- for a user who has never picked one.
@@ -417,7 +390,7 @@ async function handlePost(request: Request) {
     let historyStats!: Awaited<
       ReturnType<typeof historyToAnthropicMessages>
     >["stats"];
-    let anthropicResponse!: Response;
+    let events!: AsyncIterable<StreamEvent>;
     for (let attempt = 1; ; attempt++) {
       const historyImagesStart = Date.now();
       plan = planHistory({
@@ -481,62 +454,51 @@ async function handlePost(request: Request) {
       );
 
       const anthropicConnectStart = Date.now();
-      anthropicResponse = await context.with(ttftCtx, () =>
-        tracer.startActiveSpan("anthropic-connect", async (span) => {
-          try {
-            return await fetch(anthropicUrlFor(apiKey), {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
-                "x-api-key": apiKey,
-                "anthropic-version": "2023-06-01",
-              },
-              body: JSON.stringify({
+      try {
+        events = await context.with(ttftCtx, () =>
+          tracer.startActiveSpan("anthropic-connect", async (span) => {
+            try {
+              return await anthropicProvider.stream({
+                apiKey,
                 model: requestedModel,
-                max_tokens: maxTokens,
-                stream: true,
-                ...(systemPrompt ? { system: systemPrompt } : {}),
-                messages: [
-                  ...priorMessages,
-                  { role: "user", content: anthropicContent },
-                ],
-              }),
-            });
-          } finally {
-            span.end();
-          }
-        }),
-      );
-      anthropicConnectMs = Date.now() - anthropicConnectStart;
-
-      if (anthropicResponse.ok && anthropicResponse.body) break;
-
-      // Anthropic's error responses are a JSON body describing exactly
-      // what went wrong (bad/expired key, invalid_request_error for a bad
-      // param, rate limit, etc.) -- read it now, while the response is
-      // still available, so the real cause ends up in the thrown error's
-      // own message rather than just a bare status code. Whatever this
-      // throws is what the catch block below logs in full.
-      const errorBody = await anthropicResponse
-        .text()
-        .catch(() => "<failed to read response body>");
-      const overshoot = promptTooLongOvershoot(
-        anthropicResponse.status,
-        errorBody,
-      );
-      if (attempt === 1 && overshoot !== null && historyStats.turnsSent > 0) {
-        const cushion = Math.floor(contextWindowFor(requestedModel) * 0.05);
-        budgetOverride =
-          overshoot > 0
-            ? Math.max(0, tokenBudget - overshoot - cushion)
-            : Math.floor(tokenBudget / 2);
-        console.warn(
-          `[history-cap] prompt too long by ${overshoot} tokens; retrying with a history budget of ${budgetOverride}.`,
+                maxTokens: maxTokens ?? FALLBACK_MAX_TOKENS,
+                systemPrompt,
+                history: priorMessages,
+                prompt: anthropicContent,
+              });
+            } finally {
+              span.end();
+            }
+          }),
         );
-        continue;
+        anthropicConnectMs = Date.now() - anthropicConnectStart;
+        break;
+      } catch (error) {
+        // As before the seam: a refused request still records how long
+        // the connect took; a network failure (no answer at all) does not.
+        if (error instanceof ProviderRequestError) {
+          anthropicConnectMs = Date.now() - anthropicConnectStart;
+        }
+        if (
+          error instanceof ProviderRequestError &&
+          attempt === 1 &&
+          error.promptTooLongBy !== null &&
+          historyStats.turnsSent > 0
+        ) {
+          const overshoot = error.promptTooLongBy;
+          const cushion = Math.floor(contextWindowFor(requestedModel) * 0.05);
+          budgetOverride =
+            overshoot > 0
+              ? Math.max(0, tokenBudget - overshoot - cushion)
+              : Math.floor(tokenBudget / 2);
+          console.warn(
+            `[history-cap] prompt too long by ${overshoot} tokens; retrying with a history budget of ${budgetOverride}.`,
+          );
+          continue;
+        }
+        endTtft();
+        throw error;
       }
-      endTtft();
-      throw new AnthropicRequestError(anthropicResponse.status, errorBody);
     }
 
     let accumulatedText = "";
@@ -558,210 +520,173 @@ async function handlePost(request: Request) {
     let firstTokenAtDate: number | null = null;
     let firstWriteAtDate: number | null = null;
 
-    const reader = anthropicResponse.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    for await (const event of events) {
+      switch (event.type) {
+        case "start": {
+          resolvedModel = event.resolvedModel;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      // SSE events are separated by a blank line; the last (possibly
-      // incomplete) chunk stays in the buffer for the next read.
-      const rawEvents = buffer.split("\n\n");
-      buffer = rawEvents.pop() ?? "";
-
-      for (const rawEvent of rawEvents) {
-        const dataLine = rawEvent
-          .split("\n")
-          .find((line) => line.startsWith("data:"));
-        if (!dataLine) continue;
-
-        const jsonText = dataLine.slice("data:".length).trim();
-        if (!jsonText) continue;
-
-        let event: Record<string, unknown>;
-        try {
-          event = JSON.parse(jsonText) as Record<string, unknown>;
-        } catch {
-          continue;
-        }
-
-        switch (event.type) {
-          case "message_start": {
-            const message = event.message as { model?: string } | undefined;
-            resolvedModel = message?.model ?? null;
-
-            // The row a Realtime subscriber would attach to — created as
-            // soon as we know the resolved model, before any content has
-            // arrived. A child of time-to-first-token, not of
-            // anthropic-connect (which has already ended by this point) —
-            // both are ttft's own children, not nested under each other.
-            const messageStartInsertStart = Date.now();
-            const inserted = await context.with(ttftCtx, () =>
-              tracer.startActiveSpan("message-start-insert", async (span) => {
-                try {
-                  const { data, error: insertError } = await supabase
-                    .from("responses")
-                    .insert({
-                      discussion_id: discussionId,
-                      user_id: user.id,
-                      prompt_text: promptPlainText,
-                      prompt_content: promptContent,
-                      response: null,
-                      model: requestedModel,
-                      resolved_model: resolvedModel,
-                      cell_type: "assistant",
-                    })
-                    .select("id, created_at")
-                    .single();
-                  if (insertError) {
-                    throw insertError;
-                  }
-                  return data;
-                } finally {
-                  span.end();
-                }
-              }),
-            );
-            messageStartInsertMs = Date.now() - messageStartInsertStart;
-            responseRowId = inserted.id as string;
-            responseCreatedAt = inserted.created_at as string;
-            break;
-          }
-
-          case "content_block_delta": {
-            const delta = event.delta as
-              { type?: string; text?: string } | undefined;
-            if (delta?.type === "text_delta" && delta.text) {
-              if (firstTokenAtDate === null) {
-                firstTokenAtDate = Date.now();
-                endTtft(firstTokenAtDate);
-              }
-              accumulatedText += delta.text;
-            }
-
-            const now = Date.now();
-            if (
-              responseRowId &&
-              accumulatedText !== lastWrittenText &&
-              now - lastWriteAt >= STREAM_WRITE_THROTTLE_MS
-            ) {
-              if (firstWriteAtDate === null) {
-                firstWriteAtDate = now;
-              }
-              const writeStart = performance.now();
-              const { error: updateError } = await supabase
-                .from("responses")
-                .update({ response: accumulatedText })
-                .eq("id", responseRowId);
-              streamingWriteCount += 1;
-              streamingWriteTotalMs += performance.now() - writeStart;
-
-              if (updateError) {
-                throw updateError;
-              }
-              lastWriteAt = now;
-              lastWrittenText = accumulatedText;
-            }
-            break;
-          }
-
-          case "message_stop": {
-            // Safety net: only fires if no text_delta ever arrived (an
-            // empty or entirely-non-text response), so ttft wasn't
-            // already ended above.
-            endTtft();
-
-            // Retroactive span: both endpoints (firstTokenAtDate, now)
-            // are already known by the time execution reaches here, so
-            // this is created and ended in one step rather than kept
-            // open across the loop the way time-to-first-token is.
-            // Non-overlapping with time-to-first-token by construction:
-            // measured from firstTokenAt to message_stop, same as the
-            // original console.log-based mark this replaces.
-            const generationStartDate = firstTokenAtDate ?? ttftStartDate;
-            const generationEndDate = Date.now();
-            tracer
-              .startSpan("generation", { startTime: generationStartDate })
-              .end(generationEndDate);
-            generationMs = generationEndDate - generationStartDate;
-
-            // Aggregated span for every throttled UPDATE this response
-            // made — see the comment above streamingWriteCount for why
-            // this is one span with attributes rather than one span per
-            // write.
-            const writesSpan = tracer.startSpan(
-              "throttled-writes",
-              firstWriteAtDate !== null
-                ? { startTime: firstWriteAtDate }
-                : undefined,
-            );
-            writesSpan.setAttributes({
-              "write.count": streamingWriteCount,
-              "write.total_duration_ms": Number(
-                streamingWriteTotalMs.toFixed(1),
-              ),
-              "write.avg_duration_ms":
-                streamingWriteCount > 0
-                  ? Number(
-                      (streamingWriteTotalMs / streamingWriteCount).toFixed(1),
-                    )
-                  : 0,
-            });
-            writesSpan.end(
-              firstWriteAtDate !== null ? generationEndDate : undefined,
-            );
-
-            const finalWriteStart = Date.now();
-            await tracer.startActiveSpan("final-write", async (span) => {
+          // The row a Realtime subscriber would attach to — created as
+          // soon as we know the resolved model, before any content has
+          // arrived. A child of time-to-first-token, not of
+          // anthropic-connect (which has already ended by this point) —
+          // both are ttft's own children, not nested under each other.
+          const messageStartInsertStart = Date.now();
+          const inserted = await context.with(ttftCtx, () =>
+            tracer.startActiveSpan("message-start-insert", async (span) => {
               try {
-                // Final write, unconditional on the throttle, so no
-                // trailing partial batch is lost.
-                if (!responseRowId) {
-                  // Defensive fallback: message_start never arrived for
-                  // some reason, so there's no row yet — create it now
-                  // instead of silently dropping the content.
-                  const { data: inserted, error: insertError } = await supabase
-                    .from("responses")
-                    .insert({
-                      discussion_id: discussionId,
-                      user_id: user.id,
-                      prompt_text: promptPlainText,
-                      prompt_content: promptContent,
-                      response: accumulatedText,
-                      model: requestedModel,
-                      resolved_model: resolvedModel,
-                      cell_type: "assistant",
-                    })
-                    .select("id, created_at")
-                    .single();
-                  if (insertError) {
-                    throw insertError;
-                  }
-                  responseRowId = inserted.id as string;
-                  responseCreatedAt = inserted.created_at as string;
-                } else if (accumulatedText !== lastWrittenText) {
-                  const { error: updateError } = await supabase
-                    .from("responses")
-                    .update({ response: accumulatedText })
-                    .eq("id", responseRowId);
-                  if (updateError) {
-                    throw updateError;
-                  }
+                const { data, error: insertError } = await supabase
+                  .from("responses")
+                  .insert({
+                    discussion_id: discussionId,
+                    user_id: user.id,
+                    prompt_text: promptPlainText,
+                    prompt_content: promptContent,
+                    response: null,
+                    model: requestedModel,
+                    resolved_model: resolvedModel,
+                    cell_type: "assistant",
+                  })
+                  .select("id, created_at")
+                  .single();
+                if (insertError) {
+                  throw insertError;
                 }
+                return data;
               } finally {
                 span.end();
               }
-            });
-            finalWriteMs = Date.now() - finalWriteStart;
-            break;
-          }
-
-          default:
-            break;
+            }),
+          );
+          messageStartInsertMs = Date.now() - messageStartInsertStart;
+          responseRowId = inserted.id as string;
+          responseCreatedAt = inserted.created_at as string;
+          break;
         }
+
+        case "text": {
+          if (firstTokenAtDate === null) {
+            firstTokenAtDate = Date.now();
+            endTtft(firstTokenAtDate);
+          }
+          accumulatedText += event.text;
+
+          const now = Date.now();
+          if (
+            responseRowId &&
+            accumulatedText !== lastWrittenText &&
+            now - lastWriteAt >= STREAM_WRITE_THROTTLE_MS
+          ) {
+            if (firstWriteAtDate === null) {
+              firstWriteAtDate = now;
+            }
+            const writeStart = performance.now();
+            const { error: updateError } = await supabase
+              .from("responses")
+              .update({ response: accumulatedText })
+              .eq("id", responseRowId);
+            streamingWriteCount += 1;
+            streamingWriteTotalMs += performance.now() - writeStart;
+
+            if (updateError) {
+              throw updateError;
+            }
+            lastWriteAt = now;
+            lastWrittenText = accumulatedText;
+          }
+          break;
+        }
+
+        case "stop": {
+          // Safety net: only fires if no text_delta ever arrived (an
+          // empty or entirely-non-text response), so ttft wasn't
+          // already ended above.
+          endTtft();
+
+          // Retroactive span: both endpoints (firstTokenAtDate, now)
+          // are already known by the time execution reaches here, so
+          // this is created and ended in one step rather than kept
+          // open across the loop the way time-to-first-token is.
+          // Non-overlapping with time-to-first-token by construction:
+          // measured from firstTokenAt to message_stop, same as the
+          // original console.log-based mark this replaces.
+          const generationStartDate = firstTokenAtDate ?? ttftStartDate;
+          const generationEndDate = Date.now();
+          tracer
+            .startSpan("generation", { startTime: generationStartDate })
+            .end(generationEndDate);
+          generationMs = generationEndDate - generationStartDate;
+
+          // Aggregated span for every throttled UPDATE this response
+          // made — see the comment above streamingWriteCount for why
+          // this is one span with attributes rather than one span per
+          // write.
+          const writesSpan = tracer.startSpan(
+            "throttled-writes",
+            firstWriteAtDate !== null
+              ? { startTime: firstWriteAtDate }
+              : undefined,
+          );
+          writesSpan.setAttributes({
+            "write.count": streamingWriteCount,
+            "write.total_duration_ms": Number(streamingWriteTotalMs.toFixed(1)),
+            "write.avg_duration_ms":
+              streamingWriteCount > 0
+                ? Number(
+                    (streamingWriteTotalMs / streamingWriteCount).toFixed(1),
+                  )
+                : 0,
+          });
+          writesSpan.end(
+            firstWriteAtDate !== null ? generationEndDate : undefined,
+          );
+
+          const finalWriteStart = Date.now();
+          await tracer.startActiveSpan("final-write", async (span) => {
+            try {
+              // Final write, unconditional on the throttle, so no
+              // trailing partial batch is lost.
+              if (!responseRowId) {
+                // Defensive fallback: message_start never arrived for
+                // some reason, so there's no row yet — create it now
+                // instead of silently dropping the content.
+                const { data: inserted, error: insertError } = await supabase
+                  .from("responses")
+                  .insert({
+                    discussion_id: discussionId,
+                    user_id: user.id,
+                    prompt_text: promptPlainText,
+                    prompt_content: promptContent,
+                    response: accumulatedText,
+                    model: requestedModel,
+                    resolved_model: resolvedModel,
+                    cell_type: "assistant",
+                  })
+                  .select("id, created_at")
+                  .single();
+                if (insertError) {
+                  throw insertError;
+                }
+                responseRowId = inserted.id as string;
+                responseCreatedAt = inserted.created_at as string;
+              } else if (accumulatedText !== lastWrittenText) {
+                const { error: updateError } = await supabase
+                  .from("responses")
+                  .update({ response: accumulatedText })
+                  .eq("id", responseRowId);
+                if (updateError) {
+                  throw updateError;
+                }
+              }
+            } finally {
+              span.end();
+            }
+          });
+          finalWriteMs = Date.now() - finalWriteStart;
+          break;
+        }
+
+        default:
+          break;
       }
     }
 
@@ -828,10 +753,7 @@ async function handlePost(request: Request) {
     // line for a failure the user cannot act on; this one needs no
     // support round trip, and an opaque id would only make an
     // actionable message look like a crash report.
-    if (
-      error instanceof AnthropicRequestError &&
-      isAnthropicKeyRejection(error.status)
-    ) {
+    if (error instanceof ProviderRequestError && error.keyRejected) {
       return Response.json(
         { error: REJECTED_KEY_MESSAGE, code: REJECTED_KEY_CODE },
         { status: 400 },
