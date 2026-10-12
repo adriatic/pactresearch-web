@@ -34,6 +34,9 @@ export interface PastResponse {
   prompt_text: string;
   prompt_content: RichContent | null;
   response: string | null;
+  // Task 86. The model asked for (always stored) and the one that
+  // answered; together they give the cell its "Claude · ..." label.
+  model?: string | null;
   resolved_model: string | null;
   created_at: string;
   // Task 71. Client-only, set on the run that just finished: how many of
@@ -703,6 +706,8 @@ export function useDiscussionExecution(discussionId: string | null) {
               prompt_text: docToPlainText(submittedContent),
               prompt_content: submittedContent,
               response: body.response ?? "",
+              // The model the server asked for, as stored on the row.
+              model: body.history_model ?? null,
               resolved_model: body.resolved_model ?? null,
               created_at: body.response_created_at,
               turns_left_out: body.history_turns_left_out ?? 0,

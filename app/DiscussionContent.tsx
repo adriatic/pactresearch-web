@@ -2,6 +2,7 @@
 
 import type { PastResponse } from "./useDiscussionExecution";
 import { MarkdownResponse } from "./MarkdownResponse";
+import { responseLlmLabel } from "@/lib/llmProviders";
 import { PromptContent, simpleTextOf } from "./PromptContent";
 
 // The scrolling middle region of the fixed layout: the active
@@ -97,6 +98,11 @@ function ThinkingIndicator() {
   );
 }
 
+// Task 86 brings the model back on each history entry, in a new form:
+// a small grey "Claude · claude-sonnet-5" beside the Response heading
+// (Nik, 2026-10-11, so a Claude answer and a ChatGPT answer can be told
+// apart). The note below is the history of that.
+//
 // Task 43 item 3 removed the model name from both response header lines
 // -- the live one ("Response — <model> — <date>") and each history
 // entry's equivalent. Only the DISPLAY is gone: useDiscussionExecution
@@ -177,6 +183,19 @@ export function DiscussionContent({
                     which stayed wrong for every older entry once you
                     scrolled past it. */}
                   {` — ${new Date(entry.created_at).toLocaleString()}`}:
+                  {/* Task 86. Which service and model produced this
+                      answer, quiet beside its heading rather than near
+                      the text or the buttons. */}
+                  <span
+                    data-llm-label
+                    style={{
+                      marginLeft: 8,
+                      color: "#666",
+                      fontSize: "0.85em",
+                    }}
+                  >
+                    {responseLlmLabel(entry)}
+                  </span>
                 </p>
                 {/* Task 77. Older PACT apps saved prompts that were never
                     run -- 195 of 295 cells in the older .pact files on
