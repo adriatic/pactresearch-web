@@ -2,9 +2,8 @@ import type { AnthropicContentBlock } from "@/lib/promptContentToAnthropicBlocks
 import type { HistoryMessage } from "@/lib/discussionHistory";
 
 // Task 81 Stage 1. The provider seam: the one shape /api/execute talks to,
-// whichever model service answers. Today there is one provider (Anthropic,
-// ./anthropic.ts); a second one implements the same interface and the
-// route does not change.
+// whichever model service answers: Anthropic (./anthropic.ts) and, since
+// Stage 2, OpenAI (./openai.ts).
 //
 // Messages are carried in the content-block shape the app already builds
 // (text blocks and base64 image blocks, lib/promptContentToAnthropicBlocks
@@ -52,8 +51,23 @@ export interface LlmProvider {
 //   promptTooLongBy -- the request did not fit the model's window, and by
 //                    how many tokens (0 when the service did not say);
 //                    null when that was not the problem.
+// Task 81 Stage 2 adds a third, for refusals the user can act on that
+// are neither of those (null for anything else, and always null from
+// Anthropic, whose messages are unchanged):
+//   reason -- "rate_limited", "no_credit" (the account has no API
+//             credit), "spend_limit" (a spend or usage limit is
+//             reached), or "attachment_refused" (a picture was refused).
+// And the service's own short reason, for the user to see beside the
+// plain words so a refusal is never guessed at (Nik's Preview run, where
+// OpenAI's "credit_balance_exhausted" was shown as a rate limit):
+//   providerCode -- its error code (else its error type, else
+//             "HTTP <status>"), letters, digits and _ only; never any
+//             part of the key.
 // The message keeps the service's own error body for the log line only;
 // it is never shown to the user.
+export type ProviderRefusalReason =
+  "rate_limited" | "no_credit" | "spend_limit" | "attachment_refused";
+
 export class ProviderRequestError extends Error {
   constructor(
     readonly provider: string,
@@ -61,6 +75,8 @@ export class ProviderRequestError extends Error {
     body: string,
     readonly keyRejected: boolean,
     readonly promptTooLongBy: number | null,
+    readonly reason: ProviderRefusalReason | null = null,
+    readonly providerCode: string | null = null,
   ) {
     super(`${provider} API request failed with status ${status}: ${body}`);
     this.name = "ProviderRequestError";

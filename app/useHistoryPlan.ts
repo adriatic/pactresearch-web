@@ -15,6 +15,9 @@ export function useHistoryPlan(
   choice: ContextChoice | undefined,
   historyKey: number,
   enabled = true,
+  // Task 81 Stage 2: the provider and tier, so the hint is asked again
+  // when the model it plans for changes.
+  modelKey = "",
 ): PlanSummary | null {
   const [plan, setPlan] = useState<PlanSummary | null>(null);
   const choiceKey = JSON.stringify(choice ?? null);
@@ -46,7 +49,7 @@ export function useHistoryPlan(
     };
     // choiceKey stands in for choice; content is compared by identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [discussionId, content, choiceKey, historyKey, enabled]);
+  }, [discussionId, content, choiceKey, historyKey, enabled, modelKey]);
 
   return discussionId && enabled ? plan : null;
 }

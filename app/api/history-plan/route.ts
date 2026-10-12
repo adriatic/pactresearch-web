@@ -91,7 +91,12 @@ async function handlePost(request: Request) {
   const plan = planHistory({
     turns: (turnsResult.data ?? []) as PlanTurn[],
     choice,
-    model: modelForTier(user.user_metadata?.model_tier),
+    // Task 81 Stage 2: the chosen provider's model, so the hint plans
+    // the same request the run will send.
+    model: modelForTier(
+      user.user_metadata?.model_tier,
+      user.user_metadata?.llm_provider,
+    ),
     maxTokens: settings?.max_tokens ?? FALLBACK_MAX_TOKENS,
     systemPrompt,
     currentPrompt,

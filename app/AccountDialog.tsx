@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
+import { ApiKeyField } from "./ApiKeyField";
 
 // Task 50 item A. Account modal, Profile section.
 //
@@ -96,103 +97,15 @@ export function AccountDialog({
     };
   }, [open]);
 
-  // ---- Task 51: Keys tab ----
-  const [keyInput, setKeyInput] = useState("");
-  const [showKey, setShowKey] = useState(false);
-  const [hasKey, setHasKey] = useState(false);
-  const [keyHintText, setKeyHintText] = useState<string | null>(null);
-  const [keyBusy, setKeyBusy] = useState(false);
-  const [keyError, setKeyError] = useState<string | null>(null);
-  const [keySaved, setKeySaved] = useState(false);
-
-  // Status only -- never the key itself. Re-read each time the tab is
-  // opened so a key saved in another tab is reflected here.
-  useEffect(() => {
-    if (!open || tab !== "keys") return;
-    let cancelled = false;
-    async function loadStatus() {
-      try {
-        const response = await fetch("/api/account/anthropic-key");
-        const body = await response.json();
-        if (cancelled) return;
-        if (!response.ok) {
-          // Without this check a failed status fell through to
-          // Boolean(undefined) below, so "your stored key cannot be
-          // read" rendered as an ordinary empty field -- visually
-          // identical to having never saved one, and silent.
-          //
-          // That is not a cosmetic difference. On 2026-09-27 it sent a
-          // production investigation after a key that had not gone
-          // anywhere: the row was intact, the server could not decrypt
-          // it, and this tab reported it missing.
-          setKeyError(body.error || "Couldn't check your saved key.");
-          // Deliberately leaves hasKey alone rather than forcing it
-          // false: the honest state here is "unknown", and claiming
-          // there is no key is the very mistake being fixed.
-          return;
-        }
-        setKeyError(null);
-        setHasKey(Boolean(body.hasKey));
-        setKeyHintText(body.hint ?? null);
-      } catch {
-        if (!cancelled) setKeyError("Couldn't check your saved key.");
-      }
-    }
-    void loadStatus();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, tab]);
-
-  // The "show" toggle. Revealing a key already on the server needs a
-  // round trip -- the plaintext is deliberately not sent with the status
-  // above, so it only leaves the server when the user explicitly asks.
-  async function toggleShowKey() {
-    if (showKey) {
-      setShowKey(false);
-      return;
-    }
-    if (!keyInput && hasKey) {
-      setKeyBusy(true);
-      setKeyError(null);
-      try {
-        const response = await fetch("/api/account/anthropic-key?reveal=1");
-        const body = await response.json();
-        if (response.ok) setKeyInput(body.key ?? "");
-        else setKeyError(body.error || "Couldn't reveal your key.");
-      } catch {
-        setKeyError("Couldn't reveal your key.");
-      } finally {
-        setKeyBusy(false);
-      }
-    }
-    setShowKey(true);
-  }
-
-  async function handleSaveKey() {
-    setKeyBusy(true);
-    setKeyError(null);
-    setKeySaved(false);
-    try {
-      const response = await fetch("/api/account/anthropic-key", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ key: keyInput }),
-      });
-      const body = await response.json();
-      if (response.ok) {
-        setHasKey(true);
-        setKeyHintText(body.hint ?? null);
-        setKeySaved(true);
-      } else {
-        setKeyError(body.error || "Couldn't save your key.");
-      }
-    } catch {
-      setKeyError("Couldn't save your key — please try again.");
-    } finally {
-      setKeyBusy(false);
-    }
-  }
+  // ---- Task 51: Keys tab (fields in ApiKeyField.tsx since Task 81) ----
+  const [keyBusyCount, setKeyBusyCount] = useState(0);
+  const keyBusy = keyBusyCount > 0;
+  const onKeyBusy = (busy: boolean) =>
+    setKeyBusyCount((n) => Math.max(0, n + (busy ? 1 : -1)));
+  // Task 81: the ChatGPT section is closed until it is wanted -- a user
+  // who never adds an OpenAI key sees one closed line -- and opens by
+  // itself when an OpenAI key is saved.
+  const [openAiOpen, setOpenAiOpen] = useState(false);
 
   if (!open) return null;
 
@@ -353,8 +266,6 @@ export function AccountDialog({
 
         {tab === "keys" && (
           <div role="tabpanel" aria-label="Keys">
-            {/* Task 51. Anthropic only -- OpenAI is explicitly out of
-                scope here, same as the Model tier selector. */}
             <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
               Your runs use your own Anthropic key. Get one at{" "}
               <a
@@ -367,62 +278,52 @@ export function AccountDialog({
               .
             </p>
 
-            <label>
-              Anthropic API key:
-              <br />
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  // Masked by default. type="password" rather than a
-                  // hand-rolled mask so browsers and password managers
-                  // treat it as a secret.
-                  //
-                  // Task 72: never in a Session Replay recording. Replay
-                  // records inputs unmasked (Nik, Task 40) and keeps only
-                  // password fields masked -- but Show turns this into a
-                  // text field, which would then be recorded in plain
-                  // text. ph-no-capture is the recorder's blockClass: the
-                  // field becomes an empty box in every recording, shown
-                  // or hidden, and autocapture ignores it too.
-                  className="ph-no-capture"
-                  type={showKey ? "text" : "password"}
-                  value={keyInput}
-                  onChange={(e) => {
-                    setKeyInput(e.target.value);
-                    setKeySaved(false);
-                  }}
-                  placeholder={
-                    hasKey ? `Saved (${keyHintText ?? "…"})` : "sk-ant-..."
-                  }
-                  autoComplete="off"
-                  spellCheck={false}
-                  disabled={keyBusy}
-                  style={{ flex: 1, boxSizing: "border-box" }}
-                />
-                <button
-                  type="button"
-                  onClick={() => void toggleShowKey()}
-                  disabled={keyBusy || (!keyInput && !hasKey)}
-                >
-                  {showKey ? "Hide" : "Show"}
-                </button>
-              </div>
-            </label>
+            <ApiKeyField
+              route="/api/account/anthropic-key"
+              label="Anthropic API key:"
+              placeholder="sk-ant-..."
+              active={open && tab === "keys"}
+              onBusyChange={onKeyBusy}
+            />
 
-            {keyError && <p style={{ color: "#a00" }}>{keyError}</p>}
-            {keySaved && !keyError && (
-              <p style={{ color: "#060" }}>API key saved.</p>
-            )}
+            {/* Task 81 Stage 2. Optional: needed only to run prompts on
+                ChatGPT. */}
+            <details
+              open={openAiOpen}
+              onToggle={(e) => setOpenAiOpen(e.currentTarget.open)}
+              style={{ margin: "12px 0" }}
+            >
+              <summary style={{ cursor: "pointer" }}>
+                ChatGPT (optional)
+              </summary>
+              <div role="group" aria-label="OpenAI key">
+                <p style={{ color: "#666", fontSize: "0.9em" }}>
+                  Only needed to run prompts on ChatGPT. Get a key at{" "}
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    platform.openai.com/api-keys
+                  </a>
+                  . OpenAI bills API use separately from a ChatGPT subscription.
+                </p>
+                <ApiKeyField
+                  route="/api/account/openai-key"
+                  label="OpenAI API key:"
+                  placeholder="sk-..."
+                  active={open && tab === "keys"}
+                  onStatus={(hasKey) => {
+                    if (hasKey) setOpenAiOpen(true);
+                  }}
+                  onBusyChange={onKeyBusy}
+                />
+              </div>
+            </details>
 
             <div>
               <button type="button" onClick={onClose} disabled={keyBusy}>
                 Close
-              </button>{" "}
-              <button
-                type="button"
-                onClick={() => void handleSaveKey()}
-                disabled={keyBusy || !keyInput.trim()}
-              >
-                {keyBusy ? "Saving..." : "Save"}
               </button>
             </div>
           </div>

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { createClient } from "@/utils/supabase/client";
-import { MODEL_TIERS, type ModelTier } from "@/lib/modelTiers";
+import { MODEL_TIERS, tierModel, type ModelTier } from "@/lib/modelTiers";
+import { LLM_PROVIDERS, type LlmProviderId } from "@/lib/llmProviders";
 
 // Task 50 item C. Model tier picker.
 //
@@ -18,14 +19,18 @@ import { MODEL_TIERS, type ModelTier } from "@/lib/modelTiers";
 //
 // Scope is per user, stored in auth user_metadata alongside the profile
 // -- no migration, and /api/execute already has the auth user in hand so
-// reading it costs nothing. GPT/OpenAI options are out of scope here;
-// each tier shows only the Claude model it maps to.
+// reading it costs nothing.
+//
+// Task 81 Stage 2: the tiers apply to the provider chosen in the header
+// (Claude or ChatGPT), and each tier shows that provider's model.
 
 export function ModelTierDialog({
   open,
+  provider,
   onClose,
 }: {
   open: boolean;
+  provider: LlmProviderId;
   onClose: () => void;
 }) {
   const [applying, setApplying] = useState<ModelTier | null>(null);
@@ -106,11 +111,13 @@ export function ModelTierDialog({
       >
         <h2 style={{ marginTop: 0 }}>Model tier</h2>
         <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
-          Choosing a tier applies it right away.
+          Choosing a tier applies it right away. Models shown for{" "}
+          {LLM_PROVIDERS[provider].label}.
         </p>
 
         {(Object.keys(MODEL_TIERS) as ModelTier[]).map((tier) => {
-          const { label, model, description } = MODEL_TIERS[tier];
+          const { label, description } = MODEL_TIERS[tier];
+          const model = tierModel(tier, provider);
           return (
             <button
               key={tier}
