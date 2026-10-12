@@ -496,8 +496,19 @@ export function Workspace({
               switch-timing-indicator.spec.ts can still assert its actual
               invariant -- that the value updates on each subsequent
               switch -- instead of having that coverage deleted. */}
+          {/* Task 85: a flex row with a real gap and a 12px inset, so the
+              buttons stand apart (the old {" "} text spaces gave about 4px)
+              and PACT lines up with the discussion name below it. It
+              still wraps when the window is too narrow for one line. */}
           <header
-            style={{ flexShrink: 0 }}
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: "6px 10px",
+              padding: "6px 12px",
+            }}
             data-switch-ms={
               execution.lastSwitchDurationMs === null
                 ? undefined
@@ -563,7 +574,7 @@ export function Workspace({
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 10,
                 whiteSpace: "nowrap",
                 verticalAlign: "middle",
               }}
@@ -572,10 +583,12 @@ export function Workspace({
                 Model
               </button>
               <label
-                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
               >
                 Provider:
+                {/* Task 85: grey like the buttons beside it (globals.css). */}
                 <select
+                  className="toolbar-select"
                   aria-label="Provider"
                   value={llm.provider}
                   disabled={llm.saving}

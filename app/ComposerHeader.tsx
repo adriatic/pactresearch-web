@@ -190,7 +190,10 @@ export function ComposerHeader({
         // and this row sits immediately above the composer -- leaving it
         // at 8px would have put the discussion name a few pixels left of
         // the prompt text it labels.
-        padding: "4px 12px",
+        //
+        // Task 85: 10px below rather than 4px, so the composer's box does
+        // not sit right against this row.
+        padding: "6px 12px 10px",
         fontSize: "0.9em",
       }}
     >
@@ -237,48 +240,57 @@ export function ComposerHeader({
           {activitySummary}
         </span>
       )}
+      {/* Task 85: the run status and Export as one cluster on the
+          right, so the row reads name | activity | status and Export,
+          instead of the dot floating alone between the activity text
+          and Export. */}
       {discussionId && (
         <span
-          // One live region for the pair, so a screen reader announces
-          // "Running, 12s elapsed" as a single status rather than reading
-          // a decorative dot and a bare number separately.
-          role="status"
-          aria-label={
-            isRunning
-              ? `Running, ${formatElapsed(elapsedMs)} elapsed`
-              : hasRun
-                ? `Idle, last run took ${formatElapsed(elapsedMs)}`
-                : "Idle"
-          }
-          style={{ display: "flex", alignItems: "center", gap: 6 }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexShrink: 0,
+          }}
         >
           <span
-            aria-hidden="true"
-            style={{
-              fontFamily: "monospace",
-              fontSize: "0.85em",
-              color: statusColor,
-              minWidth: "4ch",
-              textAlign: "right",
-            }}
+            // One live region for the pair, so a screen reader announces
+            // "Running, 12s elapsed" as a single status rather than reading
+            // a decorative dot and a bare number separately.
+            role="status"
+            aria-label={
+              isRunning
+                ? `Running, ${formatElapsed(elapsedMs)} elapsed`
+                : hasRun
+                  ? `Idle, last run took ${formatElapsed(elapsedMs)}`
+                  : "Idle"
+            }
+            style={{ display: "flex", alignItems: "center", gap: 6 }}
           >
-            {isRunning || hasRun ? formatElapsed(elapsedMs) : ""}
+            <span
+              aria-hidden="true"
+              style={{
+                fontFamily: "monospace",
+                fontSize: "0.85em",
+                color: statusColor,
+                minWidth: "4ch",
+                textAlign: "right",
+              }}
+            >
+              {isRunning || hasRun ? formatElapsed(elapsedMs) : ""}
+            </span>
+            <span
+              aria-hidden="true"
+              title={isRunning ? "Running" : "Idle"}
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "50%",
+                background: statusColor,
+                transition: "background 0.3s",
+              }}
+            />
           </span>
-          <span
-            aria-hidden="true"
-            title={isRunning ? "Running" : "Idle"}
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: "50%",
-              background: statusColor,
-              transition: "background 0.3s",
-            }}
-          />
-        </span>
-      )}
-      {discussionId && (
-        <>
           {exportError && (
             // Next to the button that failed, not in the sidebar where
             // the Explorer puts its own copy -- a message about a click
@@ -311,7 +323,7 @@ export function ComposerHeader({
           >
             {exporting ? "Exporting…" : "Export"}
           </button>
-        </>
+        </span>
       )}
     </div>
   );
