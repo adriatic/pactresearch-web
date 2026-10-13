@@ -353,3 +353,75 @@ test("a selected notebook with no discussion open, deleted in another tab, says 
   await expect(page.getByText(NOTEBOOK_GONE)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("treeitem")).toHaveCount(0);
 });
+
+// Task 88. Settings stayed clickable for about a second after the message
+// appeared: it followed the open discussion's notebook, which was cleared
+// only after the work area's last draft save (a PATCH to the deleted
+// discussion, answered 404) came back. The save is held for 2 seconds
+// here so that second cannot slip by unnoticed; the check reads the
+// button's state once, the moment the message is visible, without
+// waiting for it to change.
+async function holdDraftSaves(page: Page) {
+  await page.route("**/api/discussions?id=*", async (route) => {
+    if (route.request().method() === "PATCH") {
+      await new Promise((r) => setTimeout(r, 2_000));
+    }
+    await route.continue();
+  });
+}
+
+test("Settings is off from the moment the deleted message appears", async ({
+  page,
+  context,
+}) => {
+  const { notebookName } = await seedAndSignIn(page, context);
+  await openDiscussion(page, notebookName);
+  const settings = page
+    .locator("header[data-switch-ms]")
+    .getByRole("button", { name: "Settings" });
+  await expect(settings).toBeEnabled();
+
+  await leavePage(page);
+  await deleteInOtherTab(context, notebookName, "discussion");
+  await holdDraftSaves(page);
+  await returnToPage(page);
+
+  await expect(page.getByText(DISCUSSION_GONE)).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(await settings.isDisabled()).toBe(true);
+  await expectWorkAreaCleared(page, DISCUSSION_GONE);
+});
+
+test("an open Settings dialog closes with the deleted message and does not come back", async ({
+  page,
+  context,
+}) => {
+  const { notebookName } = await seedAndSignIn(page, context);
+  await openDiscussion(page, notebookName);
+  await page
+    .locator("header[data-switch-ms]")
+    .getByRole("button", { name: "Settings" })
+    .click();
+  const dialogTitle = page.getByRole("heading", { name: "Notebook settings" });
+  await expect(dialogTitle).toBeVisible();
+
+  await leavePage(page);
+  await deleteInOtherTab(context, notebookName, "discussion");
+  await holdDraftSaves(page);
+  await returnToPage(page);
+
+  await expect(page.getByText(DISCUSSION_GONE)).toBeVisible({
+    timeout: 15_000,
+  });
+  expect(await dialogTitle.count()).toBe(0);
+
+  // Picking another discussion in the same notebook must not reopen it.
+  await page.unroute("**/api/discussions?id=*");
+  await page
+    .getByRole("treeitem", { name: "sibling discussion", exact: true })
+    .click();
+  await expect(page.getByLabel("Prompt")).toBeVisible();
+  await page.waitForTimeout(1_500);
+  await expect(dialogTitle).toHaveCount(0);
+});

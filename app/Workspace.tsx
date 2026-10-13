@@ -279,6 +279,10 @@ export function Workspace({
     });
     setActiveDiscussionId(null);
     setSelectedNotebookId(null);
+    // Task 88. An open Settings dialog belongs to what was just deleted.
+    // Left open, it vanished a moment later (its notebookId emptied) but
+    // stayed "open", and popped up again by itself on the next discussion.
+    setShowSettings(false);
   }
 
   function handleDiscussionRenamed(discussionId: string, name: string) {
@@ -547,11 +551,18 @@ export function Workspace({
                 header buttons' own gating -- execution.notebookId is only
                 ever set once a discussion's own load resolves (see
                 useDiscussionExecution.ts), so this can't be enabled ahead
-                of there being a real notebook to edit. */}
+                of there being a real notebook to edit.
+
+                Task 88: activeDiscussionId too, as Run does. notebookId
+                is emptied only after the outgoing draft save returns
+                (one round trip), so on its own it left Settings clickable
+                for about a second after Task 84's "deleted in another
+                tab" message. activeDiscussionId is cleared in the same
+                render as the message. */}
             <button
               type="button"
               onClick={() => setShowSettings(true)}
-              disabled={!execution.notebookId}
+              disabled={!activeDiscussionId || !execution.notebookId}
             >
               Settings
             </button>{" "}
