@@ -21,6 +21,10 @@ import { chooseRowAction } from "./rowMenuActions";
 const DISCUSSION_GONE = "This discussion was deleted in another tab or window.";
 const NOTEBOOK_GONE = "This notebook was deleted in another tab or window.";
 const OPEN = "verify the key remains hidden";
+// Task 91. The hint under the message, by whether a notebook is left.
+const HINT_WITH_NOTEBOOKS =
+  "Pick a discussion in the tree, add a discussion to a notebook (three-dots menu, then Add discussion), or press New Notebook.";
+const HINT_NO_NOTEBOOKS = "Press New Notebook to start.";
 
 test.setTimeout(90_000);
 
@@ -255,6 +259,11 @@ test("notebook deleted in another tab: the work area clears, says so, and keeps 
 
   await expect(page.getByRole("treeitem")).toHaveCount(0, { timeout: 15_000 });
   await expectWorkAreaCleared(page, DISCUSSION_GONE);
+  // Task 91: no notebook is left.
+  await expect(
+    page.getByText(HINT_NO_NOTEBOOKS, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(HINT_WITH_NOTEBOOKS)).toHaveCount(0);
   await page.waitForTimeout(1_500);
   expect(reads.filter((p) => p === "/api/notebooks")).toHaveLength(1);
   expect(reads.filter((p) => p === "/api/discussions")).toHaveLength(1);
@@ -305,6 +314,11 @@ test("only the discussion deleted in another tab: the same, and picking another 
   });
   await expect(sibling).toBeVisible();
   await expect(page.getByRole("treeitem", { name: OPEN })).toHaveCount(0);
+  // Task 91: the notebook is still there, so the hint says how to add one.
+  await expect(
+    page.getByText(HINT_WITH_NOTEBOOKS, { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText(HINT_NO_NOTEBOOKS)).toHaveCount(0);
 
   await sibling.click();
   await expect(page.getByText(DISCUSSION_GONE)).toHaveCount(0);
@@ -352,6 +366,9 @@ test("a selected notebook with no discussion open, deleted in another tab, says 
 
   await expect(page.getByText(NOTEBOOK_GONE)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("treeitem")).toHaveCount(0);
+  await expect(
+    page.getByText(HINT_NO_NOTEBOOKS, { exact: true }),
+  ).toBeVisible();
 });
 
 // Task 88. Settings stayed clickable for about a second after the message

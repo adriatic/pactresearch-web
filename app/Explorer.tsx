@@ -123,6 +123,7 @@ export function Explorer({
   isRunning,
   refetchToken,
   onOpenItemGone,
+  onNotebookCountChange,
 }: {
   activeDiscussionId: string | null;
   // The notebook NotebookCreator's "Add a discussion to this notebook"
@@ -160,6 +161,9 @@ export function Explorer({
   // work area shows: the open discussion, or -- with no discussion open --
   // the selected notebook. Usually deleted in another tab or window.
   onOpenItemGone: (kind: "discussion" | "notebook") => void;
+  // Task 91. How many notebooks the tree holds, after each load; the
+  // work area's hint for no discussion open depends on it.
+  onNotebookCountChange: (count: number) => void;
 }) {
   const [notebooks, setNotebooks] = useState<Notebook[]>([]);
   const [discussions, setDiscussions] = useState<Discussion[]>([]);
@@ -278,6 +282,15 @@ export function Explorer({
     // returnToken (task 74): the same refetch when the user comes back
     // from another tab or window, where a run may have finished.
   }, [refetchToken, isRunning, returnToken]);
+
+  // Task 91. After each load (and a local change), tell the work area how
+  // many notebooks there are. Not before the first load: until then the
+  // count is unknown, and the work area shows no hint.
+  useEffect(() => {
+    if (treeLoadVersion === 0 || !Array.isArray(notebooks)) return;
+    onNotebookCountChange(notebooks.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notebooks, treeLoadVersion]);
 
   // Task 84. After each load: is what the work area shows still there?
   // Reuses the load above; no request of its own. Reads the current

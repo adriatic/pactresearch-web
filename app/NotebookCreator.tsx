@@ -235,8 +235,8 @@ export function NotebookCreator({
           exactly where someone who knows the old flow will look. */}
       {!SHOW_LEGACY_ADD_DISCUSSION_PANEL && (
         <p style={{ color: "#666" }}>
-          To add a discussion, use the ⋮ menu on a notebook in the Explorer
-          above.
+          To add a discussion, use the three-dots menu on a notebook in the
+          Explorer above.
         </p>
       )}
 
