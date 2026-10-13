@@ -9,7 +9,7 @@ import { chooseRowAction } from "./rowMenuActions";
 // webkit-ipad (playwright.config.ts).
 
 const WITH_NOTEBOOKS =
-  "Pick a discussion in the tree, add a discussion to a notebook (⋮ menu, then Add discussion), or press New Notebook.";
+  "Pick a discussion in the tree, add a discussion to a notebook (three-dots menu, then Add discussion), or press New Notebook.";
 const NO_NOTEBOOKS = "Press New Notebook to start.";
 
 test("no notebooks: the hint says to press New Notebook", async ({
@@ -21,6 +21,13 @@ test("no notebooks: the hint says to press New Notebook", async ({
     timeout: 15_000,
   });
   await expect(page.getByText(WITH_NOTEBOOKS)).toHaveCount(0);
+  // The line under the tree spells the menu out the same way.
+  await expect(
+    page.getByText(
+      "To add a discussion, use the three-dots menu on a notebook in the Explorer above.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   // The button the hint names is there, under that name.
   await expect(
     page.getByRole("button", { name: "New Notebook", exact: true }),

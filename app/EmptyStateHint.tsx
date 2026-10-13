@@ -7,11 +7,12 @@
 // is shown then, so "Press New Notebook to start." never flashes up for
 // someone who has notebooks.
 //
-// The names are the ones on screen: the notebook row's ⋮ button (called
-// "the ⋮ menu" by the hint under the tree, NotebookCreator.tsx), its
-// "Add discussion" item, and the "New Notebook" button.
+// The names are the ones on screen: the "Add discussion" item and the
+// "New Notebook" button. The notebook row's ⋮ button has no name on screen
+// and is hard to see, so it is spelled out as "three-dots menu", as in the
+// hint under the tree (NotebookCreator.tsx).
 export const HINT_WITH_NOTEBOOKS =
-  "Pick a discussion in the tree, add a discussion to a notebook (⋮ menu, then Add discussion), or press New Notebook.";
+  "Pick a discussion in the tree, add a discussion to a notebook (three-dots menu, then Add discussion), or press New Notebook.";
 export const HINT_NO_NOTEBOOKS = "Press New Notebook to start.";
 
 export function EmptyStateHint({

@@ -415,7 +415,7 @@ test("the header Run button is disabled when no discussion is selected", async (
   // Task 91: the hint says how to get a discussion; one notebook exists.
   await expect(
     page.getByText(
-      "Pick a discussion in the tree, add a discussion to a notebook (⋮ menu, then Add discussion), or press New Notebook.",
+      "Pick a discussion in the tree, add a discussion to a notebook (three-dots menu, then Add discussion), or press New Notebook.",
     ),
   ).toBeVisible();
   await expect(

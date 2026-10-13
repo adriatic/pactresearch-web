@@ -23,7 +23,7 @@ const NOTEBOOK_GONE = "This notebook was deleted in another tab or window.";
 const OPEN = "verify the key remains hidden";
 // Task 91. The hint under the message, by whether a notebook is left.
 const HINT_WITH_NOTEBOOKS =
-  "Pick a discussion in the tree, add a discussion to a notebook (⋮ menu, then Add discussion), or press New Notebook.";
+  "Pick a discussion in the tree, add a discussion to a notebook (three-dots menu, then Add discussion), or press New Notebook.";
 const HINT_NO_NOTEBOOKS = "Press New Notebook to start.";
 
 test.setTimeout(90_000);
