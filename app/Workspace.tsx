@@ -128,6 +128,10 @@ export function Workspace({
   // place of the title line, the prompt box and the prompt and response
   // panel. Cleared by picking anything else.
   const [goneNotice, setGoneNotice] = useState<GoneNoticeState | null>(null);
+  // Task 91. How many notebooks the tree holds, reported by Explorer after
+  // each load; null until the first load, so the no-discussion hint is not
+  // shown (and cannot be the wrong one) while the tree is loading.
+  const [notebookCount, setNotebookCount] = useState<number | null>(null);
   useVisibleViewportHeight();
 
   function handleDiscussionCreated(discussionId: string) {
@@ -454,6 +458,7 @@ export function Workspace({
                   isRunning={execution.loading}
                   refetchToken={discussionListRefetchToken}
                   onOpenItemGone={handleOpenItemGone}
+                  onNotebookCountChange={setNotebookCount}
                 />
               </TouchScroll>
             </Panel>
@@ -636,7 +641,7 @@ export function Workspace({
               entirely, and it isn't itself resizable content. flexShrink
               comes from the component's own root. */}
           {goneNotice ? (
-            <GoneNotice notice={goneNotice} />
+            <GoneNotice notice={goneNotice} notebookCount={notebookCount} />
           ) : (
             <>
               <ComposerHeader
@@ -741,6 +746,7 @@ export function Workspace({
                       onContinue={handleContinue}
                       onAskAbout={handleAskAbout}
                       executionError={execution.executionError}
+                      notebookCount={notebookCount}
                     />
                   </TouchScroll>
                 </Panel>

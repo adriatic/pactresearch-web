@@ -4,6 +4,7 @@ import type { PastResponse } from "./useDiscussionExecution";
 import { MarkdownResponse } from "./MarkdownResponse";
 import { responseLlmLabel } from "@/lib/llmProviders";
 import { PromptContent, simpleTextOf } from "./PromptContent";
+import { EmptyStateHint } from "./EmptyStateHint";
 
 // The scrolling middle region of the fixed layout: the active
 // discussion's history, the live-streaming response, and the last run's
@@ -21,10 +22,10 @@ import { PromptContent, simpleTextOf } from "./PromptContent";
 // Persistence audit finding E's own reasoning (never show a raw uuid as
 // identifying text, even transiently) moved with it — see ComposerHeader.
 //
-// The "no discussion selected" line below is kept, despite ComposerHeader
-// also covering that state, because this one carries the extra guidance
-// ("create or pick one above") that belongs in the empty content area
-// rather than in a one-line status row.
+// The hint below for no discussion open is kept, despite ComposerHeader
+// also covering that state, because it carries the extra guidance (how to
+// get a discussion, Task 91's EmptyStateHint) that belongs in the empty
+// content area rather than in a one-line status row.
 
 // Task 42 Part C. Colocated in this component's own JS chunk rather than
 // app/globals.css, for the reason Composer.tsx records at length: a
@@ -121,6 +122,7 @@ export function DiscussionContent({
   onContinue,
   onAskAbout,
   executionError,
+  notebookCount = null,
 }: {
   discussionId: string | null;
   history: PastResponse[];
@@ -135,6 +137,9 @@ export function DiscussionContent({
   // earlier turn.
   onAskAbout?: (responseId: string, responseText: string) => void;
   executionError: string | null;
+  // Task 91. For the hint shown with no discussion open; null while the
+  // tree is still loading.
+  notebookCount?: number | null;
 }) {
   return (
     // Task 44 item B: same 12px horizontal inset as the composer and
@@ -142,9 +147,7 @@ export function DiscussionContent({
     // read line up in one column rather than each starting at a
     // different edge.
     <main style={{ paddingLeft: 12, paddingRight: 12 }}>
-      {!discussionId && (
-        <p>No discussion selected — create or pick one above.</p>
-      )}
+      {!discussionId && <EmptyStateHint notebookCount={notebookCount} />}
       {discussionId && history.length > 0 && (
         <div>
           {history.map((entry) => {

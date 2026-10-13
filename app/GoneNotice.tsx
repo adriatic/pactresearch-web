@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { EmptyStateHint } from "./EmptyStateHint";
 
 // Task 84. Shown in the work area, in place of the title line, the prompt
 // box and the prompt and response panel, when what it showed was deleted
@@ -17,7 +18,14 @@ export interface GoneNoticeState {
   unsentText: string | null;
 }
 
-export function GoneNotice({ notice }: { notice: GoneNoticeState }) {
+export function GoneNotice({
+  notice,
+  notebookCount,
+}: {
+  notice: GoneNoticeState;
+  // Task 91. Null while the tree is still loading.
+  notebookCount: number | null;
+}) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -39,7 +47,7 @@ export function GoneNotice({ notice }: { notice: GoneNoticeState }) {
       style={{ padding: "16px", overflowY: "auto" }}
     >
       <p style={{ marginTop: 0, fontWeight: "bold" }}>{notice.message}</p>
-      <p>Pick a discussion in the tree, or press New Notebook.</p>
+      <EmptyStateHint notebookCount={notebookCount} />
       {notice.unsentText && (
         <div data-unsent-prompt>
           <p style={{ marginBottom: 4 }}>
