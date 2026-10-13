@@ -187,3 +187,99 @@ test("pasting a real image into the composer uploads it, inserts it, and persist
   });
   await expect(page.getByLabel("Prompt")).toContainText("An image follows");
 });
+
+// Task 89. A prompt box still open on a discussion that was deleted in
+// another tab used to store a pasted picture anyway, as an orphan under
+// the deleted discussion's folder. The upload rule now needs the
+// discussion to exist, so the paste is refused with the composer's
+// ordinary upload message, nothing is stored, and the page carries on.
+test("pasting into a discussion deleted in another tab is refused, and nothing is stored", async ({
+  page,
+  context,
+}) => {
+  const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
+  const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
+
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-composer-image-gone-${suffix}@example.com`;
+  const password = "correct horse battery staple 89!";
+  const notebookName = `E2E image-paste-gone notebook ${suffix}`;
+  const discussionName = `E2E image-paste-gone discussion ${suffix}`;
+
+  const { data: created, error: createUserError } =
+    await admin.auth.admin.createUser({ email, password, email_confirm: true });
+  if (createUserError || !created.user) {
+    throw createUserError ?? new Error("failed to create e2e test user");
+  }
+  const userId = created.user.id;
+
+  const { data: notebook } = await admin
+    .from("notebooks")
+    .insert({ user_id: userId, name: notebookName, category: "Dev Test" })
+    .select()
+    .single();
+  const { data: discussion } = await admin
+    .from("discussions")
+    .insert({
+      notebook_id: notebook!.id,
+      user_id: userId,
+      name: discussionName,
+    })
+    .select()
+    .single();
+
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(String(e)));
+
+  await signIn(page, context, admin, API_URL, ANON_KEY, email, password);
+  await page.goto("/");
+
+  const discussionRow = page.getByRole("treeitem", { name: discussionName });
+  await expect(discussionRow).toBeVisible({ timeout: 15_000 });
+  await discussionRow.click();
+  const prompt = page.getByLabel("Prompt");
+  await expect(prompt).toBeVisible();
+  await prompt.click();
+
+  // Deleted elsewhere. This tab hasn't noticed yet: no focus or
+  // visibility change, so its prompt box is still open on it.
+  const { error: deleteError } = await admin
+    .from("discussions")
+    .delete()
+    .eq("id", discussion!.id);
+  expect(deleteError).toBeNull();
+
+  await page.evaluate(async (base64) => {
+    const editorEl = document.querySelector(
+      '[contenteditable="true"]',
+    ) as HTMLElement;
+    const byteChars = atob(base64);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++)
+      byteNumbers[i] = byteChars.charCodeAt(i);
+    const file = new File([new Uint8Array(byteNumbers)], "e2e-gone.png", {
+      type: "image/png",
+    });
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(file);
+    editorEl.dispatchEvent(
+      new ClipboardEvent("paste", {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dataTransfer,
+      }),
+    );
+  }, TINY_PNG_BASE64);
+
+  await expect(
+    page.getByText("Failed to upload image. Try again."),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('img[alt="e2e-gone.png"]')).toHaveCount(0);
+
+  const { data: stored, error: listError } = await admin.storage
+    .from("prompt-images")
+    .list(`${userId}/${discussion!.id}`, { limit: 1000 });
+  expect(listError).toBeNull();
+  expect(stored ?? []).toHaveLength(0);
+  expect(pageErrors).toEqual([]);
+});
