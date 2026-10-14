@@ -52,7 +52,7 @@ export default defineConfig({
       // Task 76: the magic-link sign-in spec runs here too, so the flow
       // is checked in WebKit (Nik's failure was Safari) as well as Chromium.
       testMatch:
-        /(ipad-.*|magic-link-.*|posthog-sign-in-pages|stale-work-area|recovered-prompt-pictures|empty-state-hint|sign-out|history-choice|history-cap-note|provider-dropdown-layout|top-bar-layout)\.spec\.ts/,
+        /(ipad-.*|magic-link-.*|posthog-sign-in-pages|stale-work-area|recovered-prompt-pictures|composer-paste-cursor|empty-state-hint|sign-out|history-choice|history-cap-note|provider-dropdown-layout|top-bar-layout)\.spec\.ts/,
     },
   ],
   webServer: {
