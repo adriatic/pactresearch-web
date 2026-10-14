@@ -219,3 +219,149 @@ test("deleting a notebook removes prompt-images for every discussion it containe
   expect(await listPrefix(admin, prefixA)).toHaveLength(0);
   expect(await listPrefix(admin, prefixB)).toHaveLength(0);
 });
+
+// Task 89. storage list() returns at most 100 entries by default, and the
+// cleanup used to list once and remove what it got -- so a discussion with
+// more than 100 pictures kept the rest, orphaned once its row was gone.
+// Counted here with a limit well above what is uploaded, so the check
+// itself can't stop at 100.
+async function countPrefix(admin: SupabaseClient, prefix: string) {
+  const { data, error } = await admin.storage
+    .from("prompt-images")
+    .list(prefix, { limit: 1000 });
+  expect(error).toBeNull();
+  return (data ?? []).length;
+}
+
+async function uploadManyFakePromptImages(
+  admin: SupabaseClient,
+  userId: string,
+  discussionId: string,
+  count: number,
+) {
+  for (let start = 0; start < count; start += 20) {
+    await Promise.all(
+      Array.from({ length: Math.min(20, count - start) }, () =>
+        uploadFakePromptImage(admin, userId, discussionId),
+      ),
+    );
+  }
+}
+
+test("deleting a discussion with more than 100 pictures removes every one", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(90_000);
+  const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
+  const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
+
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-image-cleanup-many-${suffix}@example.com`;
+  const password = "correct horse battery staple 89!";
+  const notebookName = `E2E image-cleanup-many notebook ${suffix}`;
+  const discussionName = `E2E image-cleanup-many discussion ${suffix}`;
+
+  const { data: created, error: createUserError } =
+    await admin.auth.admin.createUser({ email, password, email_confirm: true });
+  if (createUserError || !created.user) {
+    throw createUserError ?? new Error("failed to create e2e test user");
+  }
+  const userId = created.user.id;
+
+  const { data: notebook } = await admin
+    .from("notebooks")
+    .insert({ user_id: userId, name: notebookName, category: "Dev Test" })
+    .select()
+    .single();
+  const { data: discussion } = await admin
+    .from("discussions")
+    .insert({
+      notebook_id: notebook!.id,
+      user_id: userId,
+      name: discussionName,
+    })
+    .select()
+    .single();
+
+  const prefix = `${userId}/${discussion!.id}`;
+  await uploadManyFakePromptImages(admin, userId, discussion!.id, 205);
+  expect(await countPrefix(admin, prefix)).toBe(205);
+
+  await signIn(page, context, API_URL, ANON_KEY, email, password);
+  await page.goto("/");
+
+  const discussionRow = page.getByRole("treeitem", { name: discussionName });
+  await expect(discussionRow).toBeVisible({ timeout: 15_000 });
+
+  const deleteResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/discussions") &&
+      response.request().method() === "DELETE",
+  );
+  await chooseRowAction(discussionRow, discussionName, "Delete discussion");
+  await confirmDeleteDialog(page);
+  expect((await deleteResponsePromise).status()).toBe(200);
+  await expect(discussionRow).toHaveCount(0, { timeout: 10_000 });
+
+  expect(await countPrefix(admin, prefix)).toBe(0);
+});
+
+test("deleting a notebook whose discussion has more than 100 pictures removes every one", async ({
+  page,
+  context,
+}) => {
+  test.setTimeout(90_000);
+  const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
+  const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
+
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const email = `e2e-image-cleanup-many-nb-${suffix}@example.com`;
+  const password = "correct horse battery staple 90!";
+  const notebookName = `E2E image-cleanup-many-nb notebook ${suffix}`;
+  const discussionName = `E2E image-cleanup-many-nb discussion ${suffix}`;
+
+  const { data: created, error: createUserError } =
+    await admin.auth.admin.createUser({ email, password, email_confirm: true });
+  if (createUserError || !created.user) {
+    throw createUserError ?? new Error("failed to create e2e test user");
+  }
+  const userId = created.user.id;
+
+  const { data: notebook } = await admin
+    .from("notebooks")
+    .insert({ user_id: userId, name: notebookName, category: "Dev Test" })
+    .select()
+    .single();
+  const { data: discussion } = await admin
+    .from("discussions")
+    .insert({
+      notebook_id: notebook!.id,
+      user_id: userId,
+      name: discussionName,
+    })
+    .select()
+    .single();
+
+  const prefix = `${userId}/${discussion!.id}`;
+  await uploadManyFakePromptImages(admin, userId, discussion!.id, 101);
+  expect(await countPrefix(admin, prefix)).toBe(101);
+
+  await signIn(page, context, API_URL, ANON_KEY, email, password);
+  await page.goto("/");
+
+  const notebookRow = page.getByRole("treeitem", { name: notebookName });
+  await expect(notebookRow).toBeVisible({ timeout: 15_000 });
+
+  const deleteResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/notebooks") &&
+      response.request().method() === "DELETE",
+  );
+  await chooseRowAction(notebookRow, notebookName, "Delete notebook");
+  await confirmDeleteDialog(page);
+  expect((await deleteResponsePromise).status()).toBe(200);
+  await expect(notebookRow).toHaveCount(0, { timeout: 10_000 });
+
+  expect(await countPrefix(admin, prefix)).toBe(0);
+});
