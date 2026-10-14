@@ -29,7 +29,11 @@ import {
   supportsOpenFilePicker,
   type ImportSummary,
 } from "@/lib/pactImport";
-import { docToPlainText, isEmptyDoc } from "@/lib/richContent";
+import {
+  docToPlainText,
+  docToRecoveredText,
+  isEmptyDoc,
+} from "@/lib/richContent";
 import { DISCUSSION_GONE, NOTEBOOK_GONE } from "@/lib/goneMessages";
 import { GoneNotice, type GoneNoticeState } from "./GoneNotice";
 import {
@@ -271,15 +275,25 @@ export function Workspace({
   // run: after a run the prompt box keeps that prompt, and offering it
   // back as unsent would be wrong.
   function handleOpenItemGone(kind: "discussion" | "notebook") {
+    //
+    // Task 93. The "is it unsent" comparison stays on docToPlainText,
+    // the same text prompt_text was stored as; what is offered back has
+    // its pictures numbered.
     let unsentText: string | null = null;
+    let unsentPictureCount = 0;
     if (kind === "discussion" && !isEmptyDoc(execution.content)) {
       const text = docToPlainText(execution.content).trim();
       const lastRun = (execution.history.at(-1)?.prompt_text ?? "").trim();
-      if (text && text !== lastRun) unsentText = text;
+      if (text && text !== lastRun) {
+        const recovered = docToRecoveredText(execution.content);
+        unsentText = recovered.text.trim();
+        unsentPictureCount = recovered.pictureCount;
+      }
     }
     setGoneNotice({
       message: kind === "discussion" ? DISCUSSION_GONE : NOTEBOOK_GONE,
       unsentText,
+      unsentPictureCount,
     });
     setActiveDiscussionId(null);
     setSelectedNotebookId(null);

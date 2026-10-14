@@ -50,11 +50,30 @@ export function plainTextToDoc(text: string): RichContent {
 // a much simpler walk of the raw JSON, no Schema/Node construction
 // needed, since there's no formatting syntax to get right.
 export function docToPlainText(doc: RichContent): string {
+  return docToText(doc, () => "[image]");
+}
+
+// Task 93. The same text for an unsent prompt offered back after a
+// deletion in another tab, but with the pictures numbered in order
+// ("[picture 1]", "[picture 2]", ...) so the user can see where each one
+// was -- the pictures themselves are gone by then. Kept apart from
+// docToPlainText, whose "[image]" is stored in responses.prompt_text and
+// read by History and .pact export.
+export function docToRecoveredText(doc: RichContent): {
+  text: string;
+  pictureCount: number;
+} {
+  let pictureCount = 0;
+  const text = docToText(doc, () => `[picture ${++pictureCount}]`);
+  return { text, pictureCount };
+}
+
+function docToText(doc: RichContent, imagePlaceholder: () => string): string {
   const paragraphs: string[] = [];
 
   for (const node of doc.content ?? []) {
     if (node.type === "image") {
-      paragraphs.push("[image]");
+      paragraphs.push(imagePlaceholder());
       continue;
     }
     const text = flattenInlineText(node);
