@@ -32,7 +32,8 @@
 // keystroke).
 
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
-import { Extension } from "@tiptap/core";
+import { Extension, type CommandProps } from "@tiptap/core";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import { FileHandler } from "@tiptap/extension-file-handler";
@@ -112,6 +113,31 @@ const PLACEHOLDER_STYLE = `
   pointer-events: none;
 }
 `;
+
+// Task 94. After a pasted picture is inserted, put the cursor right after
+// it instead of leaving the picture selected. Tiptap places the selection
+// by looking backwards from the end of what it inserted
+// (selectionToInsertionEnd, bias -1); the first thing it meets is the
+// picture, a selectable atom, so the picture ends up selected and the
+// next key typed replaces it. Here the cursor goes to the start of the
+// line after the picture, adding an empty line when there is none (a
+// cursor cannot sit beside a block picture). Runs in the paste's own
+// transaction, so undo removes picture and line together.
+function placeCursorAfterInsertedImage({ tr, state }: CommandProps): boolean {
+  const { selection } = tr;
+  if (
+    !(selection instanceof NodeSelection) ||
+    selection.node.type.name !== "image"
+  ) {
+    return true;
+  }
+  const after = selection.to;
+  if (!tr.doc.resolve(after).nodeAfter?.isTextblock) {
+    tr.insert(after, state.schema.nodes.paragraph.create());
+  }
+  tr.setSelection(TextSelection.create(tr.doc, after + 1));
+  return true;
+}
 
 function countImageNodes(doc: RichContent): number {
   return (doc.content ?? []).filter((node) => node.type === "image").length;
@@ -244,7 +270,12 @@ export function Composer({
             .focus()
             .run();
         } else {
-          editor.chain().focus().setImage({ src, alt: file.name }).run();
+          editor
+            .chain()
+            .focus()
+            .setImage({ src, alt: file.name })
+            .command(placeCursorAfterInsertedImage)
+            .run();
         }
       } catch (error) {
         setUploadError(
