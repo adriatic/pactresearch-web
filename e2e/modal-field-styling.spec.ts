@@ -254,7 +254,7 @@ test("every modal's text fields have a resting border and inner padding, and all
   await capture("Notebook settings", settings);
   await settings.getByRole("button", { name: "Cancel" }).click();
 
-  // 4. New notebook (name, research question, the disabled Refine field).
+  // 4. New notebook (name, research question, the Refine field).
   await header.getByRole("button", { name: "New Notebook" }).click();
   const newNotebook = page.getByRole("dialog", { name: "New notebook" });
   await capture("New notebook", newNotebook);

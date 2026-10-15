@@ -7,6 +7,10 @@ import {
   REJECTED_KEY_MESSAGE,
   resolveUserAnthropicKey,
 } from "@/lib/userAnthropicKey";
+import {
+  draftFromMessage,
+  type AnthropicDraftMessage,
+} from "@/lib/refineDraft";
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
@@ -17,7 +21,12 @@ const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 // user is staring at a modal waiting for one field to fill in, and there
 // is no live preview to feed. Uses the same key and the same per-user
 // model tier as /api/execute, so a user on Economy drafts with Economy.
-const MAX_TOKENS = 1024;
+//
+// Task 98: 4096, up from 1024. claude-sonnet-5 thinks by default when no
+// `thinking` is set, and the cap covers the thinking as well as the
+// draft, so 1024 could end a draft part-way. The draft itself is still
+// asked to stay under 200 words; only what is used is billed.
+const MAX_TOKENS = 4096;
 
 // Kept tight on purpose. The output goes straight into an editable
 // textarea, so anything conversational ("Here's a system prompt for
@@ -126,23 +135,14 @@ async function handlePost(request: Request): Promise<Response> {
     );
   }
 
-  const message = (await response.json()) as {
-    content?: { type?: string; text?: string }[];
-  };
-  const systemPrompt = (message.content ?? [])
-    .filter((block) => block.type === "text")
-    .map((block) => block.text ?? "")
-    .join("")
-    .trim();
-
-  if (!systemPrompt) {
-    return Response.json(
-      { error: "The model returned nothing. Please try again." },
-      { status: 502 },
-    );
+  const draft = draftFromMessage(
+    (await response.json()) as AnthropicDraftMessage,
+  );
+  if ("error" in draft) {
+    return Response.json({ error: draft.error }, { status: 502 });
   }
 
-  return Response.json({ systemPrompt });
+  return Response.json({ systemPrompt: draft.systemPrompt });
 }
 
 export const POST = withRouteErrorHandling(handlePost);

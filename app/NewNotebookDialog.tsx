@@ -1,7 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { plainTextToDoc } from "@/lib/richContent";
+import {
+  REFINE_MISSING_KEY_CODE,
+  REFINE_MISSING_KEY_MESSAGE,
+} from "@/lib/refineDraft";
 
 // Task 52. "New Notebook" as a modal, replacing the flat inline form.
 //
@@ -68,6 +72,30 @@ export function NewNotebookDialog({
   const [systemPrompt, setSystemPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Task 98. Refine with AI, one-shot, the same route and instruction as
+  // Settings. `lastDraft` is the draft last put in the System prompt
+  // field: a new draft may replace the field without asking only while
+  // the field is empty or still holds exactly that. `pendingDraft` is a
+  // draft waiting on the Replace / Keep question.
+  const [refineDescription, setRefineDescription] = useState("");
+  const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<string | null>(null);
+  const [lastDraft, setLastDraft] = useState<string | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<string | null>(null);
+  // Counts opens and closes. A Refine answer is used only if this has not
+  // moved since it was asked, so an answer that arrives after the dialog
+  // closed is dropped instead of landing in a later New Notebook dialog
+  // (this component stays mounted while closed).
+  const openingRef = useRef(0);
+  useEffect(() => {
+    openingRef.current += 1;
+  }, [open]);
+  // The field as it is when the answer arrives, not as it was when Send
+  // was pressed: the user may type in it while waiting.
+  const fieldRef = useRef({ systemPrompt, lastDraft });
+  useEffect(() => {
+    fieldRef.current = { systemPrompt, lastDraft };
+  }, [systemPrompt, lastDraft]);
 
   // Cleared on each open so a cancelled draft never reappears -- and,
   // critically, so does `creating`.
@@ -90,10 +118,64 @@ export function NewNotebookDialog({
       setSystemPrompt("");
       setError(null);
       setCreating(false);
+      setRefineDescription("");
+      setRefining(false);
+      setRefineError(null);
+      setLastDraft(null);
+      setPendingDraft(null);
     }
   }
 
   if (!open) return null;
+
+  async function handleRefine() {
+    const description = refineDescription.trim();
+    if (!description || refining) return;
+    const opening = openingRef.current;
+    setRefining(true);
+    setRefineError(null);
+    setPendingDraft(null);
+
+    let result: { systemPrompt: string } | { error: string };
+    try {
+      const response = await fetch("/api/refine-system-prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ description }),
+      });
+      const body = (await response.json()) as {
+        systemPrompt?: string;
+        error?: string;
+        code?: string;
+      };
+      if (response.ok && body.systemPrompt) {
+        result = { systemPrompt: body.systemPrompt };
+      } else if (body.code === REFINE_MISSING_KEY_CODE) {
+        result = { error: REFINE_MISSING_KEY_MESSAGE };
+      } else {
+        result = { error: body.error || "Couldn't draft a system prompt." };
+      }
+    } catch {
+      result = { error: "Couldn't draft a system prompt — please try again." };
+    }
+
+    // Closed (and maybe reopened) while waiting: this answer belongs to a
+    // dialog that is gone.
+    if (openingRef.current !== opening) return;
+    setRefining(false);
+    if ("error" in result) {
+      setRefineError(result.error);
+      return;
+    }
+    const draft = result.systemPrompt;
+    const field = fieldRef.current;
+    if (!field.systemPrompt.trim() || field.systemPrompt === field.lastDraft) {
+      setSystemPrompt(draft);
+      setLastDraft(draft);
+    } else {
+      setPendingDraft(draft);
+    }
+  }
 
   async function handleCreate() {
     const trimmedName = name.trim();
@@ -269,6 +351,71 @@ export function NewNotebookDialog({
           />
         </label>
 
+        {/* Task 98. Above the System prompt field, as decided: one short
+            line and a send arrow. One-shot, like Settings: the draft goes
+            into the field below, and nothing about Refine is stored. */}
+        <div style={{ marginTop: 8 }}>
+          <label>
+            Refine with AI:
+            <br />
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                placeholder="Describe your research domain..."
+                value={refineDescription}
+                onChange={(e) => setRefineDescription(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    // A dialog, not a form: Enter has nothing else to do.
+                    e.preventDefault();
+                    void handleRefine();
+                  }
+                }}
+                disabled={creating || refining}
+                style={{ flex: 1, boxSizing: "border-box" }}
+              />
+              <button
+                type="button"
+                aria-label="Send"
+                title="Send"
+                onClick={() => void handleRefine()}
+                disabled={creating || refining || !refineDescription.trim()}
+              >
+                →
+              </button>
+            </div>
+          </label>
+          {refining && (
+            <p style={{ margin: "4px 0 0", color: "#666", fontSize: "0.85em" }}>
+              Drafting a system prompt…
+            </p>
+          )}
+          {refineError && (
+            <p style={{ margin: "4px 0 0", color: "#a00", fontSize: "0.85em" }}>
+              {refineError}
+            </p>
+          )}
+          {pendingDraft !== null && (
+            <div style={{ margin: "4px 0 0", fontSize: "0.85em" }}>
+              A draft is ready, but you have written your own text in the System
+              prompt field. Replace it with the draft?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setSystemPrompt(pendingDraft);
+                  setLastDraft(pendingDraft);
+                  setPendingDraft(null);
+                }}
+              >
+                Replace my text
+              </button>{" "}
+              <button type="button" onClick={() => setPendingDraft(null)}>
+                Keep my text
+              </button>
+            </div>
+          )}
+        </div>
+
         <label>
           System prompt:
           <br />
@@ -309,44 +456,6 @@ export function NewNotebookDialog({
             : "No system prompt — runs in this notebook use none. You can add one later in Settings."}
         </p>
         <br />
-
-        {/* Refine with AI: present but inactive, and deliberately styled
-            so that reads as "not available yet" rather than "broken".
-            An unstyled disabled button looks identical to one that is
-            simply failing to respond. No backend wiring -- that is task
-            53's territory. */}
-        <div
-          // Deliberately NOT aria-hidden. A disabled control is a state
-          // assistive tech already conveys ("dimmed"/"unavailable"), and
-          // hiding the block outright would also hide the "Coming soon."
-          // line that explains WHY it does nothing -- which is the part
-          // that stops it reading as broken.
-          style={{ opacity: 0.5, cursor: "not-allowed", marginTop: 8 }}
-          title="Not available yet"
-        >
-          <label>
-            Refine with AI:
-            <br />
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="text"
-                placeholder="Describe your research domain..."
-                disabled
-                style={{
-                  flex: 1,
-                  boxSizing: "border-box",
-                  background: "#f2f2f2",
-                }}
-              />
-              <button type="button" disabled>
-                Send
-              </button>
-            </div>
-          </label>
-          <p style={{ margin: "4px 0 0", color: "#666", fontSize: "0.85em" }}>
-            Coming soon.
-          </p>
-        </div>
 
         {error && <p style={{ color: "#a00" }}>{error}</p>}
 
