@@ -113,11 +113,19 @@ test("the modal has the specified fields, and deliberately omits the others", as
 
   await expect(dialog.getByLabel("Research question:")).toBeVisible();
 
-  // Refine with AI is present but inactive, and visibly so rather than
-  // looking like a button that simply is not responding.
+  // Task 98: Refine with AI is live now (its own behaviour is covered in
+  // new-notebook-refine.spec.ts). The arrow is inert until there is
+  // something to describe, and the "Coming soon." stub is gone.
+  const refineLine = dialog.getByPlaceholder(
+    "Describe your research domain...",
+  );
   const refineSend = dialog.getByRole("button", { name: "Send" });
+  await expect(refineLine).toBeEnabled();
   await expect(refineSend).toBeDisabled();
-  await expect(dialog.getByText("Coming soon.")).toBeVisible();
+  await refineLine.fill("Oncology");
+  await expect(refineSend).toBeEnabled();
+  await refineLine.fill("");
+  await expect(dialog.getByText("Coming soon.")).toHaveCount(0);
 
   // Inverted by task 53, which is what this assertion was waiting for.
   //
