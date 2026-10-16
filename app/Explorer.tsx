@@ -484,8 +484,7 @@ export function Explorer({
   // Task 65. Per-discussion export, and deliberately not a .pact file:
   // markdown, because a single discussion someone exports is usually
   // headed for an email or a doc rather than back into pact-web. The
-  // download itself is shared with the active-discussion header's own
-  // Export button (lib/downloadDiscussionExport.ts).
+  // download itself is in lib/downloadDiscussionExport.ts.
   async function handleExportDiscussion(discussionId: string, name: string) {
     setExportError(null);
     if (!(await downloadDiscussionExport(discussionId))) {

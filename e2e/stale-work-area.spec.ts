@@ -229,9 +229,6 @@ async function expectWorkAreaCleared(page: Page, message: string) {
   await expect(
     header.getByRole("button", { name: "Run", exact: true }),
   ).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "Export discussion" }),
-  ).toHaveCount(0);
   await expect(header.getByRole("button", { name: "Settings" })).toBeDisabled();
 }
 
