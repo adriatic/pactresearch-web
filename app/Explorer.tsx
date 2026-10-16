@@ -119,6 +119,7 @@ export function Explorer({
   onNotebookDeleted,
   onDiscussionDeleted,
   onDiscussionRenamed,
+  onNotebookRenamed,
   onDiscussionCreated,
   isRunning,
   refetchToken,
@@ -143,10 +144,14 @@ export function Explorer({
     deletedDiscussionIds: string[],
   ) => void;
   onDiscussionDeleted: (discussionId: string) => void;
-  // Task 54. Only discussions need this: the header shows the active
-  // discussion's name, and nothing outside this tree renders a
-  // notebook's name, so a notebook rename is purely local state here.
+  // Task 54. The header shows the active discussion's name, so a
+  // discussion rename has to reach it; nothing outside this tree renders
+  // a notebook's name (but see onNotebookRenamed, Task 95).
   onDiscussionRenamed: (discussionId: string, name: string) => void;
+  // Task 95. A notebook rename still changes only this tree, but the
+  // work area has to hear of it: like any action here, it clears the
+  // "deleted in another tab" notice.
+  onNotebookRenamed: (notebookId: string) => void;
   // Task 60. Adding a discussion moved into the row menu, so Explorer
   // now needs the same callback NotebookCreator used to own -- it
   // selects the new discussion and refetches the tree.
@@ -430,6 +435,7 @@ export function Explorer({
           notebook.id === target.id ? { ...notebook, name: stored } : notebook,
         ),
       );
+      onNotebookRenamed(target.id);
     } else {
       setDiscussions((current) =>
         current.map((discussion) =>
