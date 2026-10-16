@@ -131,6 +131,12 @@ export function Workspace({
   // another tab or window. The work area then shows only this notice in
   // place of the title line, the prompt box and the prompt and response
   // panel. Cleared by picking anything else.
+  //
+  // Task 95: and by any other action in the tree or New Notebook --
+  // a delete, a rename, an add -- after which the work area looks as
+  // on a fresh start. Nik saw it stay, old prompt and all, after
+  // deleting the notebook that had held the vanished discussion.
+  // Cancelling a dialog, or doing nothing, keeps it.
   const [goneNotice, setGoneNotice] = useState<GoneNoticeState | null>(null);
   // Task 91. How many notebooks the tree holds, reported by Explorer after
   // each load; null until the first load, so the no-discussion hint is not
@@ -230,6 +236,7 @@ export function Workspace({
     notebookId: string,
     deletedDiscussionIds: string[],
   ) {
+    setGoneNotice(null);
     if (
       activeDiscussionId &&
       deletedDiscussionIds.includes(activeDiscussionId)
@@ -248,6 +255,7 @@ export function Workspace({
   }
 
   function handleDiscussionDeleted(discussionId: string) {
+    setGoneNotice(null);
     if (activeDiscussionId === discussionId) {
       setActiveDiscussionId(null);
     }
@@ -303,7 +311,14 @@ export function Workspace({
     setShowSettings(false);
   }
 
+  // Task 95. Nothing else shows a notebook's name outside the tree; a
+  // notebook rename only has to clear the notice.
+  function handleNotebookRenamed() {
+    setGoneNotice(null);
+  }
+
   function handleDiscussionRenamed(discussionId: string, name: string) {
+    setGoneNotice(null);
     if (activeDiscussionId === discussionId) {
       execution.setDiscussionName(name);
     }
@@ -468,6 +483,7 @@ export function Workspace({
                   onNotebookDeleted={handleNotebookDeleted}
                   onDiscussionDeleted={handleDiscussionDeleted}
                   onDiscussionRenamed={handleDiscussionRenamed}
+                  onNotebookRenamed={handleNotebookRenamed}
                   onDiscussionCreated={handleDiscussionCreated}
                   isRunning={execution.loading}
                   refetchToken={discussionListRefetchToken}
@@ -539,7 +555,15 @@ export function Workspace({
             }
           >
             <strong>PACT</strong>{" "}
-            <button type="button" onClick={() => setShowNewNotebook(true)}>
+            {/* Task 95: pressing New Notebook clears the notice too,
+                even if the dialog is then cancelled. */}
+            <button
+              type="button"
+              onClick={() => {
+                setGoneNotice(null);
+                setShowNewNotebook(true);
+              }}
+            >
               New Notebook
             </button>{" "}
             {/* Acts on whatever discussion is currently selected, using
