@@ -168,19 +168,16 @@ for (const width of [1512, 1440, 1280, 1080, 800]) {
     expect(select.border).toBe(model.border);
     expect(Math.abs(select.height - model.height)).toBeLessThanOrEqual(1);
 
-    // The discussion header: Export at the right end, with the run status
-    // dot right beside it rather than floating mid-row.
+    // The discussion header: the run status dot at the right end rather
+    // than floating mid-row. Task 96 removed the Export button that sat
+    // beside it.
     const group = page.getByRole("group", { name: "Active discussion" });
     const groupBox = (await group.boundingBox())!;
-    const exportBox = (await group
-      .getByRole("button", { name: "Export discussion", exact: true })
-      .boundingBox())!;
     const statusBox = (await group.getByRole("status").boundingBox())!;
     expect(
-      groupBox.x + groupBox.width - (exportBox.x + exportBox.width),
+      groupBox.x + groupBox.width - (statusBox.x + statusBox.width),
     ).toBeLessThanOrEqual(16);
-    expect(exportBox.x - (statusBox.x + statusBox.width)).toBeGreaterThan(0);
-    expect(exportBox.x - (statusBox.x + statusBox.width)).toBeLessThan(24);
+    await expect(group.getByRole("button")).toHaveCount(0);
 
     // Room above the composer: its box starts at least 10px below the
     // discussion name (it was 4px).

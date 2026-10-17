@@ -2,9 +2,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { downloadDiscussionExport } from "@/lib/downloadDiscussionExport";
 
-// Task 65 follow-up. This helper is what the Explorer's row menu and
-// the active-discussion header's Export button now share, so a bug here
-// is a bug in both. jsdom has no object-URL implementation, hence the
+// Task 65 follow-up. This helper is what the Explorer's discussion row
+// menu uses for Export (Task 96 removed the header's Export button,
+// which shared it). jsdom has no object-URL implementation, hence the
 // stubs; everything else is the real code path.
 
 let clicked: HTMLAnchorElement[] = [];
