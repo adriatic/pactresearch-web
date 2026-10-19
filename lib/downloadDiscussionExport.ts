@@ -3,15 +3,17 @@
 // shared with an Export button on the active-discussion header until
 // Task 96 removed that button.)
 //
-// Browser-only (it needs document and URL.createObjectURL), so it lives
-// apart from lib/discussionMarkdown.ts, which is pure and runs on the
-// server.
+// Browser-only (its last step, lib/saveOrShareFile.ts, needs the
+// document or the share sheet), so it lives apart from
+// lib/discussionMarkdown.ts, which is pure and runs on the server.
 //
 // Returns false rather than throwing: the caller shows its own inline
 // message, and does not want an unhandled rejection if the network
 // drops. The route's own error body is deliberately not surfaced -- the
 // caller phrases the failure in terms of the discussion the user
 // clicked on, which is more use than a status code.
+import { saveOrShareFile } from "@/lib/saveOrShareFile";
+
 export async function downloadDiscussionExport(
   discussionId: string,
 ): Promise<boolean> {
@@ -26,17 +28,17 @@ export async function downloadDiscussionExport(
     return false;
   }
 
-  const url = URL.createObjectURL(
-    new Blob([payload.markdown], { type: "text/markdown;charset=utf-8" }),
-  );
-  const link = document.createElement("a");
-  link.href = url;
   // The server names the file, so the convention lives in exactly one
   // place (lib/discussionMarkdown.ts) rather than here and there.
-  link.download = payload.filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  const file = new File([payload.markdown], payload.filename, {
+    type: "text/markdown;charset=utf-8",
+  });
+  // Task 100: share sheet on an iPad or iPhone, download elsewhere. A
+  // cancelled sheet still counts as success: no error message for it.
+  try {
+    await saveOrShareFile(file);
+  } catch {
+    return false;
+  }
   return true;
 }
