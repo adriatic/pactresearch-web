@@ -17,6 +17,7 @@ import {
 import type { ActivityRollup } from "@/lib/activityRollup";
 import { formatRollupTotal } from "@/lib/formatActivity";
 import { downloadDiscussionExport } from "@/lib/downloadDiscussionExport";
+import { saveOrShareFile } from "@/lib/saveOrShareFile";
 
 // Phase D's real notebook tree — ports the core behavior of pact-mac's
 // Explorer.tsx (reviewed in full per 3.13 development-plan §3.13; the
@@ -462,23 +463,23 @@ export function Explorer({
       return;
     }
     const pactExport = await response.json();
-    const blob = new Blob([JSON.stringify(pactExport, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
     // Same sanitization concern as any user-provided string ending up in
     // a filename -- strip anything that isn't safe across filesystems,
     // collapse the rest to single hyphens.
     const safeName = name
       .replace(/[^a-zA-Z0-9-_]+/g, "-")
       .replace(/^-+|-+$/g, "");
-    link.download = `${safeName || "notebook"}.pact`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const file = new File(
+      [JSON.stringify(pactExport, null, 2)],
+      `${safeName || "notebook"}.pact`,
+      { type: "application/json" },
+    );
+    // Task 100: share sheet on an iPad or iPhone, download elsewhere.
+    try {
+      await saveOrShareFile(file);
+    } catch {
+      setExportError(`Failed to export "${name}".`);
+    }
   }
 
   // Task 65. Per-discussion export, and deliberately not a .pact file:
