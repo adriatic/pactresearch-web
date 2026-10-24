@@ -19,6 +19,8 @@ export function DiscussionContent({
   streamedResponseCreatedAt,
   isStreaming,
   executionError,
+  onRetry,
+  loading,
 }: {
   discussionId: string | null;
   discussionName: string | null;
@@ -28,6 +30,18 @@ export function DiscussionContent({
   streamedResponseCreatedAt: string | null;
   isStreaming: boolean;
   executionError: string | null;
+  // Re-runs this entry's own stored prompt verbatim as a new response in
+  // this same discussion (task 35) -- only ever offered on a completed
+  // History entry, never on the transient "Live response" section below
+  // (a still-streaming response has no stable identity worth retrying
+  // while incomplete).
+  onRetry: (entry: PastResponse) => void;
+  // Disables every Retry button while any execution is in flight --
+  // matches the header Run button's own disabled-while-busy gating
+  // (execution.loading is shared by run() and retry() alike, since only
+  // one execution can be in flight per user at a time regardless of
+  // which triggered it).
+  loading: boolean;
 }) {
   return (
     <main>
@@ -63,6 +77,13 @@ export function DiscussionContent({
                 {` — ${new Date(entry.created_at).toLocaleString()}`}:
               </p>
               <MarkdownResponse content={entry.response ?? ""} />
+              <button
+                type="button"
+                onClick={() => onRetry(entry)}
+                disabled={loading}
+              >
+                Retry
+              </button>
             </div>
           ))}
         </div>

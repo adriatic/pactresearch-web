@@ -302,6 +302,8 @@ export function Workspace({
                 streamedResponseCreatedAt={execution.streamedResponseCreatedAt}
                 isStreaming={execution.isStreaming}
                 executionError={execution.executionError}
+                onRetry={execution.retry}
+                loading={execution.loading}
               />
             </Panel>
           </Group>
