@@ -63,3 +63,6 @@ where the rules live.
   Mac-only.
 - Branch deletion is refused by the proxy, so Nik deletes old branches on
   GitHub's website.
+- In a cloud session, install packages with npm ci, never with npm install.
+  Never change package-lock.json; if it has changed, restore it with git
+  checkout before you commit.
