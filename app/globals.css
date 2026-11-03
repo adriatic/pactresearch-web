@@ -3,6 +3,57 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Task D10. Every colour the app uses, named by its role. Components
+     read these through var(--...) instead of writing the value in, so a
+     second set of values (D11, dark) can change the whole app at once.
+     The values are exactly the ones that were hard-coded before. Each
+     name is a role, not a colour: two roles may share a value today
+     (--border-control and --text-faint are both #888) and still differ
+     in another theme. Tailwind's own theme namespaces (--color-*,
+     --text-{size}, --shadow-*) are avoided on purpose. */
+
+  /* Surfaces */
+  --surface: #fff; /* dialogs, menus */
+  --surface-translucent: rgba(255, 255, 255, 0.85); /* build badge */
+  --surface-veil: rgba(255, 255, 255, 0.75); /* .pact drop zone */
+  --overlay: rgba(0, 0, 0, 0.3); /* behind a dialog */
+  --overlay-strong: rgba(0, 0, 0, 0.5); /* behind Report a problem */
+  --selected: #dbe9ff; /* selected Explorer row */
+  --menu-shadow-color: rgba(0, 0, 0, 0.15);
+
+  /* Lines */
+  --border: #ccc; /* text fields, framed groups */
+  --border-subtle: #ddd; /* rows inside a list */
+  --border-strong: #999; /* dialog and menu frames */
+  --border-control: #888; /* buttons, composer, drop zone */
+  --divider: #ccc; /* the draggable pane separators */
+
+  /* Text */
+  --text-strong: #333;
+  --text-secondary: #444;
+  --text-muted: #666; /* hints, labels, the build badge */
+  --text-faint: #888; /* placeholders, "Thinking", empty lists */
+  --text-disabled: #999; /* an option that is switched off */
+
+  /* Controls */
+  --button-bg: #f0f0f0;
+  --button-hover: #e0e0e0;
+  --primary-bg: #000; /* the sign-in pages' main button */
+  --primary-text: #fff;
+
+  /* States */
+  --danger: #a00;
+  --danger-bg: #fff5f5;
+  --success: #060;
+  --notice-danger-bg: #fdf0f0; /* sign-in error box */
+  --notice-danger-border: #c99;
+  --notice-danger-text: #7a1f1f;
+  --badge-bg: #d97706; /* "running" badge in the Explorer */
+  --badge-text: #fff;
+  --status-running: #e05252; /* the run status dot */
+  --status-idle: #4ec94e;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
@@ -55,16 +106,16 @@ section[role="dialog"] {
    text, indistinguishable from static content. */
 button {
   padding: 6px 12px;
-  border: 1px solid #888;
+  border: 1px solid var(--border-control);
   border-radius: 4px;
-  background: #f0f0f0;
+  background: var(--button-bg);
   color: inherit;
   font: inherit;
   cursor: pointer;
 }
 
 button:hover:not(:disabled) {
-  background: #e0e0e0;
+  background: var(--button-hover);
 }
 
 button:disabled {
@@ -108,7 +159,7 @@ input:not(
 textarea,
 select {
   padding: 6px 8px;
-  border: 1px solid #ccc;
+  border: 1px solid var(--border);
   border-radius: 4px;
 }
 
@@ -122,9 +173,12 @@ select.toolbar-select {
   appearance: none;
   -webkit-appearance: none;
   padding: 6px 30px 6px 12px;
-  border: 1px solid #888;
+  border: 1px solid var(--border-control);
   border-radius: 4px;
-  background-color: #f0f0f0;
+  background-color: var(--button-bg);
+  /* Task D10: the arrow's colour (%23333, i.e. #333) stays written into
+     the SVG -- a data URL cannot read a CSS variable. D11 swaps it per
+     theme (a second url(), or a mask with background-color). */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23333' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
@@ -135,7 +189,7 @@ select.toolbar-select {
 }
 
 select.toolbar-select:hover:not(:disabled) {
-  background-color: #e0e0e0;
+  background-color: var(--button-hover);
 }
 
 select.toolbar-select:disabled {

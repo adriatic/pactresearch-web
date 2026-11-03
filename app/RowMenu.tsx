@@ -149,15 +149,15 @@ export function RowMenu({
             top: position.top,
             left: position.left,
             zIndex: 1100,
-            background: "#fff",
-            border: "1px solid #999",
+            background: "var(--surface)",
+            border: "1px solid var(--border-strong)",
             borderRadius: 4,
             padding: 4,
             minWidth: 160,
             display: "flex",
             flexDirection: "column",
             gap: 2,
-            boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
+            boxShadow: "0 2px 8px var(--menu-shadow-color)",
           }}
         >
           {items.map((item) => (
@@ -175,7 +175,7 @@ export function RowMenu({
                 border: "none",
                 background: "transparent",
                 borderRadius: 3,
-                color: item.destructive ? "#a00" : "inherit",
+                color: item.destructive ? "var(--danger)" : "inherit",
               }}
             >
               {item.label}

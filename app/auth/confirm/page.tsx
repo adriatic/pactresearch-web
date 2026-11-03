@@ -56,8 +56,8 @@ export default async function ConfirmPage({
               padding: "10px",
               fontSize: "16px",
               borderRadius: "6px",
-              background: "#000",
-              color: "#fff",
+              background: "var(--primary-bg)",
+              color: "var(--primary-text)",
               border: "none",
               cursor: "pointer",
             }}

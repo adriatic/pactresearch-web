@@ -179,7 +179,7 @@ export function SettingsDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.3)",
+        background: "var(--overlay)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -188,8 +188,8 @@ export function SettingsDialog({
     >
       <section
         style={{
-          background: "#fff",
-          border: "1px solid #999",
+          background: "var(--surface)",
+          border: "1px solid var(--border-strong)",
           padding: 16,
           width: 480,
           maxWidth: "90vw",
@@ -202,7 +202,13 @@ export function SettingsDialog({
             an explicit Save button, exactly like this dialog. Rather
             than reproduce the inaccuracy, this says what the dialog
             actually is. */}
-        <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
+        <p
+          style={{
+            marginTop: 0,
+            color: "var(--text-muted)",
+            fontSize: "0.9em",
+          }}
+        >
           The system prompt below applies to every prompt run in this notebook.
         </p>
         <label>
@@ -237,7 +243,7 @@ export function SettingsDialog({
             </button>
           </div>
         </label>
-        {refineError && <p style={{ color: "#a00" }}>{refineError}</p>}
+        {refineError && <p style={{ color: "var(--danger)" }}>{refineError}</p>}
         <br />
         <label>
           System prompt:
@@ -256,7 +262,7 @@ export function SettingsDialog({
             style={{ width: "100%", boxSizing: "border-box" }}
           />
         </label>
-        {error && <p style={{ color: "#a00" }}>{error}</p>}
+        {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
         <div>
           <button type="button" onClick={onClose} disabled={saving}>
             Cancel

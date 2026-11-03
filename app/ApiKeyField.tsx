@@ -179,8 +179,10 @@ export function ApiKeyField({
         </div>
       </label>
 
-      {keyError && <p style={{ color: "#a00" }}>{keyError}</p>}
-      {keySaved && !keyError && <p style={{ color: "#060" }}>API key saved.</p>}
+      {keyError && <p style={{ color: "var(--danger)" }}>{keyError}</p>}
+      {keySaved && !keyError && (
+        <p style={{ color: "var(--success)" }}>API key saved.</p>
+      )}
     </>
   );
 }

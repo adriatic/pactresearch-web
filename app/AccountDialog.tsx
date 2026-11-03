@@ -139,7 +139,7 @@ export function AccountDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.3)",
+        background: "var(--overlay)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -150,8 +150,8 @@ export function AccountDialog({
         role="dialog"
         aria-label="Account"
         style={{
-          background: "#fff",
-          border: "1px solid #999",
+          background: "var(--surface)",
+          border: "1px solid var(--border-strong)",
           padding: 16,
           width: 480,
           maxWidth: "90vw",
@@ -246,8 +246,10 @@ export function AccountDialog({
               />
             </label>
 
-            {error && <p style={{ color: "#a00" }}>{error}</p>}
-            {saved && !error && <p style={{ color: "#060" }}>Profile saved.</p>}
+            {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+            {saved && !error && (
+              <p style={{ color: "var(--success)" }}>Profile saved.</p>
+            )}
 
             <div>
               <button type="button" onClick={onClose} disabled={saving}>
@@ -266,7 +268,13 @@ export function AccountDialog({
 
         {tab === "keys" && (
           <div role="tabpanel" aria-label="Keys">
-            <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
+            <p
+              style={{
+                marginTop: 0,
+                color: "var(--text-muted)",
+                fontSize: "0.9em",
+              }}
+            >
               Your runs use your own Anthropic key. Get one at{" "}
               <a
                 href="https://console.anthropic.com"
@@ -297,7 +305,7 @@ export function AccountDialog({
                 ChatGPT (optional)
               </summary>
               <div role="group" aria-label="OpenAI key">
-                <p style={{ color: "#666", fontSize: "0.9em" }}>
+                <p style={{ color: "var(--text-muted)", fontSize: "0.9em" }}>
                   Only needed to run prompts on ChatGPT. Get a key at{" "}
                   <a
                     href="https://platform.openai.com/api-keys"

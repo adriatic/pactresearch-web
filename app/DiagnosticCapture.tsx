@@ -118,7 +118,7 @@ export function DiagnosticCapture() {
             position: "fixed",
             inset: 0,
             zIndex: 2147483100,
-            background: "rgba(0,0,0,0.5)",
+            background: "var(--overlay-strong)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -130,9 +130,9 @@ export function DiagnosticCapture() {
         >
           <div
             style={{
-              background: "var(--background, #fff)",
-              color: "var(--foreground, #171717)",
-              border: "1px solid #888",
+              background: "var(--background)",
+              color: "var(--foreground)",
+              border: "1px solid var(--border-control)",
               borderRadius: 6,
               width: "min(900px, 100%)",
               maxHeight: "100%",

@@ -32,8 +32,8 @@ export function BuildBadge() {
     // readable at a glance, not competing with the controls.
     fontSize: "0.75em",
     fontFamily: "monospace",
-    color: "#666",
-    background: "rgba(255, 255, 255, 0.85)",
+    color: "var(--text-muted)",
+    background: "var(--surface-translucent)",
     padding: "1px 4px",
     borderRadius: 3,
   };
