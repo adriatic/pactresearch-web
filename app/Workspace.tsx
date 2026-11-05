@@ -495,7 +495,11 @@ export function Workspace({
             {/* Same 4px/#ccc treatment as the other two separators;
                 row-resize because this Group stacks vertically. */}
             <Separator
-              style={{ height: 4, cursor: "row-resize", background: "#ccc" }}
+              style={{
+                height: 4,
+                cursor: "row-resize",
+                background: "var(--divider)",
+              }}
             />
             <Panel defaultSize={220} minSize={96}>
               <TouchScroll>
@@ -509,7 +513,11 @@ export function Workspace({
           </Group>
         </Panel>
         <Separator
-          style={{ width: 4, cursor: "col-resize", background: "#ccc" }}
+          style={{
+            width: 4,
+            cursor: "col-resize",
+            background: "var(--divider)",
+          }}
         />
         <Panel
           style={{
@@ -661,7 +669,7 @@ export function Workspace({
               </label>
             </span>{" "}
             {llm.error && (
-              <span role="alert" style={{ color: "#a00" }}>
+              <span role="alert" style={{ color: "var(--danger)" }}>
                 {llm.error}
               </span>
             )}{" "}
@@ -735,7 +743,7 @@ export function Workspace({
                           gap: 8,
                           padding: "4px 8px",
                           fontSize: "0.85em",
-                          color: "#444",
+                          color: "var(--text-secondary)",
                         }}
                       >
                         <span data-context-summary>
@@ -764,7 +772,7 @@ export function Workspace({
                   style={{
                     height: 4,
                     cursor: "row-resize",
-                    background: "#ccc",
+                    background: "var(--divider)",
                   }}
                 />
                 <Panel>

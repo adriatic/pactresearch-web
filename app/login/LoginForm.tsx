@@ -83,10 +83,10 @@ export function LoginForm({ problem }: { problem: string | null }) {
             boxSizing: "border-box",
             margin: "0 0 12px",
             padding: "10px",
-            border: "1px solid #c99",
+            border: "1px solid var(--notice-danger-border)",
             borderRadius: "6px",
-            background: "#fdf0f0",
-            color: "#7a1f1f",
+            background: "var(--notice-danger-bg)",
+            color: "var(--notice-danger-text)",
             fontSize: "15px",
             lineHeight: 1.4,
           }}
@@ -113,7 +113,7 @@ export function LoginForm({ problem }: { problem: string | null }) {
             padding: "10px",
             fontSize: "16px",
             borderRadius: "6px",
-            border: "1px solid #ccc",
+            border: "1px solid var(--border)",
           }}
         />
         <button
@@ -123,8 +123,8 @@ export function LoginForm({ problem }: { problem: string | null }) {
             padding: "10px",
             fontSize: "16px",
             borderRadius: "6px",
-            background: "#000",
-            color: "#fff",
+            background: "var(--primary-bg)",
+            color: "var(--primary-text)",
             border: "none",
             cursor: "pointer",
           }}

@@ -32,7 +32,9 @@ export function ImportStatus({
       ) : summary ? (
         <>
           <strong
-            style={{ color: summary.problems.length ? "#a00" : "inherit" }}
+            style={{
+              color: summary.problems.length ? "var(--danger)" : "inherit",
+            }}
           >
             {summary.headline}
           </strong>{" "}

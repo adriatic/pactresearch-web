@@ -107,7 +107,7 @@ function placeholderText(): string {
 const PLACEHOLDER_STYLE = `
 .tiptap p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
-  color: #888;
+  color: var(--text-faint);
   float: left;
   height: 0;
   pointer-events: none;
@@ -442,7 +442,7 @@ export function Composer({
         // functional the whole time (accepts focus, typing, Run enables
         // correctly), it's simply invisible when there's nothing typed
         // into it yet.
-        border: "1px solid #888",
+        border: "1px solid var(--border-control)",
         boxSizing: "border-box",
       }}
     >

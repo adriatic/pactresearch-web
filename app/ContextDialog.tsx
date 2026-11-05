@@ -97,7 +97,11 @@ export function ContextDialog({
       <h2 style={{ marginTop: 0 }}>What to send with this question</h2>
       <p
         data-context-dialog-summary
-        style={{ marginTop: 0, color: "#444", minHeight: "2.6em" }}
+        style={{
+          marginTop: 0,
+          color: "var(--text-secondary)",
+          minHeight: "2.6em",
+        }}
       >
         {plan ? contextSummary(plan) : "Working it out…"}
       </p>
@@ -137,7 +141,10 @@ export function ContextDialog({
             <li
               key={turn.id}
               data-context-turn={number}
-              style={{ borderTop: "1px solid #ddd", padding: "4px 0" }}
+              style={{
+                borderTop: "1px solid var(--border-subtle)",
+                padding: "4px 0",
+              }}
             >
               <label style={ROW}>
                 <input
@@ -155,7 +162,7 @@ export function ContextDialog({
                   style={{
                     ...ROW,
                     paddingLeft: 32,
-                    color: on ? "inherit" : "#999",
+                    color: on ? "inherit" : "var(--text-disabled)",
                   }}
                 >
                   <input

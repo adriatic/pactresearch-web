@@ -123,7 +123,9 @@ export function AddDiscussionDialog({
   return (
     <DialogFrame label="Add discussion" onCancel={onCancel} busy={saving}>
       <h2 style={{ marginTop: 0 }}>Add discussion</h2>
-      <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
+      <p
+        style={{ marginTop: 0, color: "var(--text-muted)", fontSize: "0.9em" }}
+      >
         It will be added to <strong>{target.notebookName}</strong>, after the
         discussions already there.
       </p>
@@ -149,7 +151,7 @@ export function AddDiscussionDialog({
         />
       </label>
 
-      {error && <p style={{ color: "#a00" }}>{error}</p>}
+      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
 
       <div style={{ marginTop: 12 }}>
         <button type="button" onClick={onCancel} disabled={saving}>

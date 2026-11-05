@@ -38,7 +38,7 @@ export function DialogFrame({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.3)",
+        background: "var(--overlay)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -50,8 +50,8 @@ export function DialogFrame({
         aria-modal="true"
         aria-label={label}
         style={{
-          background: "#fff",
-          border: "1px solid #999",
+          background: "var(--surface)",
+          border: "1px solid var(--border-strong)",
           padding: 16,
           width: 420,
           maxWidth: "90vw",

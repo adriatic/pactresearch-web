@@ -82,13 +82,13 @@ export function PactDropZone({
         inset: 0,
         zIndex: 2000,
         pointerEvents: "none",
-        background: "rgba(255, 255, 255, 0.75)",
-        border: "3px dashed #888",
+        background: "var(--surface-veil)",
+        border: "3px dashed var(--border-control)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontSize: "1.4em",
-        color: "#333",
+        color: "var(--text-strong)",
       }}
     >
       Drop .pact files to import

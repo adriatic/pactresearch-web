@@ -29,8 +29,8 @@ import { useEffect, useState } from "react";
 // "green means active" convention. Kept faithful to the reference on
 // purpose; see this task's status report, which flags the discrepancy
 // with the task brief's own description of it.
-const RUNNING_COLOR = "#e05252";
-const IDLE_COLOR = "#4ec94e";
+const RUNNING_COLOR = "var(--status-running)";
+const IDLE_COLOR = "var(--status-idle)";
 
 // Ticks well under a second so the displayed whole-second value flips
 // close to its real boundary rather than lagging by up to a full second,
@@ -204,7 +204,7 @@ export function ComposerHeader({
       {discussionId && activitySummary && (
         <span
           style={{
-            color: "#666",
+            color: "var(--text-muted)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",

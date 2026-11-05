@@ -234,14 +234,14 @@ export function NotebookCreator({
           trace is an action users conclude was removed -- this panel is
           exactly where someone who knows the old flow will look. */}
       {!SHOW_LEGACY_ADD_DISCUSSION_PANEL && (
-        <p style={{ color: "#666" }}>
+        <p style={{ color: "var(--text-muted)" }}>
           To add a discussion, use the three-dots menu on a notebook in the
           Explorer above.
         </p>
       )}
 
       {SHOW_LEGACY_ADD_DISCUSSION_PANEL && !selectedNotebookId && (
-        <p style={{ color: "#666" }}>
+        <p style={{ color: "var(--text-muted)" }}>
           Select a notebook to add a discussion, or use New Notebook above.
         </p>
       )}

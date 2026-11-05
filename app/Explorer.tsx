@@ -747,7 +747,7 @@ export function Explorer({
                 key={item.getId()}
                 style={{
                   padding: `2px 8px 2px ${paddingLeft}px`,
-                  color: "#888",
+                  color: "var(--text-faint)",
                 }}
               >
                 No discussions yet.
@@ -779,7 +779,7 @@ export function Explorer({
                   gap: 6,
                   padding: `4px 8px 4px ${paddingLeft}px`,
                   cursor: "pointer",
-                  background: isSelected ? "#dbe9ff" : "transparent",
+                  background: isSelected ? "var(--selected)" : "transparent",
                 }}
               >
                 <span
@@ -819,7 +819,7 @@ export function Explorer({
                       style={{
                         display: "block",
                         fontSize: "0.75em",
-                        color: "#666",
+                        color: "var(--text-muted)",
                       }}
                     >
                       {rollupText}
@@ -891,8 +891,8 @@ export function Explorer({
                   style={{
                     fontSize: "0.75em",
                     fontWeight: "bold",
-                    color: "#fff",
-                    background: "#d97706",
+                    color: "var(--badge-text)",
+                    background: "var(--badge-bg)",
                     borderRadius: 3,
                     padding: "1px 6px",
                   }}

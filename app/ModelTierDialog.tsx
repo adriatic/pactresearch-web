@@ -90,7 +90,7 @@ export function ModelTierDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.3)",
+        background: "var(--overlay)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -101,8 +101,8 @@ export function ModelTierDialog({
         role="dialog"
         aria-label="Model tier"
         style={{
-          background: "#fff",
-          border: "1px solid #999",
+          background: "var(--surface)",
+          border: "1px solid var(--border-strong)",
           padding: 16,
           width: 480,
           maxWidth: "90vw",
@@ -110,7 +110,13 @@ export function ModelTierDialog({
         }}
       >
         <h2 style={{ marginTop: 0 }}>Model tier</h2>
-        <p style={{ marginTop: 0, color: "#666", fontSize: "0.9em" }}>
+        <p
+          style={{
+            marginTop: 0,
+            color: "var(--text-muted)",
+            fontSize: "0.9em",
+          }}
+        >
           Choosing a tier applies it right away. Models shown for{" "}
           {LLM_PROVIDERS[provider].label}.
         </p>
@@ -139,14 +145,14 @@ export function ModelTierDialog({
                 {model}
               </span>
               <br />
-              <span style={{ color: "#666", fontSize: "0.9em" }}>
+              <span style={{ color: "var(--text-muted)", fontSize: "0.9em" }}>
                 {description}
               </span>
             </button>
           );
         })}
 
-        {error && <p style={{ color: "#a00" }}>{error}</p>}
+        {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
 
         <button type="button" onClick={onClose} disabled={applying !== null}>
           Cancel

@@ -102,7 +102,7 @@ export function RenameDialog({
         />
       </label>
 
-      {error && <p style={{ color: "#a00" }}>{error}</p>}
+      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
 
       <div style={{ marginTop: 12 }}>
         <button type="button" onClick={onCancel} disabled={saving}>

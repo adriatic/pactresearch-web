@@ -52,7 +52,7 @@ const THINKING_STYLE = `
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #888;
+  color: var(--text-faint);
   font-size: 0.9rem;
   padding: 0.75rem 0;
 }
@@ -193,7 +193,7 @@ export function DiscussionContent({
                     data-llm-label
                     style={{
                       marginLeft: 8,
-                      color: "#666",
+                      color: "var(--text-muted)",
                       fontSize: "0.85em",
                     }}
                   >
@@ -214,7 +214,10 @@ export function DiscussionContent({
                     {(entry.turns_left_out ?? 0) > 0 && (
                       <p
                         data-history-left-out
-                        style={{ color: "#666", fontSize: "0.85em" }}
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: "0.85em",
+                        }}
                       >
                         {historyLeftOutNote(entry.turns_left_out!)}
                       </p>
@@ -251,7 +254,7 @@ export function DiscussionContent({
                 ) : (
                   <p
                     data-no-response
-                    style={{ color: "#666", fontStyle: "italic" }}
+                    style={{ color: "var(--text-muted)", fontStyle: "italic" }}
                   >
                     No response — this prompt was never run.
                   </p>
@@ -294,9 +297,9 @@ export function DiscussionContent({
         <p
           role="alert"
           style={{
-            border: "1px solid #a00",
-            background: "#fff5f5",
-            color: "#a00",
+            border: "1px solid var(--danger)",
+            background: "var(--danger-bg)",
+            color: "var(--danger)",
             padding: "8px 12px",
             margin: "12px 0",
           }}

@@ -264,7 +264,7 @@ export function NewNotebookDialog({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0, 0, 0, 0.3)",
+        background: "var(--overlay)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -275,8 +275,8 @@ export function NewNotebookDialog({
         role="dialog"
         aria-label="New notebook"
         style={{
-          background: "#fff",
-          border: "1px solid #999",
+          background: "var(--surface)",
+          border: "1px solid var(--border-strong)",
           padding: 16,
           width: 520,
           maxWidth: "90vw",
@@ -300,7 +300,11 @@ export function NewNotebookDialog({
 
         <fieldset
           disabled={creating}
-          style={{ border: "1px solid #ccc", margin: "8px 0", padding: 8 }}
+          style={{
+            border: "1px solid var(--border)",
+            margin: "8px 0",
+            padding: 8,
+          }}
         >
           <legend>Execution mode</legend>
           {EXECUTION_MODES.map((mode) => (
@@ -314,7 +318,7 @@ export function NewNotebookDialog({
                 onChange={() => setExecutionMode(mode.value)}
               />{" "}
               {mode.label}{" "}
-              <span style={{ color: "#666", fontSize: "0.9em" }}>
+              <span style={{ color: "var(--text-muted)", fontSize: "0.9em" }}>
                 — {mode.hint}
               </span>
             </label>
@@ -386,12 +390,24 @@ export function NewNotebookDialog({
             </div>
           </label>
           {refining && (
-            <p style={{ margin: "4px 0 0", color: "#666", fontSize: "0.85em" }}>
+            <p
+              style={{
+                margin: "4px 0 0",
+                color: "var(--text-muted)",
+                fontSize: "0.85em",
+              }}
+            >
               Drafting a system prompt…
             </p>
           )}
           {refineError && (
-            <p style={{ margin: "4px 0 0", color: "#a00", fontSize: "0.85em" }}>
+            <p
+              style={{
+                margin: "4px 0 0",
+                color: "var(--danger)",
+                fontSize: "0.85em",
+              }}
+            >
               {refineError}
             </p>
           )}
@@ -450,14 +466,20 @@ export function NewNotebookDialog({
             carries a comment about avoiding exactly this collision,
             and a second status node would be a strict-mode violation
             waiting for the first spec that opens this modal. */}
-        <p style={{ margin: "4px 0 0", color: "#666", fontSize: "0.85em" }}>
+        <p
+          style={{
+            margin: "4px 0 0",
+            color: "var(--text-muted)",
+            fontSize: "0.85em",
+          }}
+        >
           {systemPrompt.trim()
             ? "System prompt set — it will apply to every prompt run in this notebook."
             : "No system prompt — runs in this notebook use none. You can add one later in Settings."}
         </p>
         <br />
 
-        {error && <p style={{ color: "#a00" }}>{error}</p>}
+        {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
 
         <div style={{ marginTop: 12 }}>
           <button type="button" onClick={onClose} disabled={creating}>
