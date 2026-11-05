@@ -68,7 +68,24 @@ test("a dark choice is applied before any of the app's JavaScript runs (no light
 test.describe("on a device in dark mode", () => {
   test.use({ colorScheme: "dark" });
 
-  test("the Theme choice in Account: Light by default, applies at once, kept after a reload", async ({
+  test("nothing saved: dark before any of the app's JavaScript runs (no white flash)", async ({
+    page,
+  }) => {
+    // Task D11f. No choice saved, so System applies; the inline script in
+    // <head> must make the page dark on its own, with every script
+    // bundle blocked.
+    await page.route(/\/_next\/static\/.*\.js(\?.*)?$/, (route) =>
+      route.abort(),
+    );
+    await page.goto("/login", { waitUntil: "domcontentloaded" });
+    expect(await page.evaluate(() => localStorage.getItem("pact-theme"))).toBe(
+      null,
+    );
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    expect(luminanceOf(await pageBackground(page))).toBeLessThan(0.05);
+  });
+
+  test("the Theme choice in Account: System by default, applies at once, kept after a reload", async ({
     page,
     context,
   }) => {
@@ -76,7 +93,11 @@ test.describe("on a device in dark mode", () => {
     await page.goto("/");
     await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
     const html = page.locator("html");
-    await expect(html).toHaveAttribute("data-theme", "light");
+    // Task D11f: nothing saved is System, so this dark device gives dark.
+    await expect(html).toHaveAttribute("data-theme", "dark");
+    expect(await page.evaluate(() => localStorage.getItem("pact-theme"))).toBe(
+      null,
+    );
 
     async function openTheme() {
       await page
@@ -89,7 +110,10 @@ test.describe("on a device in dark mode", () => {
     }
 
     let theme = await openTheme();
-    await expect(theme.getByRole("radio", { name: "Light" })).toBeChecked();
+    // Nothing saved: the System round button is filled, the others not.
+    await expect(theme.getByRole("radio", { name: "System" })).toBeChecked();
+    await expect(theme.getByRole("radio", { name: "Light" })).not.toBeChecked();
+    await expect(theme.getByRole("radio", { name: "Dark" })).not.toBeChecked();
     await expect(theme.getByRole("radio")).toHaveCount(3);
 
     await theme.getByRole("radio", { name: "Dark" }).check();
@@ -105,10 +129,17 @@ test.describe("on a device in dark mode", () => {
     theme = await openTheme();
     await expect(theme.getByRole("radio", { name: "Dark" })).toBeChecked();
 
-    // Light on a dark device stays light (the Task 75 iPad case).
+    // Light on a dark device stays light (the Task 75 iPad case), also
+    // after a reload.
     await theme.getByRole("radio", { name: "Light" }).check();
     await expect(html).toHaveAttribute("data-theme", "light");
     expect(luminanceOf(await pageBackground(page))).toBeGreaterThan(0.9);
+    await page.reload();
+    await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
+    await expect(html).toHaveAttribute("data-theme", "light");
+    expect(luminanceOf(await pageBackground(page))).toBeGreaterThan(0.9);
+    theme = await openTheme();
+    await expect(theme.getByRole("radio", { name: "Light" })).toBeChecked();
 
     // System follows the device, which is dark here.
     await theme.getByRole("radio", { name: "System" }).check();

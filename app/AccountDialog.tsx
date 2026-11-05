@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { ApiKeyField } from "./ApiKeyField";
 import {
+  DEFAULT_THEME_CHOICE,
   THEME_CHOICES,
   THEME_LABELS,
   readThemeChoice,
@@ -52,7 +53,7 @@ export function AccountDialog({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   // Task D11. Read from this browser each time the dialog opens (below).
-  const [theme, setTheme] = useState<ThemeChoice>("light");
+  const [theme, setTheme] = useState<ThemeChoice>(DEFAULT_THEME_CHOICE);
 
   // Reset during render when the dialog opens, then fetch in the effect
   // below. Same split SettingsDialog uses: this repo's lint config
@@ -258,7 +259,9 @@ export function AccountDialog({
 
             {/* Task D11. Applies at once and is kept in this browser
                 only, so it is not part of Save: no database, nothing
-                sent anywhere. Light is the default. */}
+                sent anywhere. System is the default (Task D11f): with
+                nothing saved, readThemeChoice gives "system", so that
+                round button is filled. */}
             <fieldset
               style={{
                 margin: "12px 0 0",
@@ -299,8 +302,8 @@ export function AccountDialog({
                   fontSize: "0.9em",
                 }}
               >
-                Applies at once, in this browser only. System follows your
-                device&apos;s light or dark setting.
+                Applies at once, in this browser only. System, the default,
+                follows your device&apos;s light or dark setting.
               </p>
             </fieldset>
 

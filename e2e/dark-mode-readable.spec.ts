@@ -17,7 +17,8 @@ import {
 // theme as a CHOICE (Account, Theme: Light, Dark, System), so this spec
 // now checks each combination of the device's setting and that choice:
 // the page is the theme it should be, and every toolbar label reaches
-// 4.5:1 against the button it is drawn on.
+// 4.5:1 against the button it is drawn on. Since Task D11f nothing chosen
+// is System.
 
 test.setTimeout(60_000);
 
@@ -50,8 +51,11 @@ const CASES: {
   choice: ThemeChoice | null;
   expected: "light" | "dark";
 }[] = [
-  // The Task 75 case: nothing chosen, the iPad in dark mode -> light.
-  { device: "dark", choice: null, expected: "light" },
+  // Task D11f: nothing chosen means System, so the page follows the
+  // device. On the Task 75 iPad (dark mode) that is now the whole dark
+  // set, never the old mix of light buttons and near-white text.
+  { device: "light", choice: null, expected: "light" },
+  { device: "dark", choice: null, expected: "dark" },
   { device: "dark", choice: "light", expected: "light" },
   { device: "light", choice: "dark", expected: "dark" },
   { device: "dark", choice: "system", expected: "dark" },

@@ -3,8 +3,9 @@
 // Stored in this browser only (localStorage, one key), never in the
 // database: a theme is a property of the screen in front of you, the
 // iPad and the Mac may well want different ones, and it needs no
-// migration. Nothing saved means Light, so nobody's page changes until
-// they choose.
+// migration. Task D11f (Nik, 2026-11-05): nothing saved means System, so
+// the page follows the device's light or dark setting until a choice is
+// made; a saved Light or Dark always wins.
 //
 // The choice is applied as data-theme="light" | "dark" on <html>;
 // app/globals.css holds the dark values under :root[data-theme="dark"].
@@ -23,9 +24,11 @@ export const THEME_LABELS: Record<ThemeChoice, string> = {
   system: "System",
 };
 
-// Anything unknown or missing is Light: the default must never surprise.
+// Task D11f: anything unknown or missing is System, the default.
+export const DEFAULT_THEME_CHOICE: ThemeChoice = "system";
+
 export function parseThemeChoice(value: unknown): ThemeChoice {
-  return value === "dark" || value === "system" ? value : "light";
+  return value === "light" || value === "dark" ? value : DEFAULT_THEME_CHOICE;
 }
 
 export function resolveTheme(
@@ -40,8 +43,8 @@ export function readThemeChoice(): ThemeChoice {
   try {
     return parseThemeChoice(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
-    // Storage switched off (some private modes): Light.
-    return "light";
+    // Storage switched off (some private modes): the default, System.
+    return DEFAULT_THEME_CHOICE;
   }
 }
 
@@ -64,8 +67,11 @@ export function saveThemeChoice(choice: ThemeChoice): void {
 
 // Runs in <head> before the page is drawn (app/layout.tsx). Plain ES5,
 // no imports, and it can never break the page: every path is wrapped.
-// It also follows the operating system while System is chosen, and a
-// choice made in another tab of the same browser.
+// It also follows the operating system while System is in force (chosen,
+// or nothing saved), and a choice made in another tab of the same browser.
+// On a dark device with nothing saved it sets dark here, before the first
+// paint, so there is no white flash. Without matchMedia it falls back to
+// light.
 export const THEME_SCRIPT = `
 (function () {
   try {
@@ -77,9 +83,9 @@ export const THEME_SCRIPT = `
     function choice() {
       try {
         var v = window.localStorage.getItem(KEY);
-        return v === "dark" || v === "system" ? v : "light";
+        return v === "light" || v === "dark" ? v : "system";
       } catch (e) {
-        return "light";
+        return "system";
       }
     }
     function apply() {

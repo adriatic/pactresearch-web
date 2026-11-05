@@ -9,7 +9,7 @@ import {
 } from "@/lib/theme";
 
 // Task D11. The Light / Dark / System choice, and the script that applies
-// it before the page is drawn.
+// it before the page is drawn. Task D11f: nothing saved means System.
 
 type Listener = () => void;
 
@@ -47,13 +47,13 @@ afterEach(() => {
 });
 
 describe("parseThemeChoice", () => {
-  it("keeps the three choices and turns anything else into light", () => {
+  it("keeps the three choices and turns anything else into system", () => {
     expect(parseThemeChoice("light")).toBe("light");
     expect(parseThemeChoice("dark")).toBe("dark");
     expect(parseThemeChoice("system")).toBe("system");
-    expect(parseThemeChoice(null)).toBe("light");
-    expect(parseThemeChoice("Dark")).toBe("light");
-    expect(parseThemeChoice("")).toBe("light");
+    expect(parseThemeChoice(null)).toBe("system");
+    expect(parseThemeChoice("Dark")).toBe("system");
+    expect(parseThemeChoice("")).toBe("system");
   });
 });
 
@@ -67,13 +67,29 @@ describe("resolveTheme", () => {
 });
 
 describe("the pre-paint script", () => {
-  it("nothing saved: light, even when the device is dark (the iPad case)", () => {
-    mockSystem(true);
+  it("nothing saved on a light device: light", () => {
+    mockSystem(false);
     runScript();
     expect(theme()).toBe("light");
   });
 
-  it("Dark saved: dark", () => {
+  it("nothing saved on a dark device: dark (System is the default)", () => {
+    mockSystem(true);
+    runScript();
+    expect(theme()).toBe("dark");
+  });
+
+  it("nothing saved: keeps following the device when it changes", () => {
+    const system = mockSystem(true);
+    runScript();
+    expect(theme()).toBe("dark");
+    system.setDark(false);
+    expect(theme()).toBe("light");
+    system.setDark(true);
+    expect(theme()).toBe("dark");
+  });
+
+  it("Dark saved on a light device: dark", () => {
     mockSystem(false);
     window.localStorage.setItem(THEME_STORAGE_KEY, "dark");
     runScript();
@@ -98,11 +114,11 @@ describe("the pre-paint script", () => {
     expect(theme()).toBe("light");
   });
 
-  it("a stored value it does not know: light", () => {
+  it("a stored value it does not know: treated as System", () => {
     mockSystem(true);
     window.localStorage.setItem(THEME_STORAGE_KEY, "purple");
     runScript();
-    expect(theme()).toBe("light");
+    expect(theme()).toBe("dark");
   });
 
   it("never throws, even without matchMedia or with storage refusing", () => {
@@ -138,7 +154,7 @@ describe("saveThemeChoice and readThemeChoice", () => {
     expect(readThemeChoice()).toBe("system");
   });
 
-  it("reads light when nothing is saved", () => {
-    expect(readThemeChoice()).toBe("light");
+  it("reads system when nothing is saved", () => {
+    expect(readThemeChoice()).toBe("system");
   });
 });
