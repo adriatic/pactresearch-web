@@ -7,6 +7,7 @@ import { DiagnosticCapture } from "./DiagnosticCapture";
 import { CONSOLE_BUFFER_LIMIT, CONSOLE_ARG_MAX_CHARS } from "@/lib/diagnostics";
 import "./globals.css"; // Tailwind base + global resets.
 import { BuildBadge } from "./BuildBadge";
+import { THEME_SCRIPT } from "@/lib/theme";
 
 // Task 39: the always-on collection half of "Report a problem" (the UI
 // half is app/DiagnosticCapture.tsx, the capture half lib/diagnostics.ts).
@@ -115,10 +116,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    // suppressHydrationWarning: THEME_SCRIPT sets data-theme on this
+    // element before React hydrates, so the attribute differs from the
+    // server's HTML on purpose. It covers this element's own attributes
+    // only, not its children.
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        {/* Task D11. A plain inline script at the top of <head>, not
+            next/script: it must run before the first paint, so a dark
+            choice never flashes light. beforeInteractive scripts (like
+            the diagnostic one below) do not block hydration and give no
+            such guarantee. Tiny, synchronous, and it never throws. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <Script
           id="pact-diagnostic-collector"

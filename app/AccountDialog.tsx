@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { ApiKeyField } from "./ApiKeyField";
+import {
+  THEME_CHOICES,
+  THEME_LABELS,
+  readThemeChoice,
+  saveThemeChoice,
+  type ThemeChoice,
+} from "@/lib/theme";
 
 // Task 50 item A. Account modal, Profile section.
 //
@@ -44,6 +51,8 @@ export function AccountDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // Task D11. Read from this browser each time the dialog opens (below).
+  const [theme, setTheme] = useState<ThemeChoice>("light");
 
   // Reset during render when the dialog opens, then fetch in the effect
   // below. Same split SettingsDialog uses: this repo's lint config
@@ -58,6 +67,7 @@ export function AccountDialog({
       setLoading(true);
       setError(null);
       setSaved(false);
+      setTheme(readThemeChoice());
     }
   }
 
@@ -245,6 +255,54 @@ export function AccountDialog({
                 style={{ width: "100%", boxSizing: "border-box" }}
               />
             </label>
+
+            {/* Task D11. Applies at once and is kept in this browser
+                only, so it is not part of Save: no database, nothing
+                sent anywhere. Light is the default. */}
+            <fieldset
+              style={{
+                margin: "12px 0 0",
+                padding: "6px 10px 8px",
+                border: "1px solid var(--border)",
+                borderRadius: 4,
+              }}
+            >
+              <legend style={{ padding: "0 4px" }}>Theme</legend>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {THEME_CHOICES.map((choice) => (
+                  <label
+                    key={choice}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="pact-theme"
+                      value={choice}
+                      checked={theme === choice}
+                      onChange={() => {
+                        setTheme(choice);
+                        saveThemeChoice(choice);
+                      }}
+                    />
+                    {THEME_LABELS[choice]}
+                  </label>
+                ))}
+              </div>
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  color: "var(--text-muted)",
+                  fontSize: "0.9em",
+                }}
+              >
+                Applies at once, in this browser only. System follows your
+                device&apos;s light or dark setting.
+              </p>
+            </fieldset>
 
             {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
             {saved && !error && (

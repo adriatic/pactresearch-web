@@ -1,88 +1,28 @@
-import { test, expect } from "@playwright/test";
-import { execFileSync } from "node:child_process";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { createServerClient } from "@supabase/ssr";
+import { test, expect, type Page } from "@playwright/test";
+import {
+  chooseTheme,
+  luminanceOf,
+  MIN_CONTRAST,
+  pageBackground,
+  seedSignedIn,
+  type ThemeChoice,
+} from "./themeHelpers";
 
-// Task 75 follow-up. On Nik's iPad, which is set to dark mode, every
-// toolbar button looked greyed out: a dark block left over from the
-// Create Next App template turned body text near-white (#ededed) while the
-// buttons kept their light #f0f0f0 background, so the labels all but
-// vanished. The app is light-only (dialogs, menus and the transcript all
-// hard-code light backgrounds), so a device in dark mode must get the same
-// readable page as one in light mode.
+// Task 75 follow-up, rewritten for Task D11.
+//
+// The original bug: on Nik's iPad, set to dark mode, every toolbar
+// button looked greyed out -- a dark block left over from the Create Next
+// App template turned body text near-white while the buttons kept a light
+// background. Task 75 locked the page to light. D11 adds a real dark
+// theme as a CHOICE (Account, Theme: Light, Dark, System), so this spec
+// now checks each combination of the device's setting and that choice:
+// the page is the theme it should be, and every toolbar label reaches
+// 4.5:1 against the button it is drawn on.
 
-interface LocalSupabaseStatus {
-  API_URL: string;
-  ANON_KEY: string;
-  SERVICE_ROLE_KEY: string;
-}
-
-function getLocalSupabaseStatus(): LocalSupabaseStatus {
-  const output = execFileSync("npx", ["supabase", "status", "-o", "json"], {
-    encoding: "utf-8",
-  });
-  return JSON.parse(output) as LocalSupabaseStatus;
-}
-
-test.use({ colorScheme: "dark" });
 test.setTimeout(60_000);
 
-test("in dark mode the toolbar buttons stay readable", async ({
-  page,
-  context,
-}) => {
-  const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = getLocalSupabaseStatus();
-  const admin = createServiceClient(API_URL, SERVICE_ROLE_KEY);
-
-  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const email = `e2e-dark-mode-${suffix}@example.com`;
-  const password = "correct horse battery staple 75!";
-
-  const { data: created, error: createUserError } =
-    await admin.auth.admin.createUser({ email, password, email_confirm: true });
-  if (createUserError || !created.user) {
-    throw createUserError ?? new Error("failed to create e2e test user");
-  }
-
-  const capturedCookies: { name: string; value: string }[] = [];
-  const jarClient = createServerClient(API_URL, ANON_KEY, {
-    cookies: {
-      getAll: () => capturedCookies,
-      setAll: (cookiesToSet) => {
-        cookiesToSet.forEach(({ name, value }) => {
-          const existing = capturedCookies.find((c) => c.name === name);
-          if (existing) {
-            existing.value = value;
-          } else {
-            capturedCookies.push({ name, value });
-          }
-        });
-      },
-    },
-  });
-  const { error: signInError } = await jarClient.auth.signInWithPassword({
-    email,
-    password,
-  });
-  if (signInError) throw signInError;
-
-  await context.addCookies(
-    capturedCookies.map(({ name, value }) => ({
-      name,
-      value,
-      domain: "localhost",
-      path: "/",
-      secure: false,
-      httpOnly: false,
-      sameSite: "Lax" as const,
-    })),
-  );
-
-  await page.goto("/");
-  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
-
-  // WCAG contrast ratio between each button's label and its background.
-  const contrasts = await page.evaluate(() => {
+async function toolbarContrasts(page: Page) {
+  return page.evaluate(() => {
     function luminance(rgb: string) {
       const [r, g, b] = rgb
         .match(/\d+(\.\d+)?/g)!
@@ -103,16 +43,63 @@ test("in dark mode the toolbar buttons stay readable", async ({
       };
     });
   });
+}
 
-  expect(contrasts.map((c) => c.label)).toEqual([
-    "New Notebook",
-    "Run",
-    "Import",
-    "Settings",
-    "Account",
-    "Model",
-  ]);
-  for (const { label, ratio } of contrasts) {
-    expect(ratio, `${label} label contrast`).toBeGreaterThanOrEqual(4.5);
-  }
-});
+const CASES: {
+  device: "light" | "dark";
+  choice: ThemeChoice | null;
+  expected: "light" | "dark";
+}[] = [
+  // The Task 75 case: nothing chosen, the iPad in dark mode -> light.
+  { device: "dark", choice: null, expected: "light" },
+  { device: "dark", choice: "light", expected: "light" },
+  { device: "light", choice: "dark", expected: "dark" },
+  { device: "dark", choice: "system", expected: "dark" },
+  { device: "light", choice: "system", expected: "light" },
+];
+
+for (const { device, choice, expected } of CASES) {
+  test.describe(`device ${device}, choice ${choice ?? "none"}`, () => {
+    test.use({ colorScheme: device });
+
+    test(`the page is ${expected} and the toolbar labels stay readable`, async ({
+      page,
+      context,
+    }) => {
+      await seedSignedIn(context, { tag: "dark-mode" });
+      if (choice) await chooseTheme(context, choice);
+
+      await page.goto("/");
+      await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
+
+      await expect(page.locator("html")).toHaveAttribute(
+        "data-theme",
+        expected,
+      );
+      const background = luminanceOf(await pageBackground(page));
+      if (expected === "light") expect(background).toBeGreaterThan(0.9);
+      else expect(background).toBeLessThan(0.05);
+      // Native controls follow the page, not the device.
+      expect(
+        await page.evaluate(
+          () => getComputedStyle(document.documentElement).colorScheme,
+        ),
+      ).toBe(expected);
+
+      const contrasts = await toolbarContrasts(page);
+      expect(contrasts.map((c) => c.label)).toEqual([
+        "New Notebook",
+        "Run",
+        "Import",
+        "Settings",
+        "Account",
+        "Model",
+      ]);
+      for (const { label, ratio } of contrasts) {
+        expect(ratio, `${label} label contrast`).toBeGreaterThanOrEqual(
+          MIN_CONTRAST,
+        );
+      }
+    });
+  });
+}
