@@ -268,3 +268,114 @@ select.toolbar-select:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/* Task D13. The Compare page's marks (/compare, app/compare/CompareView.tsx):
+   added and removed text, the finding pills and the count colors. A light
+   set and a dark set like the D10/D11 colors above, kept in their own
+   block. The dark set is the diff-tests lab's own; the light set is
+   dark text on a pale background, readable on a white page. Every text
+   color reaches at least 4.5:1 on its own background in both sets (the
+   numbers are in the D13 report; e2e/compare-contrast.spec.ts measures
+   them on the real page). */
+:root {
+  --diff-added-text: #14532d;
+  --diff-added-bg: #dcfce7;
+  --diff-removed-text: #7f1d1d;
+  --diff-removed-bg: #fee2e2;
+  --finding-agreement-text: #166534;
+  --finding-agreement-bg: #dcfce7;
+  --finding-conflict-text: #991b1b;
+  --finding-conflict-bg: #fee2e2;
+  --finding-unique-text: #854d0e;
+  --finding-unique-bg: #fef3c7;
+  --finding-uncertain-text: #5b21b6;
+  --finding-uncertain-bg: #ede9fe;
+  --count-green: #166534;
+  --count-red: #b91c1c;
+  --count-amber: #92400e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --diff-added-text: #b5f4cd;
+    --diff-added-bg: #184c37;
+    --diff-removed-text: #ffd0d0;
+    --diff-removed-bg: #562b36;
+    --finding-agreement-text: #93e4b2;
+    --finding-agreement-bg: #194634;
+    --finding-conflict-text: #ffb3b3;
+    --finding-conflict-bg: #592d35;
+    --finding-unique-text: #ffdb96;
+    --finding-unique-bg: #574421;
+    --finding-uncertain-text: #d0cbff;
+    --finding-uncertain-bg: #3c3d61;
+    --count-green: #79d9a2;
+    --count-red: #ff9696;
+    --count-amber: #ffdb96;
+  }
+}
+
+/* The marked text: inline and side by side keep the answer's own line
+   breaks and wrap long words, so a panel never scrolls sideways. */
+.diff-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    13px/1.8 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+}
+
+.diff-added {
+  background: var(--diff-added-bg);
+  color: var(--diff-added-text);
+}
+
+.diff-removed {
+  background: var(--diff-removed-bg);
+  color: var(--diff-removed-text);
+  text-decoration: line-through;
+}
+
+.finding-pill {
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.8em;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.finding-pill-agreement {
+  background: var(--finding-agreement-bg);
+  color: var(--finding-agreement-text);
+}
+
+.finding-pill-conflict {
+  background: var(--finding-conflict-bg);
+  color: var(--finding-conflict-text);
+}
+
+.finding-pill-unique {
+  background: var(--finding-unique-bg);
+  color: var(--finding-unique-text);
+}
+
+.finding-pill-uncertain {
+  background: var(--finding-uncertain-bg);
+  color: var(--finding-uncertain-text);
+}
+
+.diff-count-green {
+  color: var(--count-green);
+}
+
+.diff-count-red {
+  color: var(--count-red);
+}
+
+.diff-count-amber {
+  color: var(--count-amber);
+}

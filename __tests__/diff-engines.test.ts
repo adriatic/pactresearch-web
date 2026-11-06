@@ -395,7 +395,8 @@ describe("a library, apart from the app", () => {
     expect(source).not.toMatch(/compareMeaning|\.env\.local|\/api\//);
   });
 
-  it("nothing in app/ imports the library yet", () => {
+  // Task D13: the Compare page is the first, and so far only, user.
+  it("only the Compare page (app/compare/) imports the library", () => {
     const files = (dir: string): string[] =>
       readdirSync(dir).flatMap((name) => {
         const path = join(dir, name);
@@ -404,9 +405,9 @@ describe("a library, apart from the app", () => {
       });
     const appFiles = files(join(__dirname, "..", "app"));
     expect(appFiles.length).toBeGreaterThan(20);
-    const users = appFiles.filter((f) =>
-      /lib\/diff\/|diff\/engines/.test(readFileSync(f, "utf8")),
-    );
-    expect(users).toEqual([]);
+    const users = appFiles
+      .filter((f) => /lib\/diff\/|diff\/engines/.test(readFileSync(f, "utf8")))
+      .map((f) => f.slice(join(__dirname, "..").length + 1));
+    expect(users.every((f) => f.startsWith("app/compare/"))).toBe(true);
   });
 });
