@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 import { chooseRowAction } from "./rowMenuActions";
+import { contrastSweep, MIN_CONTRAST } from "./themeHelpers";
 
 // Task 86. Every response cell says which service and model produced it,
 // as "Claude · claude-sonnet-5" or "ChatGPT · gpt-6.1-sol", from what the
@@ -257,12 +258,27 @@ test("stored responses: each cell shows its own service and model, after a reloa
   await openDiscussion(page, notebookName, discussionName);
   await expect(page.getByText("answer 5")).toBeVisible();
   expect(await labels(page)).toEqual(SEEDED_LABELS);
-  // Quiet: small and grey.
-  const look = await page
-    .locator("main [data-llm-label]")
-    .first()
-    .evaluate((el) => getComputedStyle(el).color);
-  expect(look).toBe("rgb(102, 102, 102)");
+  // Quiet: smaller and greyer than the answer, yet readable. Task D11:
+  // measured as contrast against the real background, so it holds in
+  // either theme, instead of the fixed rgb(102, 102, 102) of light.
+  const label = page.locator("main [data-llm-label]").first();
+  const look = await label.evaluate((el) => {
+    const s = getComputedStyle(el);
+    const p = getComputedStyle(el.parentElement!);
+    return {
+      color: s.color,
+      parentColor: p.color,
+      size: parseFloat(s.fontSize),
+      parentSize: parseFloat(p.fontSize),
+    };
+  });
+  expect(look.color).not.toBe(look.parentColor);
+  expect(look.size).toBeLessThan(look.parentSize);
+  const [measured] = await contrastSweep(label);
+  expect(
+    measured.ratio,
+    `${measured.fg} on ${measured.bg}`,
+  ).toBeGreaterThanOrEqual(MIN_CONTRAST);
 
   // A reload reads the same labels back from the server.
   await page.reload();
