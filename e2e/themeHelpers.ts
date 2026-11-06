@@ -11,22 +11,42 @@ import {
 } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
-// Task D11. Shared by the theme specs: a seeded, signed-in user, the
-// theme choice set in the browser, and a contrast check that reads the
-// colors the browser actually draws -- the real page background, every
-// translucent layer and opacity included -- rather than assuming white.
-// Not a .spec.ts file, so Playwright does not collect it as a test.
+// Task D11. Shared by the theme specs: a seeded, signed-in user, and a
+// contrast check that reads the colors the browser actually draws -- the
+// real page background, every translucent layer and opacity included --
+// rather than assuming white. Task D11g: the app has no theme setting; it
+// follows the device, which a spec sets with test.use({ colorScheme }) or
+// page.emulateMedia. Not a .spec.ts file, so Playwright does not collect
+// it as a test.
 
-export type ThemeChoice = "light" | "dark" | "system";
+export type DeviceScheme = "light" | "dark";
 
-/** Saves a theme choice in this browser before any page script runs. */
-export async function chooseTheme(
-  context: BrowserContext,
-  choice: ThemeChoice,
-) {
-  await context.addInitScript((value) => {
-    window.localStorage.setItem("pact-theme", value);
-  }, choice);
+/**
+ * The page is drawn in the device's scheme: its own background, and the
+ * browser's Canvas system color, which native controls (checkboxes,
+ * scrollbars, a dropdown's list) are drawn from. The computed
+ * color-scheme itself is "light dark" on every device, so it cannot
+ * tell the two apart.
+ */
+export async function expectPageTheme(page: Page, scheme: DeviceScheme) {
+  const background = luminanceOf(await pageBackground(page));
+  const canvas = luminanceOf(
+    await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.background = "Canvas";
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return color;
+    }),
+  );
+  if (scheme === "light") {
+    expect(background, "page background").toBeGreaterThan(0.9);
+    expect(canvas, "native controls (Canvas)").toBeGreaterThan(0.9);
+  } else {
+    expect(background, "page background").toBeLessThan(0.05);
+    expect(canvas, "native controls (Canvas)").toBeLessThan(0.05);
+  }
 }
 
 export interface Seeded {

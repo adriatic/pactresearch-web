@@ -1,11 +1,5 @@
 import { test, expect } from "@playwright/test";
-import {
-  chooseTheme,
-  contrastSweep,
-  luminanceOf,
-  MIN_CONTRAST,
-  pageBackground,
-} from "./themeHelpers";
+import { contrastSweep, expectPageTheme, MIN_CONTRAST } from "./themeHelpers";
 
 // The build badge is rendered from the root layout, so it must be on
 // every page -- including the login screen, which is the whole point:
@@ -65,17 +59,16 @@ test("the badge does not cover the sign-in controls", async ({ page }) => {
 
 // Task 73. Readable at a glance: at least the usual 4.5:1 contrast for
 // small text, measured as the browser draws it, opacity included. Task
-// D11: in both themes, against the real page background (the badge is
-// translucent, so what shows through it is the page, which is no longer
-// always white).
+// D11: on a light and a dark device, against the real page background
+// (the badge is translucent, so what shows through it is the page, which
+// is no longer always white). Task D11g: the page follows the device.
 for (const theme of ["light", "dark"] as const) {
-  test(`the badge is readable in the ${theme} theme: contrast at least 4.5 to 1 against its background`, async ({
+  test(`the badge is readable on a ${theme} device: contrast at least 4.5 to 1 against its background`, async ({
     page,
-    context,
   }) => {
-    await chooseTheme(context, theme);
+    await page.emulateMedia({ colorScheme: theme });
     await page.goto("/login");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expectPageTheme(page, theme);
     const badge = page.locator("[data-build-label]");
     await expect(badge).toBeVisible();
     const [item] = await contrastSweep(badge);
@@ -83,10 +76,6 @@ for (const theme of ["light", "dark"] as const) {
     expect(item.ratio, `${item.fg} on ${item.bg}`).toBeGreaterThanOrEqual(
       MIN_CONTRAST,
     );
-    // The page behind it really is the theme's.
-    const page_ = luminanceOf(await pageBackground(page));
-    if (theme === "light") expect(page_).toBeGreaterThan(0.9);
-    else expect(page_).toBeLessThan(0.05);
     await expect(badge).toHaveAttribute(
       "title",
       /^The version of pact-web you are using\./,

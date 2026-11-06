@@ -3,15 +3,16 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chooseRowAction } from "./rowMenuActions";
 import {
-  chooseTheme,
   contrastSweep,
+  expectPageTheme,
   MIN_CONTRAST,
   openSeededDiscussion,
   seedSignedIn,
   type ContrastItem,
 } from "./themeHelpers";
 
-// Task D11. A contrast sweep in both themes: every piece of text the
+// Task D11. A contrast sweep on a light and a dark device (Task D11g:
+// the page follows the device, emulated here): every piece of text the
 // browser draws on the main screen (Top bar, Explorer with a selected
 // row, a run-time line, the running badge and an import summary, a
 // response cell, the composer with its placeholder and status dot), in
@@ -179,7 +180,7 @@ async function sweepApp(page: Page) {
 }
 
 for (const theme of ["light", "dark"] as const) {
-  test(`contrast sweep, ${theme} theme: every text and mark reaches 4.5:1${theme === "light" ? " (known light exceptions listed)" : ""}`, async ({
+  test(`contrast sweep, ${theme} device: every text and mark reaches 4.5:1${theme === "light" ? " (known light exceptions listed)" : ""}`, async ({
     page,
     context,
   }, testInfo) => {
@@ -228,9 +229,9 @@ for (const theme of ["light", "dark"] as const) {
       route.fulfill({ json: { discussionId: busy!.id } }),
     );
 
-    await chooseTheme(context, theme);
+    await page.emulateMedia({ colorScheme: theme });
     await openSeededDiscussion(page, seeded);
-    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    await expectPageTheme(page, theme);
     await page
       .getByRole("treeitem", { name: "E2E theme-sweep empty", exact: true })
       .locator("h3")

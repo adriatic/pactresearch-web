@@ -58,75 +58,78 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  /* Task 75 follow-up, kept by D11: no prefers-color-scheme rule in this
-     stylesheet. A dark block from the Create Next App template used to
-     switch body text to #ededed under prefers-color-scheme: dark while
-     the buttons stayed light, so on a device in dark mode (Nik's iPad)
-     every toolbar label read as greyed out. The theme is now always the
-     whole set at once, applied as data-theme on <html> by the script in
-     app/layout.tsx (Account, Theme; System, which follows the device, is
-     the default since Task D11f). color-scheme keeps native controls
-     (checkboxes, scrollbars, a dropdown's list) in step. */
-  color-scheme: light;
+  /* Task D11g (Nik, 2026-11-05): the page follows the device, with no
+     setting of its own. The dark set below applies under
+     prefers-color-scheme: dark; color-scheme keeps native controls
+     (checkboxes, scrollbars, a dropdown's list) in step with it.
+
+     Task 75 history: a dark block from the Create Next App template
+     once switched only the body text to #ededed under
+     prefers-color-scheme: dark while the buttons stayed light, so on a
+     device in dark mode (Nik's iPad) every toolbar label read as greyed
+     out. The dark block below holds every variable, so a dark device
+     gets the whole dark set, never a mix. */
+  color-scheme: light dark;
 }
 
 /* Task D11. The dark set: the same names as above, so every component
-   follows without knowing about themes. Applied when <html> carries
-   data-theme="dark", which the script in app/layout.tsx sets before the
-   page is drawn from the choice saved in this browser (key pact-theme:
-   light, dark or system; system when nothing is saved, Task D11f).
+   follows without knowing about themes. Task D11g: applied whenever the
+   device is in dark mode (prefers-color-scheme: dark), and dropped the
+   moment it switches to light. Nothing is saved in the browser or with
+   the account. CSS alone, so it is in force before the first paint (no
+   white flash) and follows a live change without a reload.
 
    Based on the diff-tests lab's dark palette (page #0c111b, panel
    #141e2e, text #e7edf6). Every text and mark color reaches at least
    4.5:1 on each dark background it is drawn on, including the selected
    Explorer row (#24426b); the numbers are in the D11 report and
    e2e/theme-contrast.spec.ts measures them on the real page. */
-:root[data-theme="dark"] {
-  --background: #0c111b;
-  --foreground: #e7edf6;
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0c111b;
+    --foreground: #e7edf6;
 
-  /* Surfaces */
-  --surface: #141e2e;
-  --surface-translucent: rgba(20, 30, 46, 0.85);
-  --surface-veil: rgba(12, 17, 27, 0.75);
-  --overlay: rgba(0, 0, 0, 0.55);
-  --overlay-strong: rgba(0, 0, 0, 0.7);
-  --selected: #24426b;
-  --menu-shadow-color: rgba(0, 0, 0, 0.5);
+    /* Surfaces */
+    --surface: #141e2e;
+    --surface-translucent: rgba(20, 30, 46, 0.85);
+    --surface-veil: rgba(12, 17, 27, 0.75);
+    --overlay: rgba(0, 0, 0, 0.55);
+    --overlay-strong: rgba(0, 0, 0, 0.7);
+    --selected: #24426b;
+    --menu-shadow-color: rgba(0, 0, 0, 0.5);
 
-  /* Lines */
-  --border: #3a4b66;
-  --border-subtle: #2a3a50;
-  --border-strong: #71859f; /* 5.0:1 on the page, 4.4:1 on --surface */
-  --border-control: #5f7391; /* 3.9:1 on the page, 3.5:1 on --surface (light #888: 3.5:1 on white) */
-  --divider: #2f3f56;
+    /* Lines */
+    --border: #3a4b66;
+    --border-subtle: #2a3a50;
+    --border-strong: #71859f; /* 5.0:1 on the page, 4.4:1 on --surface */
+    --border-control: #5f7391; /* 3.9:1 on the page, 3.5:1 on --surface (light #888: 3.5:1 on white) */
+    --divider: #2f3f56;
 
-  /* Text */
-  --text-strong: #d4e0ef;
-  --text-secondary: #b9c9dd;
-  --text-muted: #a4b6cd;
-  --text-faint: #93a4bb;
-  --text-disabled: #8a9bb2;
+    /* Text */
+    --text-strong: #d4e0ef;
+    --text-secondary: #b9c9dd;
+    --text-muted: #a4b6cd;
+    --text-faint: #93a4bb;
+    --text-disabled: #8a9bb2;
 
-  /* Controls */
-  --button-bg: #1a2537;
-  --button-hover: #24324a;
-  --primary-bg: #e7edf6;
-  --primary-text: #0c111b;
+    /* Controls */
+    --button-bg: #1a2537;
+    --button-hover: #24324a;
+    --primary-bg: #e7edf6;
+    --primary-text: #0c111b;
 
-  /* States */
-  --danger: #ff9696;
-  --danger-bg: #2a1519;
-  --success: #79d9a2;
-  --notice-danger-bg: #542934;
-  --notice-danger-border: #8a4a55;
-  --notice-danger-text: #ffbdc6;
-  --badge-bg: #f0a43a;
-  --badge-text: #1a1206;
-  --status-running: #ff7b7b;
-  --status-idle: #5fd38a;
-
-  color-scheme: dark;
+    /* States */
+    --danger: #ff9696;
+    --danger-bg: #2a1519;
+    --success: #79d9a2;
+    --notice-danger-bg: #542934;
+    --notice-danger-border: #8a4a55;
+    --notice-danger-text: #ffbdc6;
+    --badge-bg: #f0a43a;
+    --badge-text: #1a1206;
+    --status-running: #ff7b7b;
+    --status-idle: #5fd38a;
+  }
 }
 
 body {
@@ -238,7 +241,7 @@ select.toolbar-select {
   background-color: var(--button-bg);
   /* The arrow's colour is written into the SVG (%23333, i.e. #333,
      the light --text-strong): a data URL cannot read a CSS variable.
-     Task D11 swaps in a light arrow for the dark theme, below. */
+     Task D11 swaps in a light arrow on a dark device, below. */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23333' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
@@ -251,8 +254,10 @@ select.toolbar-select {
 /* Task D11. The same arrow in the dark --text-strong (#d4e0ef), 9.6:1 on
    the dark --button-hover and more on --button-bg. Keep both in step if
    either value changes. */
-:root[data-theme="dark"] select.toolbar-select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23d4e0ef' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+@media (prefers-color-scheme: dark) {
+  select.toolbar-select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23d4e0ef' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
 }
 
 select.toolbar-select:hover:not(:disabled) {

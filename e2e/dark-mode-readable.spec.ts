@@ -1,24 +1,21 @@
 import { test, expect, type Page } from "@playwright/test";
 import {
-  chooseTheme,
-  luminanceOf,
+  expectPageTheme,
   MIN_CONTRAST,
-  pageBackground,
   seedSignedIn,
-  type ThemeChoice,
+  type DeviceScheme,
 } from "./themeHelpers";
 
-// Task 75 follow-up, rewritten for Task D11.
+// Task 75 follow-up, rewritten for Task D11 and again for D11g.
 //
 // The original bug: on Nik's iPad, set to dark mode, every toolbar
 // button looked greyed out -- a dark block left over from the Create Next
 // App template turned body text near-white while the buttons kept a light
-// background. Task 75 locked the page to light. D11 adds a real dark
-// theme as a CHOICE (Account, Theme: Light, Dark, System), so this spec
-// now checks each combination of the device's setting and that choice:
-// the page is the theme it should be, and every toolbar label reaches
-// 4.5:1 against the button it is drawn on. Since Task D11f nothing chosen
-// is System.
+// background. Task 75 locked the page to light. D11 added a full dark set;
+// since D11g the page simply follows the device, with no setting in the
+// app. So this spec checks a light and a dark device: the page is the
+// device's scheme throughout (background and native controls), and every
+// toolbar label reaches 4.5:1 against the button it is drawn on.
 
 test.setTimeout(60_000);
 
@@ -46,49 +43,19 @@ async function toolbarContrasts(page: Page) {
   });
 }
 
-const CASES: {
-  device: "light" | "dark";
-  choice: ThemeChoice | null;
-  expected: "light" | "dark";
-}[] = [
-  // Task D11f: nothing chosen means System, so the page follows the
-  // device. On the Task 75 iPad (dark mode) that is now the whole dark
-  // set, never the old mix of light buttons and near-white text.
-  { device: "light", choice: null, expected: "light" },
-  { device: "dark", choice: null, expected: "dark" },
-  { device: "dark", choice: "light", expected: "light" },
-  { device: "light", choice: "dark", expected: "dark" },
-  { device: "dark", choice: "system", expected: "dark" },
-  { device: "light", choice: "system", expected: "light" },
-];
-
-for (const { device, choice, expected } of CASES) {
-  test.describe(`device ${device}, choice ${choice ?? "none"}`, () => {
+for (const device of ["light", "dark"] as DeviceScheme[]) {
+  test.describe(`device ${device}`, () => {
     test.use({ colorScheme: device });
 
-    test(`the page is ${expected} and the toolbar labels stay readable`, async ({
+    test(`the page is ${device} and the toolbar labels stay readable`, async ({
       page,
       context,
     }) => {
       await seedSignedIn(context, { tag: "dark-mode" });
-      if (choice) await chooseTheme(context, choice);
 
       await page.goto("/");
       await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
-
-      await expect(page.locator("html")).toHaveAttribute(
-        "data-theme",
-        expected,
-      );
-      const background = luminanceOf(await pageBackground(page));
-      if (expected === "light") expect(background).toBeGreaterThan(0.9);
-      else expect(background).toBeLessThan(0.05);
-      // Native controls follow the page, not the device.
-      expect(
-        await page.evaluate(
-          () => getComputedStyle(document.documentElement).colorScheme,
-        ),
-      ).toBe(expected);
+      await expectPageTheme(page, device);
 
       const contrasts = await toolbarContrasts(page);
       expect(contrasts.map((c) => c.label)).toEqual([
