@@ -47,13 +47,15 @@ const countTexts = (id: string, r: Result) =>
     .map((c) => c.text);
 
 describe("the registry", () => {
-  it("holds word, line, character, JSON and semantic, in that order, and no Meaning engine", () => {
+  // Task D15: Meaning is the sixth engine, after Semantic.
+  it("holds word, line, character, JSON, semantic and meaning, in that order", () => {
     expect(engines.map((e) => e.id)).toEqual([
       "word",
       "line",
       "character",
       "json",
       "semantic",
+      "meaning",
     ]);
     expect(engines.map((e) => e.label)).toEqual([
       "Word diff",
@@ -61,8 +63,10 @@ describe("the registry", () => {
       "Character diff",
       "JSON structural diff",
       "Semantic (heuristic)",
+      "Meaning (Claude Opus 5.5)",
     ]);
-    for (const e of engines) {
+    // The five text engines still run by themselves, send nothing and cost nothing.
+    for (const e of engines.filter((e) => e.id !== "meaning")) {
       expect(e.runsOnCompareOnly).toBeUndefined();
       expect(e.sendsTextToProvider).toBeUndefined();
       expect(e.price).toBeUndefined();
@@ -78,7 +82,8 @@ describe("the registry", () => {
   });
 
   it("findEngine falls back to the first engine, Word diff", () => {
-    expect(findEngine("meaning").id).toBe("word");
+    // Task D15: "meaning" is an engine now; an unknown id falls back.
+    expect(findEngine("no-such-engine").id).toBe("word");
     expect(findEngine("").id).toBe("word");
   });
 
@@ -359,7 +364,8 @@ describe("edge cases", () => {
       Array.from({ length: 5000 }, (_, i) => ({ i, v: `value ${i}` })),
     );
     const jsonB = jsonA.replace('"value 2500"', '"value two"');
-    for (const e of engines) {
+    // Task D15: not Meaning, which calls a service (see diff-meaning.test.ts).
+    for (const e of engines.filter((e) => !e.runsOnCompareOnly)) {
       const [a1, b1] = e.id === "json" ? [jsonA, jsonB] : [long, edited];
       const r = e.compare(a1, b1) as Result;
       expect(r.error, e.id).toBeUndefined();
@@ -381,22 +387,25 @@ describe("a library, apart from the app", () => {
     "utf8",
   );
 
-  it("imports nothing but the diff package: no app code, nothing else", () => {
+  // Task D15: and ./meaning, the Meaning engine's own module.
+  it("imports nothing but the diff package and ./meaning: no app code, nothing else", () => {
     const imports = [...source.matchAll(/from\s+["']([^"']+)["']/g)].map(
       (m) => m[1],
     );
-    expect(imports).toEqual(["diff"]);
+    expect(imports).toEqual(["diff", "./meaning"]);
     expect(source).not.toMatch(/require\(|import\(/);
   });
 
   it("does not read process.env, call the network or mention a language model engine", () => {
     expect(source).not.toMatch(/process\.env|process\[/);
     expect(source).not.toMatch(/\bfetch\(|XMLHttpRequest|WebSocket/);
-    expect(source).not.toMatch(/compareMeaning|\.env\.local|\/api\//);
+    // Task D15: the call to pact-web's route is in lib/diff/meaning.ts.
+    expect(source).not.toMatch(/\.env\.local|\/api\//);
   });
 
-  // Task D13: the Compare page is the first, and so far only, user.
-  it("only the Compare page (app/compare/) imports the library", () => {
+  // Task D13: the Compare page is the first user. Task D15: and the
+  // Meaning route (app/api/compare-meaning/).
+  it("only the Compare page and the Meaning route import the library", () => {
     const files = (dir: string): string[] =>
       readdirSync(dir).flatMap((name) => {
         const path = join(dir, name);
@@ -408,6 +417,12 @@ describe("a library, apart from the app", () => {
     const users = appFiles
       .filter((f) => /lib\/diff\/|diff\/engines/.test(readFileSync(f, "utf8")))
       .map((f) => f.slice(join(__dirname, "..").length + 1));
-    expect(users.every((f) => f.startsWith("app/compare/"))).toBe(true);
+    expect(
+      users.every(
+        (f) =>
+          f.startsWith("app/compare/") ||
+          f.startsWith("app/api/compare-meaning/"),
+      ),
+    ).toBe(true);
   });
 });

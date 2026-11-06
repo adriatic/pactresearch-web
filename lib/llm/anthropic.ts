@@ -20,7 +20,7 @@ const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 // playwright.config.ts, with "{port}" in it). Never on Vercel: VERCEL_ENV
 // is set on every Vercel deployment, and then this always returns the
 // real address.
-function anthropicUrlFor(apiKey: string): string {
+export function anthropicUrlFor(apiKey: string): string {
   const mock = process.env.PACT_E2E_ANTHROPIC_URL;
   const port = /^sk-ant-e2e-mock-(\d{4,5})$/.exec(apiKey)?.[1];
   if (!process.env.VERCEL_ENV && mock && port) {

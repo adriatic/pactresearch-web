@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   engines,
   failed,
@@ -20,12 +20,22 @@ import {
   tooLongMessage,
   type AnswerGroup,
 } from "@/lib/diff/compareAnswers";
+import {
+  estimateBeforeRun,
+  MEANING_MODEL_NAME,
+  usageLine,
+} from "@/lib/diff/meaning";
 
 // Task D13. The Compare page's screen: two pickers, the two answers'
 // prompts, the engine choice and the result. Every color comes from a
 // variable in app/globals.css (the .diff-*, .finding-pill-* and
 // .diff-count-* classes and the D10 set), so the page follows the
 // device's light or dark setting like the rest of the app.
+//
+// Task D15: an engine with runsOnCompareOnly (Meaning, which sends both
+// answers to Anthropic with the user's own key) never runs by itself. It
+// shows a note and a cost estimate, and runs only when Compare is
+// pressed. Its result belongs to the pair of answers it was run for.
 
 export type CompareSide =
   | { state: "none" }
@@ -396,18 +406,90 @@ function ResultView({
   return <p data-compare-empty>No differences found.</p>;
 }
 
+/** A paid run: in progress, or its result. */
+export type PaidRun = "running" | Result;
+
+function PaidNote({
+  engine,
+  a,
+  b,
+  run,
+  onRun,
+}: {
+  engine: DiffEngine;
+  a: Found;
+  b: Found;
+  run: PaidRun | null;
+  onRun: () => void;
+}) {
+  const estimate = estimateBeforeRun(a.text, b.text);
+  const running = run === "running";
+  return (
+    <div
+      data-meaning-note
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        padding: "10px 12px",
+        background: "var(--surface)",
+        marginBottom: 12,
+      }}
+    >
+      <p style={{ margin: "0 0 6px" }}>
+        {engine.label} sends both answers to {engine.sendsTextToProvider}, using
+        your own Anthropic key from Account, Keys. It runs only when you press
+        Compare.
+      </p>
+      <p
+        data-meaning-estimate
+        style={{ margin: "0 0 10px", color: "var(--text-muted)" }}
+      >
+        {estimate.text}
+      </p>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 10,
+        }}
+      >
+        <button
+          type="button"
+          data-meaning-compare
+          disabled={running}
+          onClick={onRun}
+        >
+          Compare
+        </button>
+        {running && (
+          <span role="status" data-meaning-status>
+            Comparing with {MEANING_MODEL_NAME}… this can take up to two
+            minutes.
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Comparison({
   a,
   b,
   engineId,
   onEngine,
+  paidRun,
+  onPaidRun,
 }: {
   a: Found;
   b: Found;
   engineId: string;
   onEngine: (id: string) => void;
+  paidRun: PaidRun | null;
+  onPaidRun: () => void;
 }) {
   const engine = findEngine(engineId);
+  const paid = !!engine.runsOnCompareOnly;
   const [chosenView, setView] = useState<View>("inline");
   const view = engine.views.includes(chosenView) ? chosenView : engine.views[0];
   const empty = (["A", "B"] as const).filter(
@@ -416,12 +498,18 @@ function Comparison({
   const tooLong = empty.length
     ? null
     : tooLongMessage(engine.id, a.text, b.text);
-  const result = useComparison(
+  const automatic = useComparison(
     engine,
     a.text,
     b.text,
-    empty.length > 0 || tooLong !== null,
+    paid || empty.length > 0 || tooLong !== null,
   );
+  // A paid engine's result is the last run for this pair, never automatic.
+  const result: Result | "pending" | null = paid
+    ? paidRun === "running"
+      ? null
+      : paidRun
+    : automatic;
   const tabs = engine.views.filter((v) => v !== "findings");
 
   return (
@@ -507,6 +595,52 @@ function Comparison({
         </div>
       ) : tooLong ? (
         <p data-compare-too-long>{tooLong}</p>
+      ) : paid ? (
+        <>
+          <PaidNote
+            engine={engine}
+            a={a}
+            b={b}
+            run={paidRun}
+            onRun={onPaidRun}
+          />
+          {result && result !== "pending" && (
+            <>
+              {!result.error && (
+                <>
+                  <p
+                    style={{
+                      margin: "0 0 4px",
+                      color: "var(--text-muted)",
+                      fontSize: "0.9em",
+                    }}
+                  >
+                    {result.summary}
+                  </p>
+                  {result.usage && (
+                    <p
+                      data-meaning-usage
+                      style={{
+                        margin: "0 0 10px",
+                        color: "var(--text-muted)",
+                        fontSize: "0.9em",
+                      }}
+                    >
+                      {usageLine(result.usage)}
+                    </p>
+                  )}
+                </>
+              )}
+              <ResultView
+                engine={engine}
+                result={result}
+                view={view}
+                a={a}
+                b={b}
+              />
+            </>
+          )}
+        </>
       ) : result === "pending" ? (
         <p>Comparing…</p>
       ) : result ? (
@@ -545,6 +679,41 @@ export function CompareView({
   const router = useRouter();
   const go = (choice: { a: string | null; b: string | null; engine: string }) =>
     router.push(compareHref(choice), { scroll: false });
+
+  // Task D15. The last paid run (Meaning) and the pair of answers it was
+  // for. Switching engines keeps it; choosing another answer for A or B
+  // clears it, and a run that ends after the pair changed is dropped.
+  const pair =
+    a.state === "found" && b.state === "found" ? `${a.id}|${b.id}` : null;
+  const [paid, setPaid] = useState<{ pair: string; run: PaidRun } | null>(null);
+  // Another pair clears the old result (React's "adjust state when a
+  // prop changes" pattern, during render rather than in an effect).
+  const [seenPair, setSeenPair] = useState(pair);
+  if (seenPair !== pair) {
+    setSeenPair(pair);
+    setPaid(null);
+  }
+  const currentPair = useRef(pair);
+  useEffect(() => {
+    currentPair.current = pair;
+  }, [pair]);
+  const paidRun = paid && paid.pair === pair ? paid.run : null;
+
+  const runPaid = async () => {
+    if (a.state !== "found" || b.state !== "found" || pair === null) return;
+    const engine = findEngine(engineId);
+    const forPair = pair;
+    setPaid({ pair: forPair, run: "running" });
+    let result: Result;
+    try {
+      result = await engine.compare(a.text, b.text, { a: a.id, b: b.id });
+    } catch (e) {
+      result = failed(e);
+    }
+    if (currentPair.current === forPair) {
+      setPaid({ pair: forPair, run: result });
+    }
+  };
 
   return (
     <main
@@ -622,6 +791,8 @@ export function CompareView({
           b={b}
           engineId={engineId}
           onEngine={(engine) => go({ a: requested.a, b: requested.b, engine })}
+          paidRun={paidRun}
+          onPaidRun={runPaid}
         />
       ) : (
         groups.length > 0 && (

@@ -6,6 +6,7 @@
 
 import { responseLlmLabel } from "@/lib/llmProviders";
 import { findEngine } from "@/lib/diff/engines";
+import { MEANING_MAX_CHARS } from "@/lib/diff/meaning";
 
 export interface NotebookRow {
   id: string;
@@ -179,11 +180,14 @@ export function compareHref(choice: {
 export const ENGINE_TEXT_LIMITS: Readonly<Record<string, number>> = {
   character: 20_000,
   word: 80_000,
+  // Task D15: the Meaning engine's limit, the lab's, for the two together.
+  meaning: MEANING_MAX_CHARS,
 };
 
-const ALTERNATIVES: Readonly<Record<string, string>> = {
-  character: "Word diff or Line diff",
-  word: "Line diff",
+const WHAT_TO_DO: Readonly<Record<string, string>> = {
+  character: "Use Word diff or Line diff.",
+  word: "Use Line diff.",
+  meaning: "Meaning cannot run on them; use another engine.",
 };
 
 /** A plain message when the two texts are too long for this engine, otherwise null. */
@@ -200,6 +204,6 @@ export function tooLongMessage(
     `These two answers are too long for ${label}: ` +
     `${total.toLocaleString("en-US")} characters together, ` +
     `and ${label} runs on up to ${limit.toLocaleString("en-US")}. ` +
-    `Use ${ALTERNATIVES[engineId]}.`
+    WHAT_TO_DO[engineId]
   );
 }
