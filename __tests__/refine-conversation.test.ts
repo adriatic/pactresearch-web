@@ -615,6 +615,16 @@ describe("words", () => {
     }
   });
 
+  test("save failed: the reply is shown but will not be kept (D17d)", () => {
+    for (const provider of ["anthropic", "openai"] as const) {
+      expect(refineWords("save_failed", provider)).toEqual({
+        error:
+          "This reply could not be saved. It is shown here, but it will be gone when you close this dialog.",
+        code: "refine_save_failed",
+      });
+    }
+  });
+
   test("the unfinished-prompt note", () => {
     expect(REFINE_INCOMPLETE_NOTE).toBe(
       "This reply has an unfinished prompt (the end marker is missing). Ask for it again.",
