@@ -2,13 +2,19 @@
 // diff-tests lab (adriatic/diff-tests, lib/engines.ts at 46ce062) and
 // reformatted; the results, counts and spacing are the lab's.
 //
-// Nothing in the app uses this yet (D13 adds the Diff view). It imports
-// only the "diff" package: no app code, no environment, no network. The
-// lab's Meaning engine, which asks a language model, comes in D15; the
-// DiffEngine type keeps the slots it will need (runsOnCompareOnly,
+// The five text engines import only the "diff" package: no app code, no
+// environment, no network. Task D15 adds the sixth, Meaning, which asks
+// Claude Opus 5.5 through pact-web's own route; it lives in ./meaning
+// and uses the slots D12 left open (runsOnCompareOnly,
 // sendsTextToProvider, price, an asynchronous compare).
 
 import { diffChars, diffLines, diffWordsWithSpace, type Change } from "diff";
+import {
+  compareMeaning,
+  meaningCounts,
+  MEANING_MODEL_NAME,
+  MEANING_PRICE,
+} from "./meaning";
 
 /** A run of text in a marked-text result: unchanged, added in B, or removed from A. */
 export type Segment = { text: string; kind: "same" | "added" | "removed" };
@@ -34,7 +40,7 @@ export type Result = {
   error?: string;
   /** Which input could not be read (JSON engine: not valid JSON). */
   invalid?: ("A" | "B")[];
-  /** Tokens used, for an engine that asks a language model (none yet). */
+  /** Tokens used, for an engine that asks a language model (Meaning). */
   usage?: { inputTokens: number; outputTokens: number };
 };
 
@@ -54,8 +60,16 @@ export type DiffEngine = {
   separateReplacements?: boolean;
   /** The sample to load for this engine, if not the default text. */
   sample?: { a: string; b: string };
-  /** May be asynchronous, for an engine added later that calls a service. */
-  compare: (a: string, b: string) => Result | Promise<Result>;
+  /**
+   * May be asynchronous, for an engine that calls a service. ids are the
+   * two stored answers' response ids, for an engine (Meaning) whose
+   * server reads the texts itself; the text engines ignore them.
+   */
+  compare: (
+    a: string,
+    b: string,
+    ids?: { a: string; b: string },
+  ) => Result | Promise<Result>;
   /** The numbers in the results header, with their unit. */
   counts: (r: Result) => Count[];
   /** Run only on an explicit Compare (e.g. a paid engine), never on typing or switching. */
@@ -329,6 +343,16 @@ export const engines: DiffEngine[] = [
     views: ["findings"],
     compare: semantic,
     counts: unitCounts("statement", "statements"),
+  },
+  {
+    id: "meaning",
+    label: `Meaning (${MEANING_MODEL_NAME})`,
+    views: ["findings"],
+    runsOnCompareOnly: true,
+    sendsTextToProvider: "Anthropic",
+    price: MEANING_PRICE,
+    compare: (_a, _b, ids) => compareMeaning(ids),
+    counts: meaningCounts,
   },
 ];
 

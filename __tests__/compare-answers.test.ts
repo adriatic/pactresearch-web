@@ -159,7 +159,11 @@ describe("the address", () => {
       b: null,
       engine: "json",
     });
-    expect(parseCompareParams({ engine: "meaning" }).engine).toBe("word");
+    // Task D15: "meaning" is an engine now; an unknown id falls back.
+    expect(parseCompareParams({ engine: "meaning" }).engine).toBe("meaning");
+    expect(parseCompareParams({ engine: "no-such-engine" }).engine).toBe(
+      "word",
+    );
     expect(parseCompareParams({ a: [id(1), id(2)], b: "  " })).toEqual({
       a: id(1),
       b: null,
