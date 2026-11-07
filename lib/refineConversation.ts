@@ -255,7 +255,8 @@ export type RefineCase =
   | "message_too_long"
   | "conversation_too_long"
   | "invalid_conversation"
-  | "notebook_not_found";
+  | "notebook_not_found"
+  | "save_failed";
 
 export interface RefineWords {
   error: string;
@@ -412,6 +413,14 @@ export const REFINE_WORDS: Record<RefineCase, PerProvider> = {
   notebook_not_found: same({
     error: "This notebook no longer exists.",
     code: "refine_notebook_not_found",
+  }),
+  // New in D17d: the reply arrived but storing the conversation failed.
+  // The reply is still shown; this says it will not be there next time.
+  save_failed: same({
+    error:
+      "This reply could not be saved. It is shown here, but it will be " +
+      "gone when you close this dialog.",
+    code: "refine_save_failed",
   }),
 };
 

@@ -50,6 +50,7 @@ export const anthropicProvider: LlmProvider = {
           { role: "user", content: request.prompt },
         ],
       }),
+      signal: request.signal,
     });
 
     if (!response.ok || !response.body) {
