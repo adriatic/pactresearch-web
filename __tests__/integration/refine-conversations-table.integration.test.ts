@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   createClient as createServiceClient,
   type SupabaseClient,
@@ -23,6 +25,40 @@ function runLocalSql(sql: string): void {
   execFileSync("npx", ["supabase", "db", "query", "--local", sql], {
     stdio: "inherit",
   });
+}
+
+// psql inside the LOCAL database container (named from project_id in
+// supabase/config.toml), as e2e/magic-link-sign-in.spec.ts does. Used for
+// what `supabase db query` cannot do: several statements in one file, and
+// a JSON null value. Never reaches any other database.
+const LOCAL_DB_CONTAINER = "supabase_db_pactresearch-web";
+
+function localPsql(sql: string): { ok: boolean; output: string } {
+  try {
+    const output = execFileSync(
+      "docker",
+      [
+        "exec",
+        "-i",
+        LOCAL_DB_CONTAINER,
+        "psql",
+        "-U",
+        "postgres",
+        "-d",
+        "postgres",
+        "-v",
+        "ON_ERROR_STOP=1",
+        "-tA",
+        "-f",
+        "-",
+      ],
+      { input: sql, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
+    );
+    return { ok: true, output };
+  } catch (error) {
+    const e = error as { stdout?: string; stderr?: string };
+    return { ok: false, output: `${e.stdout ?? ""}${e.stderr ?? ""}` };
+  }
 }
 
 function getLocalSupabaseStatus(): LocalSupabaseStatus {
@@ -392,14 +428,43 @@ describe("refine_conversations (local database)", () => {
       return { error, notebookId };
     }
 
+    // Since D17c2 the count check counts only an array, so a non-array is
+    // refused by a check constraint. Postgres runs checks in name order:
+    // refine_conversations_message_count sorts before
+    // refine_conversations_messages_is_array, so it is the one reported.
     test.each([
       ["an object", { role: "user", content: "hi" }],
       ["a string", "hi"],
       ["a number", 5],
-      ["JSON null", null],
-    ])("messages that is %s is refused", async (_name, messages) => {
-      const { error, notebookId } = await insertMessages(messages);
-      expect(error).not.toBeNull();
+      ["true", true],
+    ])(
+      "messages that is %s is refused by the count check, not by an array-length error",
+      async (_name, messages) => {
+        const { error, notebookId } = await insertMessages(messages);
+        expect(error?.code).toBe(CHECK_FAILED);
+        expect(error?.message).toContain("refine_conversations_message_count");
+        expect(error?.message).not.toMatch(/cannot get array length/);
+        expect(await storedRow(notebookId)).toBeNull();
+      },
+    );
+
+    // JSON null cannot be sent through the API (PostgREST turns it into
+    // SQL NULL), so it goes in with SQL on the local database.
+    test("messages that is JSON null is refused by the count check", async () => {
+      const notebookId = await newNotebook(a.client, a.userId);
+      const result = localPsql(
+        `insert into public.refine_conversations (notebook_id, user_id, messages)
+         values ('${notebookId}', '${a.userId}', 'null'::jsonb)`,
+      );
+      expect(result.ok).toBe(false);
+      expect(result.output).toContain("refine_conversations_message_count");
+      expect(result.output).not.toMatch(/cannot get array length/);
+      expect(await storedRow(notebookId)).toBeNull();
+    });
+
+    test("messages that is SQL NULL is refused by not null", async () => {
+      const { error, notebookId } = await insertMessages(null);
+      expect(error?.code).toBe("23502");
       expect(await storedRow(notebookId)).toBeNull();
     });
 
@@ -472,6 +537,66 @@ describe("refine_conversations (local database)", () => {
         .select("messages")
         .eq("notebook_id", notebookId);
       expect(rows).toEqual([{ messages: conversation(3) }]);
+    });
+  });
+
+  describe("running the migration file a second time", () => {
+    const MIGRATION = join(
+      process.cwd(),
+      "supabase/migrations/20261106120000_refine_conversations.sql",
+    );
+
+    function snapshot() {
+      const result = localPsql(
+        `select
+           (select count(*) from public.refine_conversations),
+           (select count(*) from pg_policies
+              where schemaname = 'public' and tablename = 'refine_conversations'),
+           (select count(*) from pg_indexes
+              where schemaname = 'public' and tablename = 'refine_conversations'),
+           (select count(*) from pg_constraint
+              where conrelid = 'public.refine_conversations'::regclass),
+           (select relrowsecurity from pg_class
+              where oid = 'public.refine_conversations'::regclass)`,
+      );
+      expect(result.ok).toBe(true);
+      return result.output.trim();
+    }
+
+    test("changes nothing and raises no error", async () => {
+      // At least one row, so "the rows stay" means something.
+      const notebookId = await newNotebook(a.client, a.userId);
+      const { error } = await a.client
+        .from(TABLE)
+        .insert({ notebook_id: notebookId, messages: conversation(3) });
+      expect(error).toBeNull();
+
+      const before = snapshot();
+      // rows | policies | indexes (pkey + user_id) | constraints | RLS on
+      expect(before).toMatch(/^[1-9]\d*\|1\|2\|\d+\|t$/);
+
+      const rerun = localPsql(readFileSync(MIGRATION, "utf-8"));
+      expect(rerun.output).not.toMatch(/ERROR/);
+      expect(rerun.ok).toBe(true);
+
+      expect(snapshot()).toBe(before);
+      expect((await storedRow(notebookId))?.messages).toEqual(conversation(3));
+
+      // The policy still works after being dropped and created again.
+      const { data: own } = await a.client
+        .from(TABLE)
+        .select("notebook_id")
+        .eq("notebook_id", notebookId);
+      expect(own).toHaveLength(1);
+      const { data: others } = await b.client
+        .from(TABLE)
+        .select("notebook_id")
+        .eq("notebook_id", notebookId);
+      expect(others).toEqual([]);
+      const { error: bInsert } = await b.client
+        .from(TABLE)
+        .insert({ notebook_id: await newNotebook(a.client, a.userId) });
+      expect(bInsert?.code).toBe(RLS_DENIED);
     });
   });
 });

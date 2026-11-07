@@ -1,5 +1,6 @@
 -- Task D17c. The Refine with AI conversation, one per notebook.
--- Design: cc-reports summary-task-D17a-refine-design.md, section 3.
+-- Design: cc-reports summary-task-D17a-refine-design.md, section 3, with
+-- the three changes from Claude.ai's review (D17c2).
 --
 -- A table of its own rather than a column on notebooks: GET /api/notebooks
 -- selects * for the whole Explorer list, so a column would send every
@@ -12,6 +13,11 @@
 -- route's job; the database only keeps a backstop (an array, at most 40
 -- messages, at most 256 KiB of JSON).
 --
+-- The message-count check counts only an array (case ... else false), so
+-- a value that is not an array is refused by a check constraint, never by
+-- a "cannot get array length" error. Postgres runs check constraints in
+-- name order, and the count check sorts before the array check.
+--
 -- Not in Realtime (supabase_realtime holds only responses), not in the
 -- .pact export, not imported. "Start over" deletes the whole row.
 --
@@ -20,10 +26,15 @@
 -- table (see 20260926120000_user_api_keys.sql). RLS below is what limits
 -- access; the grant only lets a query reach it.
 --
+-- Safe to run twice (if not exists, drop policy if exists; enabling RLS
+-- and granting again change nothing), because it is pasted into the
+-- Supabase SQL editor by hand. A second run leaves the table, its rows,
+-- its index and its one policy as they were.
+--
 -- NOT APPLIED TO PREVIEW OR PRODUCTION. For Claude.ai's review, then
 -- Nik applies it by hand.
 
-create table public.refine_conversations (
+create table if not exists public.refine_conversations (
   notebook_id uuid primary key
     references public.notebooks(id) on delete cascade,
   user_id     uuid not null default auth.uid()
@@ -33,16 +44,20 @@ create table public.refine_conversations (
   constraint refine_conversations_messages_is_array
     check (jsonb_typeof(messages) = 'array'),
   constraint refine_conversations_message_count
-    check (jsonb_array_length(messages) <= 40),
+    check (case when jsonb_typeof(messages) = 'array'
+                then jsonb_array_length(messages) <= 40
+                else false end),
   constraint refine_conversations_size
     check (octet_length(messages::text) <= 262144)
 );
 
-create index refine_conversations_user_id_idx
+create index if not exists refine_conversations_user_id_idx
   on public.refine_conversations (user_id);
 
 alter table public.refine_conversations enable row level security;
 
+drop policy if exists "Users manage their own refine conversations"
+  on public.refine_conversations;
 create policy "Users manage their own refine conversations"
   on public.refine_conversations
   for all
@@ -51,7 +66,7 @@ create policy "Users manage their own refine conversations"
     user_id = auth.uid()
     and exists (
       select 1 from public.notebooks n
-      where n.id = notebook_id and n.user_id = auth.uid()
+      where n.id = refine_conversations.notebook_id and n.user_id = auth.uid()
     )
   );
 
