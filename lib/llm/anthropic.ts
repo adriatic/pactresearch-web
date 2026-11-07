@@ -82,6 +82,8 @@ export async function* anthropicEvents(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // Task D17b. Set by message_delta's stop_reason, read at message_stop.
+  let cutOff = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -123,8 +125,14 @@ export async function* anthropicEvents(
           }
           break;
         }
+        case "message_delta": {
+          const delta = event.delta as
+            { stop_reason?: string | null } | undefined;
+          if (delta?.stop_reason === "max_tokens") cutOff = true;
+          break;
+        }
         case "message_stop":
-          yield { type: "stop" };
+          yield cutOff ? { type: "stop", cutOff: true } : { type: "stop" };
           break;
         default:
           break;

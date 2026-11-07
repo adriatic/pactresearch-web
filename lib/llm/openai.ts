@@ -231,6 +231,9 @@ export async function* openAiEvents(
   const decoder = new TextDecoder();
   let buffer = "";
   let started = false;
+  // Task D17b. A choice that finished with "length" hit the output limit;
+  // the flag goes on the stop event at [DONE].
+  let cutOff = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -253,13 +256,16 @@ export async function* openAiEvents(
           started = true;
           yield { type: "start", resolvedModel: null };
         }
-        yield { type: "stop" };
+        yield cutOff ? { type: "stop", cutOff: true } : { type: "stop" };
         continue;
       }
 
       let chunk: {
         model?: string;
-        choices?: { delta?: { content?: string | null } }[];
+        choices?: {
+          delta?: { content?: string | null };
+          finish_reason?: string | null;
+        }[];
         error?: unknown;
       };
       try {
@@ -275,6 +281,7 @@ export async function* openAiEvents(
         started = true;
         yield { type: "start", resolvedModel: chunk.model ?? null };
       }
+      if (chunk.choices?.[0]?.finish_reason === "length") cutOff = true;
       const text = chunk.choices?.[0]?.delta?.content;
       if (text) yield { type: "text", text };
     }

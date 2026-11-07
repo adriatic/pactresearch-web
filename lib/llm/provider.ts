@@ -30,10 +30,16 @@ export interface StreamRequest {
 // "text" pieces, then one "stop" when the answer is complete. A stream
 // that ends without "stop" was cut short; the route treats that exactly as
 // it always has.
+//
+// Task D17b. "stop" carries cutOff: true when the service ended the answer
+// because it reached the output limit (Anthropic's stop_reason
+// "max_tokens", OpenAI's finish_reason "length"), so the text is complete
+// as a stream but unfinished as an answer. Optional and absent otherwise:
+// /api/execute does not read it and behaves exactly as before.
 export type StreamEvent =
   | { type: "start"; resolvedModel: string | null }
   | { type: "text"; text: string }
-  | { type: "stop" };
+  | { type: "stop"; cutOff?: true };
 
 export interface LlmProvider {
   readonly name: string;
