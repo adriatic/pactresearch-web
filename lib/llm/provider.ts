@@ -23,6 +23,10 @@ export interface StreamRequest {
   // Earlier turns, oldest first, then the new prompt with its images.
   history: ChatMessage[];
   prompt: ContentBlock[];
+  // Task D17d. Optional: aborts the request and the reading of its
+  // stream (Refine's 60-second limit). /api/execute passes none, so its
+  // requests are unchanged.
+  signal?: AbortSignal;
 }
 
 // What a provider streams back, in order: one "start" (the model the

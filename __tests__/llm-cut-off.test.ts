@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
-import { anthropicEvents } from "@/lib/llm/anthropic";
-import { openAiEvents } from "@/lib/llm/openai";
+import { describe, expect, test, vi } from "vitest";
+import { anthropicEvents, anthropicProvider } from "@/lib/llm/anthropic";
+import { openAiEvents, openaiProvider } from "@/lib/llm/openai";
 import type { StreamEvent } from "@/lib/llm/provider";
 
 // Task D17b. The optional cutOff flag on the stop event: set when the
@@ -132,4 +132,46 @@ describe("openAiEvents: cutOff", () => {
       { type: "stop", cutOff: true },
     ]);
   });
+});
+
+// Task D17d. The optional abort signal reaches fetch for both providers
+// (Refine's time limit), and a request without one sends none, as
+// /api/execute's requests always have.
+describe("StreamRequest.signal", () => {
+  const request = {
+    apiKey: "sk-test",
+    model: "m",
+    maxTokens: 10,
+    systemPrompt: null,
+    history: [],
+    prompt: [{ type: "text" as const, text: "hi" }],
+  };
+
+  test.each([
+    ["Anthropic", anthropicProvider],
+    ["OpenAI", openaiProvider],
+  ])(
+    "%s passes the signal to fetch, and none when not given",
+    async (_name, provider) => {
+      const fetchMock = vi.fn(
+        async () =>
+          new Response("data: [DONE]\n\n", {
+            headers: { "content-type": "text/event-stream" },
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        const controller = new AbortController();
+        await provider.stream({ ...request, signal: controller.signal });
+        await provider.stream(request);
+        const inits = fetchMock.mock.calls.map(
+          (call) => (call as unknown as [string, RequestInit])[1],
+        );
+        expect(inits[0].signal).toBe(controller.signal);
+        expect(inits[1].signal).toBeUndefined();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 });

@@ -193,6 +193,7 @@ export const openaiProvider: LlmProvider = {
         authorization: `Bearer ${request.apiKey}`,
       },
       body: JSON.stringify(openAiRequestBody(request)),
+      signal: request.signal,
     });
 
     if (!response.ok || !response.body) {
