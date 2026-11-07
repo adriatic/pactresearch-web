@@ -4,14 +4,13 @@ import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
 
 // Task 50. Account profile, per-notebook system prompt (including the
-// real "Refine with AI" call), and the model tier picker.
+// "Refine with AI" call), and the model tier picker.
 //
-// /api/refine-system-prompt is mocked at the browser network layer for
-// the same reason /api/execute is in the other specs: no
-// ANTHROPIC_API_KEY locally, and the client path being tested -- send,
-// in-flight state, fill the textarea, then Save -- is identical either
-// way. The route's own logic is exercised by its 400 path, which needs
-// no key.
+// The Refine turn (/api/refine-conversation since Task D17e) is answered
+// at the browser network layer: the client path being tested here --
+// send, Use this prompt, fill the textarea, then Save -- is the same
+// either way. The route itself, with stand-ins for both services, is
+// covered by refine-settings.spec.ts.
 
 interface LocalSupabaseStatus {
   API_URL: string;
@@ -146,15 +145,30 @@ test("Item B: Refine with AI fills the system prompt, and Save persists it", asy
   const { admin, notebookId, suffix } = await seed(page, context);
   const drafted = `You are reviewing oncology trial protocols. ${suffix}`;
 
-  let sentDescription: string | null = null;
-  await page.route("**/api/refine-system-prompt", async (route) => {
-    sentDescription = (
-      route.request().postDataJSON() as { description: string }
-    ).description;
+  // Task D17e: Refine is a conversation (/api/refine-conversation). Its
+  // turn is answered here at the browser network layer, as before, with a
+  // reply that carries a marked prompt; the real route, with stand-ins
+  // for both services, is covered by refine-settings.spec.ts.
+  let sent: { notebookId: string; messages: { content: string }[] } | null =
+    null;
+  await page.route("**/api/refine-conversation**", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    sent = route.request().postDataJSON();
+    const reply = `Here it is:\nSYSTEM_PROMPT_START\n${drafted}\nSYSTEM_PROMPT_END`;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ systemPrompt: drafted }),
+      body: JSON.stringify({
+        reply,
+        systemPrompt: drafted,
+        incomplete: false,
+        messages: [
+          ...sent!.messages,
+          { role: "assistant", content: reply, provider: "anthropic" },
+        ],
+        saved: true,
+        notice: null,
+      }),
     });
   });
 
@@ -177,18 +191,18 @@ test("Item B: Refine with AI fills the system prompt, and Save persists it", asy
 
   const description = "Oncology trial protocol review";
   await page
-    .getByPlaceholder("Describe your research domain...")
+    .getByPlaceholder("Describe your research domain…")
     .fill(description);
   await expect(send).toBeEnabled();
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/api/refine-system-prompt")),
-    send.click(),
-  ]);
+  await send.click();
 
-  // The draft landed in the editable field -- and was NOT auto-saved.
+  // "Use this prompt" puts the draft in the editable field -- and it is
+  // NOT auto-saved.
+  await page.getByRole("button", { name: "Use this prompt" }).click();
   const textarea = page.getByLabel("System prompt:");
   await expect(textarea).toHaveValue(drafted);
-  expect(sentDescription).toBe(description);
+  expect(sent!.notebookId).toBe(notebookId);
+  expect(sent!.messages.map((m) => m.content)).toEqual([description]);
   const { data: midway } = await admin
     .from("notebooks")
     .select("system_prompt")

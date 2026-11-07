@@ -478,3 +478,54 @@ export function refineCaseForProblem(problem: ConversationProblem): RefineCase {
 // Shown under a reply that began a prompt and did not finish it.
 export const REFINE_INCOMPLETE_NOTE =
   "This reply has an unfinished prompt (the end marker is missing). Ask for it again.";
+
+// --------------------------------------------------------------- showing
+
+// Task D17e. One reply, cut into the pieces the dialog draws: plain text,
+// and each complete marked prompt in a box of its own (marker lines left
+// out). The prompt's text is exactly what extractPrompt gives for that
+// pair, so the last box shows exactly what "Use this prompt" copies. A
+// START with no END, a pair with only blank space between, and a lone END
+// stay plain text, markers and all, so nothing the model wrote is hidden.
+export type ReplySegment =
+  { kind: "text"; text: string } | { kind: "prompt"; text: string };
+
+export function replySegments(reply: string): ReplySegment[] {
+  const lines = reply.split(/\r?\n/);
+  const segments: ReplySegment[] = [];
+  let textFrom = 0; // first line not yet emitted
+  let openAt: number | null = null;
+
+  const pushText = (from: number, to: number) => {
+    const text = lines.slice(from, to).join("\n").trim();
+    if (text !== "") segments.push({ kind: "text", text });
+  };
+
+  for (const [index, line] of lines.entries()) {
+    const marker = markerLine(line);
+    if (marker === "start") {
+      openAt = index;
+    } else if (marker === "end" && openAt !== null) {
+      const prompt = lines
+        .slice(openAt + 1, index)
+        .join("\n")
+        .trim();
+      if (prompt !== "") {
+        pushText(textFrom, openAt);
+        segments.push({ kind: "prompt", text: prompt });
+        textFrom = index + 1;
+      }
+      openAt = null;
+    }
+  }
+  pushText(textFrom, lines.length);
+  return segments;
+}
+
+// True when the conversation can take no more messages: a sent
+// conversation holds at most REFINE_MAX_MESSAGES - 1 (the reply makes the
+// last one), so at that count nothing more can be sent. The dialog then
+// disables the input and shows the too_many_messages words.
+export function refineAtLimit(messages: readonly RefineMessage[]): boolean {
+  return messages.length >= REFINE_MAX_MESSAGES - 1;
+}

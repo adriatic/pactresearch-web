@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { LlmProviderId } from "@/lib/llmProviders";
+import { RefineConversation } from "./RefineConversation";
 
 // The header's "Settings" button opens this — a per-notebook system
 // prompt editor. Plain text only, no rich text/Tiptap (this is a system
@@ -24,11 +26,14 @@ import { useEffect, useState } from "react";
 // dialog's explicit Save is the correct, already-tested behavior and
 // nothing here claims otherwise.
 //
-// "Refine with AI" is real as of task 50: the description goes to
-// /api/refine-system-prompt, Claude drafts a system prompt for that
-// domain, and the result fills the textarea below for the user to edit
-// and Save. It is a single-shot draft, not pact-mac's multi-turn IPR
-// (Iterative Prompt Refinement) chat -- that remains a future task.
+// "Refine with AI" is a conversation as of Task D17e (app/
+// RefineConversation.tsx, /api/refine-conversation): the account's own
+// service asks a few questions, then writes a marked prompt that "Use
+// this prompt" copies into the textarea below, for the user to edit and
+// Save. The conversation is stored per notebook by the route, so Cancel
+// discards the field but not the conversation. It replaces Task 50's
+// one-shot draft (/api/refine-system-prompt, still used by New notebook
+// until D17f).
 //
 // Unlike pact-mac (a VSCode webview has no existing modal convention to
 // match either), this is pact-web's first real dialog component — no
@@ -42,6 +47,7 @@ import { useEffect, useState } from "react";
 // of the app's plain-HTML aesthetic (no CSS framework, no design system).
 export function SettingsDialog({
   notebookId,
+  provider,
   open,
   onClose,
 }: {
@@ -50,6 +56,8 @@ export function SettingsDialog({
   // separately-tracked selectedNotebookId (that one only updates on an
   // explicit tree click and can be stale/null on first load).
   notebookId: string | null;
+  // The account's service (Workspace's useLlmChoice), for Refine's words.
+  provider: LlmProviderId;
   open: boolean;
   onClose: () => void;
 }) {
@@ -73,39 +81,6 @@ export function SettingsDialog({
   // displayedDiscussionId reset already uses for the identical reason.
   const openKey = open ? notebookId : null;
   const [loadedForKey, setLoadedForKey] = useState<string | null>(null);
-  // Task 50 item B: the "Refine with AI" description and its in-flight
-  // state. Deliberately separate from `error` so a failed draft does not
-  // look like a failed save.
-  const [refineDescription, setRefineDescription] = useState("");
-  const [refining, setRefining] = useState(false);
-  const [refineError, setRefineError] = useState<string | null>(null);
-
-  async function handleRefine() {
-    const description = refineDescription.trim();
-    if (!description || refining) return;
-    setRefining(true);
-    setRefineError(null);
-    try {
-      const response = await fetch("/api/refine-system-prompt", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ description }),
-      });
-      const body = await response.json();
-      if (response.ok) {
-        // Fills the field rather than saving: the draft is a starting
-        // point the user edits and then Saves explicitly, which is the
-        // same contract as typing it by hand.
-        setSystemPrompt(body.systemPrompt);
-      } else {
-        setRefineError(body.error || "Couldn't draft a system prompt.");
-      }
-    } catch {
-      setRefineError("Couldn't draft a system prompt — please try again.");
-    } finally {
-      setRefining(false);
-    }
-  }
   if (openKey !== loadedForKey) {
     setLoadedForKey(openKey);
     if (openKey !== null) {
@@ -187,6 +162,9 @@ export function SettingsDialog({
       }}
     >
       <section
+        role="dialog"
+        aria-modal="true"
+        aria-label="Notebook settings"
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border-strong)",
@@ -211,40 +189,17 @@ export function SettingsDialog({
         >
           The system prompt below applies to every prompt run in this notebook.
         </p>
-        <label>
-          Refine with AI:
-          <br />
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              type="text"
-              placeholder="Describe your research domain..."
-              value={refineDescription}
-              onChange={(e) => setRefineDescription(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  // This input sits inside a dialog, not a form, so
-                  // Enter has nothing to submit -- wire it to the action
-                  // the user obviously means.
-                  e.preventDefault();
-                  void handleRefine();
-                }
-              }}
-              disabled={loading || saving || refining}
-              style={{ flex: 1, boxSizing: "border-box" }}
-            />
-            <button
-              type="button"
-              onClick={() => void handleRefine()}
-              disabled={
-                loading || saving || refining || !refineDescription.trim()
-              }
-            >
-              {refining ? "Drafting..." : "Send"}
-            </button>
-          </div>
-        </label>
-        {refineError && <p style={{ color: "var(--danger)" }}>{refineError}</p>}
-        <br />
+        {/* Task D17e: Refine with AI as a conversation, kept on the
+            server per notebook. "Use this prompt" replaces the field
+            below; nothing is saved until Save. Remounted per notebook so
+            one notebook's conversation never shows under another. */}
+        <RefineConversation
+          key={notebookId}
+          notebookId={notebookId}
+          provider={provider}
+          onUsePrompt={setSystemPrompt}
+          disabled={loading || saving}
+        />
         <label>
           System prompt:
           <br />
