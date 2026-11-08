@@ -479,6 +479,20 @@ export function refineCaseForProblem(problem: ConversationProblem): RefineCase {
 export const REFINE_INCOMPLETE_NOTE =
   "This reply has an unfinished prompt (the end marker is missing). Ask for it again.";
 
+// Task D17e2. GET found a stored conversation that fails
+// checkStoredConversation: it is not shown, and the dialog says so in
+// these words instead of showing an empty conversation without a reason.
+export const REFINE_STORED_UNREADABLE: RefineWords = {
+  error:
+    "The saved conversation for this notebook could not be read, so it is " +
+    "not shown. Your next message starts a new conversation.",
+  code: "refine_stored_unreadable",
+};
+
+// Task D17e2. Shown while the notebook's conversation is being loaded:
+// nothing can be sent until it has arrived.
+export const REFINE_LOADING_NOTE = "Loading the conversation…";
+
 // --------------------------------------------------------------- showing
 
 // Task D17e. One reply, cut into the pieces the dialog draws: plain text,

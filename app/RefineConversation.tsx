@@ -6,6 +6,7 @@ import {
   latestPrompt,
   extractPrompt,
   REFINE_INCOMPLETE_NOTE,
+  REFINE_LOADING_NOTE,
   refineAtLimit,
   refineMessageLabel,
   refineProviderLabel,
@@ -64,7 +65,8 @@ export function RefineConversation({
   // The line shown after "Use this prompt" (New Notebook says "Create the
   // notebook to keep it." instead).
   usedNote?: string;
-  // The parent is busy (loading, saving, creating): nothing can be sent.
+  // The parent is busy (loading, saving, creating): nothing can be sent
+  // and no prompt used. Typing still works (Task D17e2).
   disabled?: boolean;
   onConversationChange?: (messages: RefineMessage[]) => void;
 }) {
@@ -105,6 +107,8 @@ export function RefineConversation({
         if (response.ok && Array.isArray(body.messages)) {
           setMessages(body.messages);
           setLoaded(true);
+          // A stored conversation the route could not read (D17e2).
+          if (body.notice?.error) setNotice(body.notice.error);
         } else {
           setLoadError(body.error || refineWords("network", provider).error);
         }
@@ -129,7 +133,15 @@ export function RefineConversation({
 
   const waiting = pending !== null;
   const atLimit = refineAtLimit(messages);
-  const canType = loaded && !disabled && !waiting && !deleting && !atLimit;
+  // Task D17e2. Typing is closed only by what the dialog says in words:
+  // the conversation still loading ("Loading the conversation…") or
+  // failed to load (the error), the limit (its words below), a reply on
+  // its way ("… is writing…") or a Start over in progress. A busy parent
+  // (the dialog loading or saving its System prompt) only holds back
+  // sending: before, it also disabled the textarea, with nothing on the
+  // screen to say why.
+  const canType = loaded && !loadError && !waiting && !deleting && !atLimit;
+  const canSend = canType && !disabled;
   const found = latestPrompt(messages);
   const last = messages.at(-1);
   const incomplete =
@@ -139,7 +151,7 @@ export function RefineConversation({
 
   async function send() {
     const text = input.trim();
-    if (!text || !canType) return;
+    if (!text || !canSend) return;
     const typed = input;
     const sent: RefineMessage[] = [
       ...messages,
@@ -275,7 +287,7 @@ export function RefineConversation({
           aria-label="Send"
           title="Send"
           onClick={() => void send()}
-          disabled={!canType || !input.trim()}
+          disabled={!canSend || !input.trim()}
           style={{ minHeight: TOUCH, minWidth: TOUCH, alignSelf: "flex-end" }}
         >
           →
@@ -358,6 +370,11 @@ export function RefineConversation({
       {waiting && (
         <p role="status" style={line("var(--text-muted)")}>
           {label} is writing…
+        </p>
+      )}
+      {!loaded && !loadError && (
+        <p role="status" style={line("var(--text-muted)")}>
+          {REFINE_LOADING_NOTE}
         </p>
       )}
       {loadError && (

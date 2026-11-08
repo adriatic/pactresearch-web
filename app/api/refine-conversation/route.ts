@@ -9,6 +9,7 @@ import { KEY_ENCRYPTION_UNCONFIGURED_CODE } from "@/lib/storedApiKey";
 import {
   checkSentConversation,
   checkStoredConversation,
+  REFINE_STORED_UNREADABLE,
   extractPrompt,
   REFINE_MAX_OUTPUT_TOKENS,
   REFINE_TIMEOUT_MS,
@@ -166,7 +167,8 @@ async function handleGet(request: Request): Promise<Response> {
   const stored = checkStoredConversation(data.messages);
   if (!stored.ok) {
     log(`stored conversation unreadable (${stored.reason})`);
-    return Response.json({ messages: [] });
+    // Task D17e2: said in words, not an empty conversation with no reason.
+    return Response.json({ messages: [], notice: REFINE_STORED_UNREADABLE });
   }
   return Response.json({ messages: stored.messages });
 }

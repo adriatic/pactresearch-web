@@ -19,6 +19,8 @@ import {
 //   LONGREPLY    a 3,000-character reply (pushes a near-full conversation
 //                over the 60,000 total, so it is not stored)
 //   SLOW         the reply waits 3 seconds
+//   CLOSING      a closing reply of several paragraphs, no question, no
+//                prompt (D17e2)
 //   otherwise    the first message gets a question, later ones a marked
 //                prompt
 // Every reply waits WAIT_MS first, so "… is writing…" can be seen.
@@ -42,6 +44,11 @@ export const markedReply = (provider: LlmProviderId) =>
 
 export const UNFINISHED_REPLY =
   "Here is a start:\nSYSTEM_PROMPT_START\nYou are assisting";
+
+export const CLOSING_REPLY =
+  "Understood. The prompt above is **ready to use** as it is.\n\n" +
+  "You can copy it into the System prompt field whenever you like.\n\n\n" +
+  "Good luck with your research.";
 
 export interface StandIn {
   provider: LlmProviderId;
@@ -67,6 +74,7 @@ function lastUserText(body: {
 function replyFor(provider: LlmProviderId, text: string, users: number) {
   if (text.includes("UNFINISHED")) return UNFINISHED_REPLY;
   if (text.includes("LONGREPLY")) return "L".repeat(3000);
+  if (text.includes("CLOSING")) return CLOSING_REPLY;
   return users <= 1 ? QUESTION[provider] : markedReply(provider);
 }
 

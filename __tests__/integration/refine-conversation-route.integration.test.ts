@@ -941,6 +941,22 @@ describe("/api/refine-conversation", () => {
       expect(await response.json()).toEqual({ messages: stored });
     });
 
+    test("GET: a stored conversation that fails the check is not shown, and the notice says so (D17e2)", async () => {
+      const u = await signedInUser();
+      await storeDirectly(u.notebookId, [user("One."), user("Two.")]);
+      const response = await get(u.notebookId);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        messages: [],
+        notice: {
+          error:
+            "The saved conversation for this notebook could not be read, so " +
+            "it is not shown. Your next message starts a new conversation.",
+          code: "refine_stored_unreadable",
+        },
+      });
+    });
+
     test.each([
       ["missing", undefined],
       ["malformed", "not-a-uuid"],
@@ -1071,7 +1087,7 @@ describe("/api/refine-conversation", () => {
     expect(ours.length).toBeGreaterThan(5);
     for (const line of ours) {
       expect(line).toMatch(
-        /^\[refine-conversation\] (failed provider=(anthropic|openai) status=\S+ code=\S+|timed out provider=(anthropic|openai)|cut off provider=(anthropic|openai)|empty reply provider=(anthropic|openai)|save failed \(\S+\))$/,
+        /^\[refine-conversation\] (failed provider=(anthropic|openai) status=\S+ code=\S+|timed out provider=(anthropic|openai)|cut off provider=(anthropic|openai)|empty reply provider=(anthropic|openai)|save failed \(\S+\)|stored conversation unreadable \(\S+\))$/,
       );
     }
     const all = logged.join("\n");
