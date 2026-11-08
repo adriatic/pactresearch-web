@@ -181,9 +181,45 @@ function markerLine(line: string): "start" | "end" | null {
   return null;
 }
 
+// Task D17g. The one slip that is tolerated: a model that closes the
+// prompt with the start marker a second time instead of the end marker
+// (seen in a Preview trial). A reply with no end-marker line at all and
+// exactly two start-marker lines, with something other than blank space
+// between them, is read as one complete prompt: the lines between the
+// two, trimmed. Returns the two line numbers, or null when the reply is
+// not exactly that. Everything else keeps the D17b rules: one start and
+// no end, or three or more starts and no end, is unfinished; any real
+// end marker means this tolerance does not apply.
+function doubledStart(lines: readonly string[]): [number, number] | null {
+  const starts: number[] = [];
+  for (const [index, line] of lines.entries()) {
+    const marker = markerLine(line);
+    if (marker === "end") return null;
+    if (marker === "start") starts.push(index);
+  }
+  if (starts.length !== 2) return null;
+  const [first, second] = starts;
+  const between = lines
+    .slice(first + 1, second)
+    .join("\n")
+    .trim();
+  return between === "" ? null : [first, second];
+}
+
 // The marked prompt in one reply.
 export function extractPrompt(reply: string): ExtractedPrompt {
   const lines = reply.split(/\r?\n/);
+  const doubled = doubledStart(lines);
+  if (doubled) {
+    const [first, second] = doubled;
+    return {
+      prompt: lines
+        .slice(first + 1, second)
+        .join("\n")
+        .trim(),
+      incomplete: false,
+    };
+  }
   let prompt: string | null = null;
   let openAt: number | null = null;
 
@@ -478,3 +514,87 @@ export function refineCaseForProblem(problem: ConversationProblem): RefineCase {
 // Shown under a reply that began a prompt and did not finish it.
 export const REFINE_INCOMPLETE_NOTE =
   "This reply has an unfinished prompt (the end marker is missing). Ask for it again.";
+
+// Task D17e2. GET found a stored conversation that fails
+// checkStoredConversation: it is not shown, and the dialog says so in
+// these words instead of showing an empty conversation without a reason.
+export const REFINE_STORED_UNREADABLE: RefineWords = {
+  error:
+    "The saved conversation for this notebook could not be read, so it is " +
+    "not shown. Your next message starts a new conversation.",
+  code: "refine_stored_unreadable",
+};
+
+// Task D17e2. Shown while the notebook's conversation is being loaded:
+// nothing can be sent until it has arrived.
+export const REFINE_LOADING_NOTE = "Loading the conversation…";
+
+// --------------------------------------------------------------- showing
+
+// Task D17e. One reply, cut into the pieces the dialog draws: plain text,
+// and each complete marked prompt in a box of its own (marker lines left
+// out). The prompt's text is exactly what extractPrompt gives for that
+// pair, so the last box shows exactly what "Use this prompt" copies. A
+// START with no END, a pair with only blank space between, and a lone END
+// stay plain text, markers and all, so nothing the model wrote is hidden.
+// The one exception is the tolerated doubled START (D17g, doubledStart),
+// shown as a prompt box exactly as extractPrompt reads it.
+export type ReplySegment =
+  { kind: "text"; text: string } | { kind: "prompt"; text: string };
+
+export function replySegments(reply: string): ReplySegment[] {
+  const lines = reply.split(/\r?\n/);
+  const segments: ReplySegment[] = [];
+  let textFrom = 0; // first line not yet emitted
+  let openAt: number | null = null;
+
+  const pushText = (from: number, to: number) => {
+    const text = lines.slice(from, to).join("\n").trim();
+    if (text !== "") segments.push({ kind: "text", text });
+  };
+
+  // Task D17g: the tolerated slip (see doubledStart), shown exactly as
+  // extractPrompt reads it: the two start-marker lines left out.
+  const doubled = doubledStart(lines);
+  if (doubled) {
+    const [first, second] = doubled;
+    pushText(0, first);
+    segments.push({
+      kind: "prompt",
+      text: lines
+        .slice(first + 1, second)
+        .join("\n")
+        .trim(),
+    });
+    pushText(second + 1, lines.length);
+    return segments;
+  }
+
+  for (const [index, line] of lines.entries()) {
+    const marker = markerLine(line);
+    if (marker === "start") {
+      openAt = index;
+    } else if (marker === "end" && openAt !== null) {
+      const prompt = lines
+        .slice(openAt + 1, index)
+        .join("\n")
+        .trim();
+      if (prompt !== "") {
+        pushText(textFrom, openAt);
+        segments.push({ kind: "prompt", text: prompt });
+        textFrom = index + 1;
+      }
+      openAt = null;
+    }
+  }
+  pushText(textFrom, lines.length);
+  return segments;
+}
+
+// True when the conversation can take no more messages: a sent
+// conversation holds at most REFINE_MAX_MESSAGES - 1 (the reply makes the
+// last one), so at that count nothing more can be sent. The dialog then
+// disables the input and shows the too_many_messages words.
+export function refineAtLimit(messages: readonly RefineMessage[]): boolean {
+  return messages.length >= REFINE_MAX_MESSAGES - 1;
+}

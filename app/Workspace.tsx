@@ -414,6 +414,7 @@ export function Workspace({
     <>
       <SettingsDialog
         notebookId={execution.notebookId}
+        provider={llm.provider}
         open={showSettings}
         onClose={() => setShowSettings(false)}
       />

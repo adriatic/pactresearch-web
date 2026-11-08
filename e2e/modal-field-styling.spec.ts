@@ -246,11 +246,8 @@ test("every modal's text fields have a resting border and inner padding, and all
 
   // 3. Notebook settings (Refine with AI, system prompt).
   await header.getByRole("button", { name: "Settings" }).click();
-  // This dialog has no role="dialog" of its own, so it is located by the
-  // section its heading sits in.
-  const settings = page
-    .locator("section")
-    .filter({ has: page.getByRole("heading", { name: "Notebook settings" }) });
+  // A role="dialog" since Task D17e, like the others.
+  const settings = page.getByRole("dialog", { name: "Notebook settings" });
   await capture("Notebook settings", settings);
   await settings.getByRole("button", { name: "Cancel" }).click();
 

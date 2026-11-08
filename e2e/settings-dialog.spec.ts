@@ -153,17 +153,17 @@ test("Settings dialog: disabled with no discussion selected, then edits/saves/ca
       "for no special instructions.",
   );
 
-  // "Refine with AI" (IPR) is a visible-but-disabled stub only -- no
-  // functionality behind it yet (a separate future task). Confirms it
-  // neither accepts input nor can be submitted, not just that it renders.
+  // Task D17e: "Refine with AI" is a conversation now (its own spec,
+  // refine-settings.spec.ts). On a notebook with no conversation it shows
+  // only its input, ready to type, and Send waits for text.
   const refineInput = page.getByRole("textbox", {
-    name: /refine with ai/i,
+    name: "Refine with AI",
   });
   await expect(refineInput).toBeVisible();
-  await expect(refineInput).toBeDisabled();
+  await expect(refineInput).toBeEnabled();
   await expect(refineInput).toHaveAttribute(
     "placeholder",
-    "Describe your research domain...",
+    "Describe your research domain…",
   );
   const refineSend = page.getByRole("button", { name: "Send" });
   await expect(refineSend).toBeVisible();
