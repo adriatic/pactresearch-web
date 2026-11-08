@@ -19,6 +19,8 @@ import {
 //   LONGREPLY    a 3,000-character reply (pushes a near-full conversation
 //                over the 60,000 total, so it is not stored)
 //   SLOW         the reply waits 3 seconds
+//   DOUBLESTART  a marked prompt closed with the start marker a second
+//                time, as in Nik's Preview trial (D17g)
 //   CLOSING      a closing reply of several paragraphs, no question, no
 //                prompt (D17e2)
 //   otherwise    the first message gets a question, later ones a marked
@@ -44,6 +46,10 @@ export const markedReply = (provider: LlmProviderId) =>
 
 export const UNFINISHED_REPLY =
   "Here is a start:\nSYSTEM_PROMPT_START\nYou are assisting";
+
+// Task D17g: the prompt between two start-marker lines, no end marker.
+export const doubledStartReply = (provider: LlmProviderId) =>
+  `Thank you, that is everything I need. Here is the system prompt:\n\nSYSTEM_PROMPT_START\n${PROMPT[provider]}\nSYSTEM_PROMPT_START\n\nWould you like to refine this further?`;
 
 export const CLOSING_REPLY =
   "Understood. The prompt above is **ready to use** as it is.\n\n" +
@@ -75,6 +81,7 @@ function replyFor(provider: LlmProviderId, text: string, users: number) {
   if (text.includes("UNFINISHED")) return UNFINISHED_REPLY;
   if (text.includes("LONGREPLY")) return "L".repeat(3000);
   if (text.includes("CLOSING")) return CLOSING_REPLY;
+  if (text.includes("DOUBLESTART")) return doubledStartReply(provider);
   return users <= 1 ? QUESTION[provider] : markedReply(provider);
 }
 

@@ -10,8 +10,9 @@ import {
 } from "./refineHelpers";
 
 // Task D17e2. Nik's Preview trial (2026-11-07): after a conversation of
-// 10 messages whose fourth reply holds an unfinished prompt (the start
-// marker twice, no end marker), a closing message and Claude's closing
+// 10 messages whose fourth reply closes its prompt with the start marker
+// a second time (no end marker; unfinished at D17e2, read as complete
+// since D17g), a closing message and Claude's closing
 // reply, the Refine input took a character; after Cancel and reopening
 // Notebook settings it could not be typed into. Replies come from a local
 // stand-in; no real model is called.
@@ -56,7 +57,7 @@ async function expectTypable(page: Page, input: Locator, text: string) {
   await expect(input).toHaveValue(text);
 }
 
-test("after a 10-message conversation with an unfinished prompt, the input takes text when the dialog is opened and again after Cancel and reopening", async ({
+test("after a 10-message conversation whose prompt was closed with the start marker twice, the input takes text when the dialog is opened and again after Cancel and reopening", async ({
   page,
   context,
 }) => {
