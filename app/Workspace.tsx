@@ -126,6 +126,37 @@ export function Workspace({
 
   const execution = useDiscussionExecution(activeDiscussionId);
 
+  // Task D17i. Refine with AI's unsent message, held here so closing
+  // Notebook settings (for example to fix a refused key in Account → Keys)
+  // does not lose it. One notebook's at a time, in memory only: nothing is
+  // written to the browser's storage or the server, so a reload or a sign
+  // out (a full page load) drops it. Opening another notebook drops it
+  // too; a notebook id briefly unknown while a discussion loads does not.
+  // `seen` is the last notebook known to be open; the draft belongs to it.
+  const [refine, setRefine] = useState<{
+    seen: string | null;
+    draft: { notebookId: string; text: string } | null;
+  }>({ seen: null, draft: null });
+  const openNotebookId = execution.notebookId;
+  // Reset during render, as SettingsDialog does for its own state.
+  if (openNotebookId !== null && openNotebookId !== refine.seen) {
+    setRefine({
+      seen: openNotebookId,
+      draft: refine.draft?.notebookId === openNotebookId ? refine.draft : null,
+    });
+  }
+  // Only for the notebook still open: an answer can arrive after the
+  // dialog closed, even after another notebook was opened.
+  function holdRefineDraft(notebookId: string, text: string, onlyIf?: string) {
+    setRefine((held) => {
+      if (held.seen !== notebookId) return held;
+      const current =
+        held.draft?.notebookId === notebookId ? held.draft.text : "";
+      if (onlyIf !== undefined && current !== onlyIf) return held;
+      return { ...held, draft: text ? { notebookId, text } : null };
+    });
+  }
+
   // Task 84. Set when a reload of the tree shows that the open discussion
   // (or, with none open, the selected notebook) is gone -- deleted in
   // another tab or window. The work area then shows only this notice in
@@ -417,6 +448,15 @@ export function Workspace({
         provider={llm.provider}
         open={showSettings}
         onClose={() => setShowSettings(false)}
+        refineDraft={
+          refine.draft && refine.draft.notebookId === execution.notebookId
+            ? refine.draft.text
+            : ""
+        }
+        onRefineDraftChange={(text, onlyIf) => {
+          const notebookId = execution.notebookId;
+          if (notebookId) holdRefineDraft(notebookId, text, onlyIf);
+        }}
       />
       <NewNotebookDialog
         open={showNewNotebook}

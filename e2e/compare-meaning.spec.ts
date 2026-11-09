@@ -225,8 +225,9 @@ test("the states: no key, unreadable key, rejected key, a failed call, too long,
   mock.setMode("reject");
   await openComparison(page, first, second, "meaning");
   await compareButton(page).click();
+  // Task D17i: the shared refused-key words changed.
   await expect(error).toHaveText(
-    "Anthropic rejected your API key. Check it in Account → Keys.",
+    "Anthropic rejected your API key. It may have been deleted, disabled or expired in the Anthropic console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys.",
   );
 
   // Anthropic fails: the route's message, without the texts.

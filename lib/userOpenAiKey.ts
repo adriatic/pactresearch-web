@@ -1,4 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  OPENAI_REJECTED_KEY_CODE,
+  OPENAI_REJECTED_KEY_MESSAGE,
+} from "./rejectedKeyWords";
 import { resolveStoredKey, type UserKeyResult } from "./storedApiKey";
 
 // Task 81 Stage 2. The calling user's own OpenAI key, and every message a
@@ -24,9 +28,9 @@ export const OPENAI_KEY_ENCRYPTION_UNCONFIGURED_MESSAGE =
   "not start. Nothing was sent to OpenAI. Please contact support.";
 
 // OpenAI refused the key (401): revoked, mistyped, or another account's.
-export const OPENAI_REJECTED_KEY_MESSAGE =
-  "OpenAI rejected your API key. Check it in Account → Keys.";
-export const OPENAI_REJECTED_KEY_CODE = "openai_rejected_key";
+// Task D17i: the words now live in lib/rejectedKeyWords.ts, shared with
+// Refine with AI.
+export { OPENAI_REJECTED_KEY_CODE, OPENAI_REJECTED_KEY_MESSAGE };
 
 // 429 with code insufficient_quota: the key is fine, the OpenAI account
 // has no API credit. OpenAI bills the API separately from a ChatGPT

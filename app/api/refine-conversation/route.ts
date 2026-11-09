@@ -245,7 +245,8 @@ async function handlePost(request: Request): Promise<Response> {
       log(
         `failed provider=${provider} status=${error.status} code=${error.providerCode ?? "none"}`,
       );
-      if (error.keyRejected) return failWith(400, "rejected_key", provider);
+      if (error.keyRejected)
+        return failWith(400, "rejected_key", provider, error.providerCode);
       if (error.reason === "no_credit" || error.reason === "spend_limit") {
         return failWith(400, error.reason, provider, error.providerCode);
       }

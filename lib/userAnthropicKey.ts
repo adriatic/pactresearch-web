@@ -1,4 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  ANTHROPIC_REJECTED_KEY_CODE,
+  ANTHROPIC_REJECTED_KEY_MESSAGE,
+} from "./rejectedKeyWords";
 import { resolveStoredKey, type UserKeyResult } from "./storedApiKey";
 
 // Task 51. Fetches and decrypts the calling user's own Anthropic key.
@@ -44,9 +48,10 @@ export { KEY_ENCRYPTION_UNCONFIGURED_CODE } from "./storedApiKey";
 // produced the least useful of the four messages: the generic
 // "Execution failed. Please try again or contact support", which points
 // at us when the remedy is entirely theirs.
-export const REJECTED_KEY_MESSAGE =
-  "Anthropic rejected your API key. Check it in Account → Keys.";
-export const REJECTED_KEY_CODE = "anthropic_rejected_key";
+// Task D17i: the words now live in lib/rejectedKeyWords.ts, shared with
+// Refine with AI.
+export const REJECTED_KEY_MESSAGE = ANTHROPIC_REJECTED_KEY_MESSAGE;
+export const REJECTED_KEY_CODE = ANTHROPIC_REJECTED_KEY_CODE;
 
 // Whether an Anthropic HTTP status means "this key is not acceptable".
 //

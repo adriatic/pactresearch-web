@@ -68,6 +68,11 @@ const PROMPT_TEXT =
 const WITH_PROMPT = `Thank you.\n\nSYSTEM_PROMPT_START\n${PROMPT_TEXT}\nSYSTEM_PROMPT_END\n\nWould you like to refine it further?`;
 const THINKING = "AXOLOTL-5512 hidden reasoning";
 const BODY_SECRET = "BODY-SECRET-6630";
+// Task D17i: the refused-key words, exactly as the brief gives them.
+const D17I_CLAUDE_REJECTED =
+  "Anthropic rejected your API key. It may have been deleted, disabled or expired in the Anthropic console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys.";
+const D17I_CHATGPT_REJECTED =
+  "OpenAI rejected your API key. It may have been deleted, disabled or expired in the OpenAI console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys.";
 
 const logged: string[] = [];
 const { GET, POST, PUT, DELETE } =
@@ -564,9 +569,44 @@ describe("/api/refine-conversation", () => {
         messages: [user()],
       });
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual(words("rejected_key", "anthropic"));
+      const text = await response.text();
+      expect(JSON.parse(text)).toEqual(words("rejected_key", "anthropic"));
       expect(calls).toHaveLength(1);
       expect(await storedMessages(u.notebookId)).toBeNull();
+    });
+
+    test("D17i: a key Anthropic rejects gets the new words exactly, and no part of the key", async () => {
+      const u = await signedInUser({ provider: "anthropic" });
+      claudeAnswers(() =>
+        HttpResponse.json(
+          {
+            type: "error",
+            error: {
+              type: "authentication_error",
+              message: `${BODY_SECRET} invalid x-api-key ${ANTHROPIC_KEY}`,
+            },
+          },
+          { status: 401 },
+        ),
+      );
+      const response = await post({
+        notebookId: u.notebookId,
+        messages: [user()],
+      });
+      expect(response.status).toBe(400);
+      const text = await response.text();
+      expect(JSON.parse(text)).toEqual({
+        error: D17I_CLAUDE_REJECTED,
+        code: "anthropic_rejected_key",
+      });
+      for (const part of [
+        ANTHROPIC_KEY,
+        ANTHROPIC_KEY.slice(-4),
+        "sk-",
+        BODY_SECRET,
+      ]) {
+        expect(text).not.toContain(part);
+      }
     });
 
     test("a reply cut off at the limit: 502, nothing stored", async () => {
@@ -718,7 +758,20 @@ describe("/api/refine-conversation", () => {
       );
       const response = await post({ notebookId: null, messages: [user()] });
       expect(response.status).toBe(400);
-      expect(await response.json()).toEqual(words("rejected_key", "openai"));
+      // Task D17i: OpenAI's reason in brackets, as a Run shows it.
+      const text = await response.text();
+      expect(JSON.parse(text)).toEqual({
+        error: `${D17I_CHATGPT_REJECTED} (OpenAI: invalid_api_key)`,
+        code: "openai_rejected_key",
+      });
+      for (const part of [
+        OPENAI_KEY,
+        OPENAI_KEY.slice(-4),
+        "sk-",
+        BODY_SECRET,
+      ]) {
+        expect(text).not.toContain(part);
+      }
     });
 
     test("no credit: OpenAI's words with its own code", async () => {

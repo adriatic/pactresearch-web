@@ -3,6 +3,7 @@ import {
   REFINE_MISSING_KEY_CODE,
   REFINE_MISSING_KEY_MESSAGE,
 } from "@/lib/refineDraft";
+import { REJECTED_KEY_WORDS } from "@/lib/rejectedKeyWords";
 
 // Task D17b. Refine with AI as a conversation: the parts the route
 // (/api/refine-conversation, D17d) and both dialogs (D17e, D17f) share.
@@ -12,7 +13,8 @@ import {
 // messages it repeats live in server-only modules (lib/userAnthropicKey.ts
 // and lib/userOpenAiKey.ts decrypt keys), so they are copied here and
 // __tests__/refine-conversation.test.ts keeps each copy equal to its
-// original.
+// original. The refused-key words are not copied: both read them from
+// lib/rejectedKeyWords.ts (Task D17i).
 
 // ---------------------------------------------------------------- messages
 
@@ -363,16 +365,8 @@ export const REFINE_WORDS: Record<RefineCase, PerProvider> = {
       code: KEY_ENCRYPTION_UNCONFIGURED_CODE,
     },
   },
-  rejected_key: {
-    anthropic: {
-      error: "Anthropic rejected your API key. Check it in Account → Keys.",
-      code: "anthropic_rejected_key",
-    },
-    openai: {
-      error: "OpenAI rejected your API key. Check it in Account → Keys.",
-      code: "openai_rejected_key",
-    },
-  },
+  // Task D17i: the same words a Run shows, from one place.
+  rejected_key: REJECTED_KEY_WORDS,
   no_credit: {
     anthropic: providerErrorWords("anthropic"),
     openai: {
@@ -474,6 +468,8 @@ const REASON_LABEL: Record<RefineProvider, string | null> = {
   openai: "OpenAI",
 };
 const WITH_REASON = new Set<RefineCase>([
+  // Task D17i: a refused key too, as a Run shows it.
+  "rejected_key",
   "no_credit",
   "spend_limit",
   "rate_limited",

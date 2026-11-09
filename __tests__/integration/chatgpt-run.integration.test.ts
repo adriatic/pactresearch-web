@@ -372,6 +372,22 @@ describe("a run on ChatGPT", () => {
     });
   });
 
+  // Task D17i. The exact words, with OpenAI's reason after them; no part
+  // of the key (refusedWith also checks the answer and every log line).
+  test("D17i: a key OpenAI refuses shows the new words exactly, with OpenAI's reason", async () => {
+    const result = await refusedWith(401, {
+      message: `Incorrect API key provided: ${OPENAI_KEY}.`,
+      type: "invalid_request_error",
+      code: "invalid_api_key",
+    });
+    expect(result.body).toEqual({
+      error: `${"OpenAI rejected your API key. It may have been deleted, disabled or expired in the OpenAI console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys."} (OpenAI: invalid_api_key)`,
+      code: "openai_rejected_key",
+      providerCode: "invalid_api_key",
+    });
+    expect(JSON.stringify(result.body)).not.toContain(OPENAI_KEY.slice(-4));
+  });
+
   test("Nik's Preview run: no credits remaining is the no-credit message, not a rate limit", async () => {
     // OpenAI's body for that run, verbatim from the Preview's log.
     const result = await refusedWith(429, {

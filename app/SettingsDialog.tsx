@@ -50,6 +50,8 @@ export function SettingsDialog({
   provider,
   open,
   onClose,
+  refineDraft = "",
+  onRefineDraftChange,
 }: {
   // Which notebook this edits -- Workspace passes the active discussion's
   // own notebookId (see useDiscussionExecution.ts), not Explorer's
@@ -60,6 +62,12 @@ export function SettingsDialog({
   provider: LlmProviderId;
   open: boolean;
   onClose: () => void;
+  // Task D17i: Refine with AI's unsent message for this notebook, held by
+  // Workspace in memory so closing the dialog does not lose it. The
+  // System prompt field's unsaved edits are not held: Cancel discards
+  // them, as before.
+  refineDraft?: string;
+  onRefineDraftChange?: (text: string, onlyIf?: string) => void;
 }) {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -199,6 +207,8 @@ export function SettingsDialog({
           provider={provider}
           onUsePrompt={setSystemPrompt}
           disabled={loading || saving}
+          initialDraft={refineDraft}
+          onDraftChange={onRefineDraftChange}
         />
         <label>
           System prompt:
