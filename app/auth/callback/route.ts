@@ -44,7 +44,8 @@ export async function GET(request: Request) {
     return failed(origin, problemFromExchangeError(error), error.code ?? null);
   }
 
-  return NextResponse.redirect(`${origin}/`);
+  // Task D17j: through the tab hand-off, not straight to /.
+  return NextResponse.redirect(`${origin}/auth/signed-in`);
 }
 
 function failed(origin: string, problem: SignInProblem, code: string | null) {

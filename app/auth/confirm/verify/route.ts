@@ -12,8 +12,22 @@ import { problemFromExchangeError } from "@/lib/signInProblems";
 // callback (an expired or already-used link is otp_expired).
 //
 // 303 so the browser follows with a GET.
+//
+// Task D17j. Success now goes to /auth/signed-in (the tab hand-off), not /.
+// The button on /auth/confirm posts with fetch and asks for JSON
+// (Accept: application/json): the answer is then { location } and the page
+// moves there with location.replace. A plain form post would add a history
+// entry, and Chrome lets a page close a tab only while its history holds
+// one entry. Without JavaScript the form still posts and gets the 303.
 export async function POST(request: Request) {
   const url = new URL(request.url);
+  const asJson = (request.headers.get("accept") ?? "").includes(
+    "application/json",
+  );
+  const redirectTo = (target: URL, path: string) =>
+    asJson
+      ? NextResponse.json({ location: path })
+      : NextResponse.redirect(new URL(path, target.origin), 303);
   const origin = request.headers.get("origin");
   const host = request.headers.get("host");
   if (origin && host && new URL(origin).host !== host) {
@@ -39,9 +53,5 @@ export async function POST(request: Request) {
     );
     return redirectTo(url, `/login?error=${problem}`);
   }
-  return redirectTo(url, "/");
-}
-
-function redirectTo(url: URL, path: string) {
-  return NextResponse.redirect(new URL(path, url.origin), 303);
+  return redirectTo(url, "/auth/signed-in");
 }

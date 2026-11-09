@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ConfirmForm } from "./ConfirmForm";
 
 // Task 76 follow-up C1. Where a sign-in link from the email lands. Loading
 // this page spends nothing: only the Sign in button (a POST to
@@ -35,9 +36,7 @@ export default async function ConfirmPage({
     >
       <h1>Sign in to PACT</h1>
       {tokenHash ? (
-        <form
-          method="post"
-          action="/auth/confirm/verify"
+        <ConfirmForm
           style={{
             display: "flex",
             flexDirection: "column",
@@ -64,7 +63,7 @@ export default async function ConfirmPage({
           >
             Sign in
           </button>
-        </form>
+        </ConfirmForm>
       ) : (
         <p role="alert" style={{ width: "300px", textAlign: "center" }}>
           This sign-in link is incomplete.{" "}

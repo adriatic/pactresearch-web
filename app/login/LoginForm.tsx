@@ -1,8 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { sendLinkErrorMessage } from "@/lib/signInProblems";
+import {
+  HANDOFF_CHANNEL,
+  HANDOFF_STORAGE_KEY,
+  waitForSignIn,
+} from "@/lib/signInHandoff";
+
+// Task D17j: how long the waiting tab waits after answering before it
+// moves to the app. Well inside the link tab's ANSWER_WAIT_MS.
+const MOVE_DELAY_MS = 300;
 
 // Task 76: the client half of /login. page.tsx (a server component) reads
 // ?error= from a failed /auth/callback and passes the matching message in
@@ -39,6 +48,47 @@ export function LoginForm({ problem }: { problem: string | null }) {
     }
     setSubmitted(true);
   }
+
+  // Task D17j. Once the link has been sent, this tab waits for the sign-in
+  // to finish in another tab of the same browser (the one the link opens)
+  // and then becomes the app itself. Three ways to learn it: the link
+  // tab's ask on the channel, a storage event (where BroadcastChannel is
+  // missing), and a session check whenever this tab is shown again.
+  // location.replace, so Back does not return to the "Check your email"
+  // page; the app is the same screen a fresh sign-in shows.
+  useEffect(() => {
+    if (!submitted) return;
+    const channel =
+      typeof BroadcastChannel === "undefined"
+        ? null
+        : new BroadcastChannel(HANDOFF_CHANNEL);
+    const supabase = createClient();
+    const waiting = waitForSignIn({
+      channel,
+      hasSession: async () =>
+        (await supabase.auth.getSession()).data.session !== null,
+      // A short pause first, as a precaution: the "here" answer travels
+      // between tabs through the browser, and this page should not unload
+      // before it has left. The tests pass with no pause too (Chromium and
+      // WebKit, 0 ms, three times each), so this is not a proven need.
+      onSignedIn: () =>
+        setTimeout(() => window.location.replace("/"), MOVE_DELAY_MS),
+    });
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === HANDOFF_STORAGE_KEY) void waiting.check();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void waiting.check();
+    };
+    window.addEventListener("storage", onStorage);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      waiting.stop();
+      channel?.close();
+      window.removeEventListener("storage", onStorage);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [submitted]);
 
   // The request's own error wins over the callback's: it is the newer news.
   const message = sendError ?? problem;
