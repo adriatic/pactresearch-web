@@ -291,9 +291,10 @@ for (const provider of ["anthropic", "openai"] as const) {
     await p.input.fill("REJECT this one");
     await p.send.click();
     await expect(dialog.getByRole("alert")).toHaveText(
+      // Task D17i: the new words; ChatGPT with OpenAI's reason, as a Run.
       provider === "anthropic"
-        ? "Anthropic rejected your API key. Check it in Account → Keys."
-        : "OpenAI rejected your API key. Check it in Account → Keys.",
+        ? "Anthropic rejected your API key. It may have been deleted, disabled or expired in the Anthropic console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys."
+        : "OpenAI rejected your API key. It may have been deleted, disabled or expired in the OpenAI console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys. (OpenAI: invalid_api_key)",
     );
     await expect(p.input).toHaveValue("REJECT this one");
     await expect(p.history).toHaveCount(0);

@@ -147,8 +147,9 @@ describe("/api/refine-system-prompt", () => {
     expect(body.code).toBe("anthropic_rejected_key");
     // Byte-identical to what /api/execute returns -- one refused key,
     // one story.
+    // Task D17i: the shared refused-key words changed.
     expect(body.error).toBe(
-      "Anthropic rejected your API key. Check it in Account → Keys.",
+      "Anthropic rejected your API key. It may have been deleted, disabled or expired in the Anthropic console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys.",
     );
     expect(body.error).not.toMatch(/Couldn't draft/i);
     // Nothing from Anthropic's body reaches the browser.

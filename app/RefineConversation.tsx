@@ -37,6 +37,17 @@ import {
 // same user_metadata.llm_provider, so the name in the explanation and in
 // "… is writing…" is the service that answers. Each reply is labelled by
 // the provider stored on it, not by this prop.
+//
+// Task D17i. The unsent message survives closing the dialog: the parent
+// holds it in memory (initialDraft, onDraftChange) and hands it back when
+// this mounts again. Nothing is written anywhere. onDraftChange gets every
+// edit and "" after a confirmed Start over. While a message is on its way
+// the parent keeps holding it, so a failed send needs nothing more (and
+// it is there even if the dialog was closed meanwhile). A successful send
+// clears it only if the parent still holds that same text, so an answer
+// arriving after the dialog was closed and reopened never wipes what was
+// typed since. The draft is read only when this mounts, so it can never
+// replace what is typed afterwards.
 
 const HISTORY_HEIGHT = 220;
 // Nik's iPad: buttons at least 44px tall (ContextDialog, AccountDialog).
@@ -57,6 +68,8 @@ export function RefineConversation({
   usedNote = "Copied into the System prompt field. Save to keep it.",
   disabled = false,
   onConversationChange,
+  initialDraft = "",
+  onDraftChange,
 }: {
   notebookId: string | null;
   provider: LlmProviderId;
@@ -69,13 +82,17 @@ export function RefineConversation({
   // and no prompt used. Typing still works (Task D17e2).
   disabled?: boolean;
   onConversationChange?: (messages: RefineMessage[]) => void;
+  // Task D17i: the unsent message the parent holds for this conversation.
+  initialDraft?: string;
+  // onlyIf: change it only if the held text is still exactly this.
+  onDraftChange?: (text: string, onlyIf?: string) => void;
 }) {
   const [messages, setMessages] = useState<RefineMessage[]>([]);
   // A notebook's conversation is unknown until GET answers; nothing can
   // be sent before, or the stored one would be overwritten.
   const [loaded, setLoaded] = useState(notebookId === null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialDraft);
   // The message on its way: shown at once, taken back on an error.
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +105,12 @@ export function RefineConversation({
   const explanationId = useId();
 
   const label = refineProviderLabel(provider);
+
+  // What the user typed: shown, and handed to the parent to keep.
+  function setDraft(text: string) {
+    setInput(text);
+    onDraftChange?.(text);
+  }
 
   function change(next: RefineMessage[]) {
     setMessages(next);
@@ -173,6 +196,8 @@ export function RefineConversation({
       if (response.ok && Array.isArray(body.messages)) {
         change(body.messages);
         if (body.notice?.error) setNotice(body.notice.error);
+        // Sent: nothing is held any more, unless it was retyped since.
+        onDraftChange?.("", typed);
       } else {
         setInput(typed);
         setError(body.error || refineWords("provider_error", provider).error);
@@ -201,6 +226,8 @@ export function RefineConversation({
         }
       }
       change([]);
+      // Task D17i: a fresh start drops the unsent message too.
+      setDraft("");
       setConfirming(false);
       setNotice(null);
       setUsed(false);
@@ -261,7 +288,7 @@ export function RefineConversation({
               ? "Describe your research domain…"
               : "Answer the question…"
           }
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             // Enter sends, Shift+Enter is a new line. Not while an input
             // method is composing a character.

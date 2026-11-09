@@ -333,7 +333,8 @@ test("a key OpenAI refuses, and a rate limit, each get their plain message", asy
 
   await run(page, "please 401");
   await expect(alert(page)).toHaveText(
-    "OpenAI rejected your API key. Check it in Account → Keys. (OpenAI: invalid_api_key)",
+    // Task D17i: the new words.
+    "OpenAI rejected your API key. It may have been deleted, disabled or expired in the OpenAI console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys. (OpenAI: invalid_api_key)",
     { timeout: 20_000 },
   );
 

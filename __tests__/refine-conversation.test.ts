@@ -509,8 +509,10 @@ describe("words", () => {
   });
 
   test("no reason is added to other cases, or for Anthropic", () => {
-    expect(refineWords("rejected_key", "openai", "invalid_api_key").error).toBe(
-      openAiKey.OPENAI_REJECTED_KEY_MESSAGE,
+    // Task D17i: a refused key now carries the reason (as a Run does), so
+    // this checks another case instead.
+    expect(refineWords("provider_error", "openai", "server_error").error).toBe(
+      refineWords("provider_error", "openai").error,
     );
     expect(refineWords("no_credit", "anthropic", "x").error).toBe(
       "Couldn't get a reply from Claude. Please try again.",

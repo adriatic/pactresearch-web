@@ -313,7 +313,9 @@ describe("/api/compare-meaning", () => {
     const response = await post({ a: user.a, b: user.b });
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      error: "Anthropic rejected your API key. Check it in Account → Keys.",
+      // Task D17i: the shared refused-key words changed.
+      error:
+        "Anthropic rejected your API key. It may have been deleted, disabled or expired in the Anthropic console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys.",
       code: "anthropic_rejected_key",
     });
     expect(calls).toHaveLength(1);

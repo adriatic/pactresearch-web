@@ -50,11 +50,20 @@ const NIK_CONVERSATION = () =>
     i === 7 ? TWO_STARTS : longReply(i),
   );
 
-async function expectTypable(page: Page, input: Locator, text: string) {
+async function expectTypable(
+  page: Page,
+  input: Locator,
+  text: string,
+  // Task D17i: after reopening, the unsent text is kept, so what is typed
+  // goes after it.
+  kept = "",
+) {
   await expect(input).toBeEnabled();
+  await expect(input).toHaveValue(kept);
   await input.click();
+  await input.press("End");
   await page.keyboard.type(text);
-  await expect(input).toHaveValue(text);
+  await expect(input).toHaveValue(kept + text);
 }
 
 test("after a 10-message conversation whose prompt was closed with the start marker twice, the input takes text when the dialog is opened and again after Cancel and reopening", async ({
@@ -79,7 +88,7 @@ test("after a 10-message conversation whose prompt was closed with the start mar
   dialog = await openSettings(page);
   input = dialog.getByRole("textbox", { name: "Refine with AI" });
   await expect(dialog.locator("[data-refine-message]")).toHaveCount(10);
-  await expectTypable(page, input, "y");
+  await expectTypable(page, input, "y", "x");
 });
 
 test("after the closing message and a closing reply without a question, the input takes text again after Cancel and reopening", async ({
@@ -109,7 +118,7 @@ test("after the closing message and a closing reply without a question, the inpu
   dialog = await openSettings(page);
   input = dialog.getByRole("textbox", { name: "Refine with AI" });
   await expect(dialog.locator("[data-refine-message]")).toHaveCount(12);
-  await expectTypable(page, input, "w");
+  await expectTypable(page, input, "w", "z");
 });
 
 // A route held until the test lets it go, so the window in which the

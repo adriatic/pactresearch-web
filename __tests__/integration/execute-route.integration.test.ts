@@ -1910,8 +1910,9 @@ describe("POST /api/execute", () => {
 
     // User-facing: actionable, and still leaking nothing.
     expect(response!.status).toBe(400);
+    // Task D17i: the new words (this line quoted the old ones).
     expect(body!.error).toBe(
-      "Anthropic rejected your API key. Check it in Account → Keys.",
+      "Anthropic rejected your API key. It may have been deleted, disabled or expired in the Anthropic console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys.",
     );
     expect(body!.error).not.toContain("authentication_error");
     expect(body!.error).not.toContain("invalid x-api-key");
@@ -1941,5 +1942,62 @@ describe("POST /api/execute", () => {
       .eq("user_id", userId);
     expect(lockCheckError).toBeNull();
     expect(lockRows).toHaveLength(0);
+  });
+
+  // Task D17i. The Claude Run's refused-key words, exactly; no part of the
+  // user's saved key in the answer or in any log line.
+  test("D17i: a Claude Run refused with 401 shows the new words exactly, and no part of the key", async () => {
+    currentCookies = await signInAsTestUser();
+    server.use(
+      http.post("https://api.anthropic.com/v1/messages", () =>
+        HttpResponse.json(
+          {
+            type: "error",
+            error: {
+              type: "authentication_error",
+              message: "invalid x-api-key",
+            },
+          },
+          { status: 401 },
+        ),
+      ),
+    );
+    const logged: string[] = [];
+    const spies = (["error", "warn", "log", "info"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        logged.push(
+          args
+            .map((a) =>
+              a instanceof Error
+                ? `${a.message} ${a.stack}`
+                : typeof a === "string"
+                  ? a
+                  : JSON.stringify(a),
+            )
+            .join(" "),
+        );
+      }),
+    );
+    let status: number;
+    let text: string;
+    try {
+      const response = await POST(
+        makeRequest({ discussionId, promptContent: plainTextToDoc("hello") }),
+      );
+      status = response.status;
+      text = await response.text();
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+    expect(status!).toBe(400);
+    expect(JSON.parse(text!)).toEqual({
+      error:
+        "Anthropic rejected your API key. It may have been deleted, disabled or expired in the Anthropic console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys.",
+      code: "anthropic_rejected_key",
+    });
+    for (const part of [STORED_USER_KEY, STORED_USER_KEY.slice(-4)]) {
+      expect(text!).not.toContain(part);
+      for (const line of logged) expect(line).not.toContain(part);
+    }
   });
 });
