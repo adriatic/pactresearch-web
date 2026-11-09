@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import type { LlmProviderId } from "@/lib/llmProviders";
+import { OPEN_KEYS_LABEL, rejectedKeyProvider } from "@/lib/rejectedKeyWords";
 import {
   latestPrompt,
   extractPrompt,
@@ -70,6 +71,7 @@ export function RefineConversation({
   onConversationChange,
   initialDraft = "",
   onDraftChange,
+  onOpenKeys,
 }: {
   notebookId: string | null;
   provider: LlmProviderId;
@@ -86,6 +88,9 @@ export function RefineConversation({
   initialDraft?: string;
   // onlyIf: change it only if the held text is still exactly this.
   onDraftChange?: (text: string, onlyIf?: string) => void;
+  // Task D17k: opens Account on its Keys tab, offered under a refused
+  // key's error. Left out (New Notebook), no button.
+  onOpenKeys?: () => void;
 }) {
   const [messages, setMessages] = useState<RefineMessage[]>([]);
   // A notebook's conversation is unknown until GET answers; nothing can
@@ -96,6 +101,8 @@ export function RefineConversation({
   // The message on its way: shown at once, taken back on an error.
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Task D17k: the error came from a key the service refused.
+  const [keyRefused, setKeyRefused] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [used, setUsed] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -183,6 +190,7 @@ export function RefineConversation({
     setPending(text);
     setInput("");
     setError(null);
+    setKeyRefused(false);
     setNotice(null);
     setUsed(false);
     setConfirming(false);
@@ -201,6 +209,7 @@ export function RefineConversation({
       } else {
         setInput(typed);
         setError(body.error || refineWords("provider_error", provider).error);
+        setKeyRefused(rejectedKeyProvider(body.code) !== null);
       }
     } catch {
       setInput(typed);
@@ -213,6 +222,7 @@ export function RefineConversation({
   async function startOver() {
     setDeleting(true);
     setError(null);
+    setKeyRefused(false);
     try {
       if (notebookId !== null) {
         const response = await fetch(
@@ -412,6 +422,13 @@ export function RefineConversation({
       {error && (
         <p role="alert" style={line("var(--danger)")}>
           {error}
+        </p>
+      )}
+      {error && keyRefused && onOpenKeys && (
+        <p style={{ margin: "4px 0 0" }}>
+          <button type="button" onClick={onOpenKeys}>
+            {OPEN_KEYS_LABEL}
+          </button>
         </p>
       )}
       {notice && (

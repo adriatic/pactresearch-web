@@ -40,7 +40,12 @@ export const parts = (dialog: Locator) => ({
   cancel: dialog.getByRole("button", { name: "Cancel" }),
 });
 
-export const runError = (page: Page) => page.locator("main").getByRole("alert");
+// Task D17k: a Run refused for a rejected key shows its error above the
+// composer ("Run error"), no longer at the end of the list of answers.
+export const runError = (page: Page) =>
+  page.getByRole("group", { name: "Run error" }).getByRole("alert");
+export const runErrorBox = (page: Page) =>
+  page.getByRole("group", { name: "Run error" });
 
 export interface KeyUser extends Seeded {
   other: { notebookName: string; discussionName: string };

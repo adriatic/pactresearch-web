@@ -332,7 +332,10 @@ test("a key OpenAI refuses, and a rate limit, each get their plain message", asy
   await chooseChatGpt(page);
 
   await run(page, "please 401");
-  await expect(alert(page)).toHaveText(
+  // Task D17k: a refused key's error is shown above the composer.
+  await expect(
+    page.getByRole("group", { name: "Run error" }).getByRole("alert"),
+  ).toHaveText(
     // Task D17i: the new words.
     "OpenAI rejected your API key. It may have been deleted, disabled or expired in the OpenAI console, or saved with a typing error. Compare it with the console, then fix it in Account → Keys. (OpenAI: invalid_api_key)",
     { timeout: 20_000 },

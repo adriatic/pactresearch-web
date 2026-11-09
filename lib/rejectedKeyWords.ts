@@ -38,3 +38,19 @@ export const REJECTED_KEY_WORDS: Record<
     code: OPENAI_REJECTED_KEY_CODE,
   },
 };
+
+/**
+ * Task D17k. Which service refused the key, from an error's `code` (as a
+ * Run's /api/execute or Refine's /api/refine-conversation returns it), or
+ * null when the error is not a refused key. Lets the page offer "Open
+ * Account → Keys" for exactly these errors.
+ */
+export function rejectedKeyProvider(code: unknown): LlmProviderId | null {
+  for (const [provider, words] of Object.entries(REJECTED_KEY_WORDS)) {
+    if (code === words.code) return provider as LlmProviderId;
+  }
+  return null;
+}
+
+/** The label of the button that opens Account on its Keys tab. */
+export const OPEN_KEYS_LABEL = "Open Account → Keys";

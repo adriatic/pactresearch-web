@@ -106,6 +106,12 @@ export function useDiscussionExecution(discussionId: string | null) {
   // thrown network error) and cleared at the start of every new run and
   // on discussion switch.
   const [executionError, setExecutionError] = useState<string | null>(null);
+  // Task D17k. The `code` /api/execute sent with the error (for example
+  // "openai_rejected_key"), so the page can offer the matching way out.
+  // Always set and cleared together with executionError.
+  const [executionErrorCode, setExecutionErrorCode] = useState<string | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [streamedResponse, setStreamedResponse] = useState<string | null>(null);
   const [streamedModel, setStreamedModel] = useState<string | null>(null);
@@ -149,6 +155,7 @@ export function useDiscussionExecution(discussionId: string | null) {
   if (discussionId !== displayedDiscussionId) {
     setDisplayedDiscussionId(discussionId);
     setExecutionError(null);
+    setExecutionErrorCode(null);
     setStreamedResponse(null);
     setStreamedModel(null);
     setStreamedResponseCreatedAt(null);
@@ -530,6 +537,7 @@ export function useDiscussionExecution(discussionId: string | null) {
     const submittedContent = content;
     setLoading(true);
     setExecutionError(null);
+    setExecutionErrorCode(null);
     setStreamedResponse(null);
     setStreamedModel(null);
     setStreamedResponseCreatedAt(null);
@@ -771,6 +779,7 @@ export function useDiscussionExecution(discussionId: string | null) {
             ? `${body.error} (error id: ${body.errorId})`
             : body.error,
         );
+        setExecutionErrorCode(typeof body.code === "string" ? body.code : null);
       }
     } catch (err) {
       setExecutionError(err instanceof Error ? err.message : String(err));
@@ -782,11 +791,20 @@ export function useDiscussionExecution(discussionId: string | null) {
     return succeeded;
   }
 
+  // Task D17k. Removes the Run error (its Dismiss button, or a saved key
+  // after a refused one). The composer is not touched.
+  function dismissExecutionError() {
+    setExecutionError(null);
+    setExecutionErrorCode(null);
+  }
+
   return {
     content,
     contentVersion,
     setContent,
     executionError,
+    executionErrorCode,
+    dismissExecutionError,
     loading,
     streamedResponse,
     streamedModel,

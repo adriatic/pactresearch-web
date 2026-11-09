@@ -13,6 +13,9 @@ import { ComposerHeader } from "./ComposerHeader";
 import { DiscussionContent } from "./DiscussionContent";
 import { SettingsDialog } from "./SettingsDialog";
 import { AccountDialog } from "./AccountDialog";
+import { RunKeyError } from "./RunKeyError";
+import { rejectedKeyProvider } from "@/lib/rejectedKeyWords";
+import type { LlmProviderId } from "@/lib/llmProviders";
 import { ModelTierDialog } from "./ModelTierDialog";
 import { useLlmChoice } from "./useLlmChoice";
 import { LLM_PROVIDERS, isLlmProviderId } from "@/lib/llmProviders";
@@ -362,6 +365,11 @@ export function Workspace({
   // header buttons that were placeholders until now.
   const [showNewNotebook, setShowNewNotebook] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
+  // Task D17k. Account opened from a refused key's "Open Account → Keys"
+  // shows Keys; opened from the header it shows the tab it showed last.
+  const [accountTab, setAccountTab] = useState<"keys" | undefined>(undefined);
+  // Task D17k. The services a key was saved for while Account was open.
+  const [keysSaved, setKeysSaved] = useState<LlmProviderId[]>([]);
   const [showModelTier, setShowModelTier] = useState(false);
   const [followUpHint, setFollowUpHint] = useState<string | null>(null);
   const [composerFocusToken, setComposerFocusToken] = useState(0);
@@ -393,6 +401,28 @@ export function Workspace({
   function handleAskAbout(responseId: string, responseText: string) {
     setContextChoice({ turnIds: [responseId] });
     handleContinue(responseText);
+  }
+
+  // Task D17k. A Run refused for a rejected key: which service, or null.
+  const runKeyProvider = execution.executionError
+    ? rejectedKeyProvider(execution.executionErrorCode)
+    : null;
+
+  function openAccountKeys() {
+    setAccountTab("keys");
+    setShowAccount(true);
+  }
+
+  // Closing Account after saving a key for the service that refused the
+  // last Run clears that error: the next Run uses the new key, and the
+  // composer still holds the prompt.
+  function closeAccount() {
+    setShowAccount(false);
+    setAccountTab(undefined);
+    if (runKeyProvider && keysSaved.includes(runKeyProvider)) {
+      execution.dismissExecutionError();
+    }
+    setKeysSaved([]);
   }
 
   function runWithChoice() {
@@ -457,6 +487,7 @@ export function Workspace({
           const notebookId = execution.notebookId;
           if (notebookId) holdRefineDraft(notebookId, text, onlyIf);
         }}
+        onOpenKeys={openAccountKeys}
       />
       <NewNotebookDialog
         open={showNewNotebook}
@@ -464,7 +495,16 @@ export function Workspace({
         onNotebookCreated={handleNotebookCreated}
         onDiscussionCreated={handleDiscussionCreated}
       />
-      <AccountDialog open={showAccount} onClose={() => setShowAccount(false)} />
+      <AccountDialog
+        open={showAccount}
+        onClose={closeAccount}
+        initialTab={accountTab}
+        onKeySaved={(provider) =>
+          setKeysSaved((saved) =>
+            saved.includes(provider) ? saved : [...saved, provider],
+          )
+        }
+      />
       <ContextDialog
         open={showContextDialog}
         turns={completedTurns}
@@ -739,6 +779,13 @@ export function Workspace({
                 // about whether this discussion is running.
                 isRunning={execution.loading}
               />
+              {runKeyProvider && execution.executionError && (
+                <RunKeyError
+                  message={execution.executionError}
+                  onOpenKeys={openAccountKeys}
+                  onDismiss={execution.dismissExecutionError}
+                />
+              )}
               {/* The composer and the discussion content are their own
               vertical Group so the boundary between them is a real
               draggable divider, replacing the textarea's native corner
@@ -832,7 +879,11 @@ export function Workspace({
                       isRunning={execution.loading}
                       onContinue={handleContinue}
                       onAskAbout={handleAskAbout}
-                      executionError={execution.executionError}
+                      // Task D17k: a refused key is shown above the
+                      // composer instead (RunKeyError), not here too.
+                      executionError={
+                        runKeyProvider ? null : execution.executionError
+                      }
                       notebookCount={notebookCount}
                     />
                   </TouchScroll>

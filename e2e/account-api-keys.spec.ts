@@ -2,6 +2,7 @@ import { test, expect, type Page, type BrowserContext } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+import { startStandIn } from "./refineHelpers";
 
 // Task 51. Per-user Anthropic keys: stored encrypted, revealed only on
 // request, and required before a run.
@@ -193,28 +194,36 @@ test("running with no key shows the blocking message, not a raw API error", asyn
 test("with a key stored, the run gets past the key gate", async ({
   page,
   context,
-}) => {
+}, workerInfo) => {
   const { admin, userId } = await seed(page, context);
+  // Task D17k: a local stand-in, not Anthropic. Before, this saved
+  // FAKE_KEY and ran, which sent a real request to Anthropic with a key
+  // that is not real. The stand-in refuses the prompt below (it contains
+  // REJECT) the way Anthropic refuses a bad key: a refusal that can only
+  // come from past the gate, with the stored key found, decrypted and
+  // used.
+  const stand = await startStandIn("anthropic", 55100 + workerInfo.workerIndex);
+  try {
+    const dialog = await openKeysTab(page);
+    await dialog.getByLabel("Anthropic API key:").fill(stand.key);
+    await dialog.getByRole("button", { name: "Save" }).click();
+    await expect(dialog.getByText("API key saved.")).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).click();
 
-  const dialog = await openKeysTab(page);
-  await dialog.getByLabel("Anthropic API key:").fill(FAKE_KEY);
-  await dialog.getByRole("button", { name: "Save" }).click();
-  await expect(dialog.getByText("API key saved.")).toBeVisible();
-  await dialog.getByRole("button", { name: "Close" }).click();
+    await page.getByLabel("Prompt").fill("a prompt that reaches REJECT");
+    await page.locator("header").getByRole("button", { name: "Run" }).click();
 
-  await page.getByLabel("Prompt").fill("a prompt that reaches Anthropic");
-  await page.locator("header").getByRole("button", { name: "Run" }).click();
-
-  // The run is expected to FAIL -- FAKE_KEY is not a real credential --
-  // but it must fail at Anthropic, not at our gate. Asserting the
-  // absence of the blocking message is what proves the stored key was
-  // found, decrypted, and used. Deliberately does not depend on what
-  // Anthropic (or an offline network) returns.
-  // Scoped to the response panel: the composer surfaces its own
-  // alert for upload errors, so an unscoped role="alert" matches two.
-  const alert = page.locator("main").getByRole("alert");
-  await expect(alert).toBeVisible({ timeout: 30_000 });
-  await expect(alert).not.toHaveText(MISSING_KEY_TEXT);
+    // Task D17k: a refused key's error is shown above the composer.
+    const alert = page
+      .getByRole("group", { name: "Run error" })
+      .getByRole("alert");
+    await expect(alert).toBeVisible({ timeout: 30_000 });
+    await expect(alert).not.toHaveText(MISSING_KEY_TEXT);
+    await expect(alert).toContainText("Anthropic rejected your API key.");
+    expect(stand.calls()).toBeGreaterThan(0);
+  } finally {
+    await stand.close();
+  }
 
   // The key really is on the row for this user, and still encrypted.
   const { data: row } = await admin

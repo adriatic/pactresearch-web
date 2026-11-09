@@ -13,6 +13,7 @@ export function ApiKeyField({
   active,
   onStatus,
   onBusyChange,
+  onSaved,
 }: {
   // e.g. "/api/account/anthropic-key"
   route: string;
@@ -23,6 +24,8 @@ export function ApiKeyField({
   active: boolean;
   onStatus?: (hasKey: boolean) => void;
   onBusyChange?: (busy: boolean) => void;
+  // Task D17k. A new key was saved (not merely found on opening).
+  onSaved?: () => void;
 }) {
   const [keyInput, setKeyInput] = useState("");
   const [showKey, setShowKey] = useState(false);
@@ -120,6 +123,7 @@ export function ApiKeyField({
         setKeyHintText(body.hint ?? null);
         setKeySaved(true);
         onStatus?.(true);
+        onSaved?.();
       } else {
         setKeyError(body.error || "Couldn't save your key.");
       }
