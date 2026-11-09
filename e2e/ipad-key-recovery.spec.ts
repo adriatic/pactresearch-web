@@ -14,6 +14,7 @@ import {
   REJECTED,
   refuseInRefine,
   runError,
+  runErrorBox,
   seedKeyUser,
 } from "./keyRecoveryHelpers";
 
@@ -78,8 +79,9 @@ for (const provider of ["anthropic", "openai"] as const) {
       await expect(runError(page)).toHaveText(REJECTED[provider], {
         timeout: 20_000,
       });
-      await expectNoSidewaysScroll(page, runError(page), page.locator("main"));
-      await expectReadable(page.locator("main"), REJECTED[provider]);
+      // Task D17k: the error is above the composer, not in <main>.
+      await expectNoSidewaysScroll(page, runError(page), runErrorBox(page));
+      await expectReadable(runErrorBox(page), REJECTED[provider]);
     });
   }
 }

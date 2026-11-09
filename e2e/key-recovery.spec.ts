@@ -16,6 +16,7 @@ import {
   REJECTED,
   refuseInRefine,
   runError,
+  runErrorBox,
   seedKeyUser,
   signBackIn,
   waitForFirstDiscussion,
@@ -358,7 +359,8 @@ for (const scheme of ["light", "dark"] as const) {
     await expect(runError(page)).toHaveText(REJECTED.openai, {
       timeout: 20_000,
     });
-    await expectNoSidewaysScroll(page, runError(page), page.locator("main"));
-    await expectReadable(page.locator("main"), REJECTED.openai);
+    // Task D17k: the error is above the composer, not in <main>.
+    await expectNoSidewaysScroll(page, runError(page), runErrorBox(page));
+    await expectReadable(runErrorBox(page), REJECTED.openai);
   });
 }

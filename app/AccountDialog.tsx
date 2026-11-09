@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/utils/supabase/client";
 import { ApiKeyField } from "./ApiKeyField";
+import type { LlmProviderId } from "@/lib/llmProviders";
 
 // Task 50 item A. Account modal, Profile section.
 //
@@ -32,9 +33,16 @@ type Tab = "profile" | "keys";
 export function AccountDialog({
   open,
   onClose,
+  initialTab,
+  onKeySaved,
 }: {
   open: boolean;
   onClose: () => void;
+  // Task D17k. The tab to show when it opens ("Open Account → Keys" on a
+  // refused key). Left out, the dialog shows the tab it showed last.
+  initialTab?: Tab;
+  // Task D17k. A key was saved, for this service.
+  onKeySaved?: (provider: LlmProviderId) => void;
 }) {
   const [tab, setTab] = useState<Tab>("profile");
   const [name, setName] = useState("");
@@ -55,6 +63,7 @@ export function AccountDialog({
   if (openKey !== loadedForKey) {
     setLoadedForKey(openKey);
     if (openKey !== null) {
+      if (initialTab) setTab(initialTab);
       setLoading(true);
       setError(null);
       setSaved(false);
@@ -292,6 +301,7 @@ export function AccountDialog({
               placeholder="sk-ant-..."
               active={open && tab === "keys"}
               onBusyChange={onKeyBusy}
+              onSaved={() => onKeySaved?.("anthropic")}
             />
 
             {/* Task 81 Stage 2. Optional: needed only to run prompts on
@@ -325,6 +335,7 @@ export function AccountDialog({
                     if (hasKey) setOpenAiOpen(true);
                   }}
                   onBusyChange={onKeyBusy}
+                  onSaved={() => onKeySaved?.("openai")}
                 />
               </div>
             </details>

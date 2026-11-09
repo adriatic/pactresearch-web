@@ -52,6 +52,7 @@ export function SettingsDialog({
   onClose,
   refineDraft = "",
   onRefineDraftChange,
+  onOpenKeys,
 }: {
   // Which notebook this edits -- Workspace passes the active discussion's
   // own notebookId (see useDiscussionExecution.ts), not Explorer's
@@ -68,6 +69,8 @@ export function SettingsDialog({
   // them, as before.
   refineDraft?: string;
   onRefineDraftChange?: (text: string, onlyIf?: string) => void;
+  // Task D17k: Refine's "Open Account → Keys" under a refused key.
+  onOpenKeys?: () => void;
 }) {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [loading, setLoading] = useState(false);
@@ -209,6 +212,7 @@ export function SettingsDialog({
           disabled={loading || saving}
           initialDraft={refineDraft}
           onDraftChange={onRefineDraftChange}
+          onOpenKeys={onOpenKeys}
         />
         <label>
           System prompt:
