@@ -18,6 +18,7 @@ import {
   runError,
   seedKeyUser,
   signBackIn,
+  waitForFirstDiscussion,
 } from "./keyRecoveryHelpers";
 
 // Task D17i on Chrome. A key the service refuses: the words name the
@@ -235,6 +236,7 @@ test("another discussion in the same notebook keeps the message", async ({
   if (error) throw error;
   // The tree shows the new discussion after a reload, before any message.
   await page.reload();
+  await waitForFirstDiscussion(page);
   await openDiscussion(page, seeded.notebookName, seeded.discussionName);
 
   let dialog = await openSettings(page);
@@ -267,6 +269,7 @@ test("signing out drops the kept message", async ({ page, context }) => {
 
   await signBackIn(context, seeded);
   await page.goto("/");
+  await waitForFirstDiscussion(page);
   await openDiscussion(page, seeded.notebookName, seeded.discussionName);
   dialog = await openSettings(page);
   await expect(parts(dialog).input).toBeEnabled();
@@ -286,6 +289,7 @@ test("reloading the page drops the kept message", async ({ page, context }) => {
   await parts(dialog).cancel.click();
 
   await page.reload();
+  await waitForFirstDiscussion(page);
   await openDiscussion(page, seeded.notebookName, seeded.discussionName);
   dialog = await openSettings(page);
   await expect(parts(dialog).input).toBeEnabled();

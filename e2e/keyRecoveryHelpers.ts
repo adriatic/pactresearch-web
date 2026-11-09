@@ -98,6 +98,19 @@ export async function seedKeyUser(
   return { ...seeded, other };
 }
 
+/**
+ * After a page load with two notebooks: waits until the app has opened a
+ * discussion of its own choosing, so a click after it is not undone by
+ * that first, late choice.
+ */
+export async function waitForFirstDiscussion(page: Page) {
+  await page.locator("header[data-switch-ms]").waitFor({ timeout: 15_000 });
+  // Every seeded discussion's name starts with "E2E ".
+  await expect(
+    page.getByRole("group", { name: "Active discussion" }),
+  ).toContainText("E2E ", { timeout: 15_000 });
+}
+
 /** Opens a discussion from the tree without reloading the page. */
 export async function openDiscussion(
   page: Page,
